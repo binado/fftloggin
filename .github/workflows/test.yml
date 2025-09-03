@@ -7,8 +7,12 @@ on:
 
 jobs:
   test-package:
-    name: test
+    name: test-python-${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -17,9 +21,13 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          python-version: ${{ matrix.python-version }}
 
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Run linting
+        run: uv run ruff check .
