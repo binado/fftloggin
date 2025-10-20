@@ -16,6 +16,7 @@ from scipy.special import poch
 from fftloggin._backend import _fhtcoeff
 from fftloggin._backend_numexpr import NUMEXPR_AVAILABLE
 from fftloggin.fht import fht, fhtoffset, ifht
+from fftloggin.kernels import bessel_mellin_log_kernel
 
 
 # test function, analytical Hankel transform is of the same form
@@ -33,7 +34,9 @@ def test_fht_coefficients_agree_with_scipy(bias: float):
 
     a = np.asarray(f(r, mu))
     n = a.shape[-1]
-    ours = _fhtcoeff(n, dln, mu, offset=offset, bias=bias)
+    ours = _fhtcoeff(
+        n, dln, mu, offset=offset, bias=bias, log_kernel=bessel_mellin_log_kernel
+    )
     theirs = fhtcoeff_scipy(n, dln, mu, offset=offset, bias=bias)
     assert_allclose(ours, theirs)
 
@@ -67,7 +70,15 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     a = np.asarray(f(r, mu))
 
     # test 1: compute as given
-    ours = fht(a, dln, mu, offset=offset, bias=bias, use_numexpr=use_numexpr)
+    ours = fht(
+        a,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     theirs = [
         -0.1159922613593045e-02,
         +0.1625822618458832e-02,
@@ -91,7 +102,15 @@ def test_fht_agrees_with_fftlog(use_numexpr):
 
     # test 2: change to optimal offset (using 'initial' for scipy compatibility)
     offset = fhtoffset(dln, mu, initial=0.0, bias=bias)
-    ours = fht(a, dln, mu, offset=offset, bias=bias, use_numexpr=use_numexpr)
+    ours = fht(
+        a,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     theirs = [
         +0.4353768523152057e-04,
         -0.9197045663594285e-05,
@@ -117,7 +136,15 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     bias = 0.8
     offset = fhtoffset(dln, mu, initial=0.0, bias=bias)
 
-    ours = fht(a, dln, mu, offset=offset, bias=bias, use_numexpr=use_numexpr)
+    ours = fht(
+        a,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     theirs = [
         -7.3436673558316850e00,
         +0.1710271207817100e00,
@@ -143,7 +170,15 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     bias = -0.8
     offset = fhtoffset(dln, mu, initial=0.0, bias=bias)
 
-    ours = fht(a, dln, mu, offset=offset, bias=bias, use_numexpr=use_numexpr)
+    ours = fht(
+        a,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     theirs = [
         +0.8985777068568745e-05,
         +0.4074898209936099e-04,
@@ -180,7 +215,15 @@ def test_vectorized_fht(use_numexpr):
     a = f(r, mu)
     offset = 0.0
     bias = 0.0
-    out = fht(a, dln, mu, offset, bias, use_numexpr=use_numexpr)
+    out = fht(
+        a,
+        dln,
+        mu,
+        offset,
+        bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     assert out.shape == r.shape
 
     # Test 1d mu
@@ -188,7 +231,15 @@ def test_vectorized_fht(use_numexpr):
     a = f(r, mu)
     offset = 0.0
     bias = 0.0
-    out = fht(a, dln, mu, offset, bias, use_numexpr=use_numexpr)
+    out = fht(
+        a,
+        dln,
+        mu,
+        offset,
+        bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     assert out.shape == (1, n)
 
     # Test 2d mu
@@ -196,7 +247,15 @@ def test_vectorized_fht(use_numexpr):
     a = f(r, mu)
     offset = 0.0
     bias = 0.0
-    out = fht(a, dln, mu, offset, bias, use_numexpr=use_numexpr)
+    out = fht(
+        a,
+        dln,
+        mu,
+        offset,
+        bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     assert out.shape == (3, 1, n)
 
 
@@ -220,8 +279,24 @@ def test_fht_identity(n, bias, offset, optimal, use_numexpr):
         # Note: using 'offset' parameter instead of 'initial' for our implementation
         offset = fhtoffset(dln, mu, initial=offset, bias=bias)
 
-    A = fht(a, dln, mu, offset=offset, bias=bias, use_numexpr=use_numexpr)
-    a_ = ifht(A, dln, mu, offset=offset, bias=bias, use_numexpr=use_numexpr)
+    A = fht(
+        a,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
+    a_ = ifht(
+        A,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
 
     assert_allclose(a_, a, rtol=1.5e-7)
 
@@ -242,25 +317,53 @@ def test_fht_special_cases(use_numexpr):
     # case 1: x in M, y in M => well-defined transform
     mu, bias = -4.0, 1.0
     with warnings.catch_warnings(record=True) as record:
-        fht(a, dln, mu, bias=bias, use_numexpr=use_numexpr)
+        fht(
+            a,
+            dln,
+            mu,
+            bias=bias,
+            log_kernel=bessel_mellin_log_kernel,
+            use_numexpr=use_numexpr,
+        )
         assert not record, "fht warned about a well-defined transform"
 
     # case 2: x not in M, y in M => well-defined transform
     mu, bias = -2.5, 0.5
     with warnings.catch_warnings(record=True) as record:
-        fht(a, dln, mu, bias=bias, use_numexpr=use_numexpr)
+        fht(
+            a,
+            dln,
+            mu,
+            bias=bias,
+            log_kernel=bessel_mellin_log_kernel,
+            use_numexpr=use_numexpr,
+        )
         assert not record, "fht warned about a well-defined transform"
 
     # case 3: x in M, y not in M => singular transform
     mu, bias = -3.5, 0.5
     with pytest.warns(Warning) as record:
-        fht(a, dln, mu, bias=bias, use_numexpr=use_numexpr)
+        fht(
+            a,
+            dln,
+            mu,
+            bias=bias,
+            log_kernel=bessel_mellin_log_kernel,
+            use_numexpr=use_numexpr,
+        )
         assert record, "fht did not warn about a singular transform"
 
     # case 4: x not in M, y in M => singular inverse transform
     mu, bias = -2.5, 0.5
     with pytest.warns(Warning) as record:
-        ifht(a, dln, mu, bias=bias, use_numexpr=use_numexpr)
+        ifht(
+            a,
+            dln,
+            mu,
+            bias=bias,
+            log_kernel=bessel_mellin_log_kernel,
+            use_numexpr=use_numexpr,
+        )
         assert record, "ifht did not warn about a singular transform"
 
 
@@ -288,7 +391,15 @@ def test_fht_exact(n, use_numexpr):
 
     offset = fhtoffset(dln, mu, initial=0.0, bias=gamma)
 
-    A = fht(a, dln, mu, offset=offset, bias=gamma, use_numexpr=use_numexpr)
+    A = fht(
+        a,
+        dln,
+        mu,
+        offset=offset,
+        bias=gamma,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
 
     k = np.exp(offset) / r[::-1]
 
@@ -307,8 +418,14 @@ def test_array_like(op, use_numexpr):
 
     x = [[[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]]
     assert_allclose(
-        op(x, 1.0, 2.0, use_numexpr=use_numexpr),
-        op(np.asarray(x), 1.0, 2.0, use_numexpr=use_numexpr),
+        op(x, 1.0, 2.0, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr),
+        op(
+            np.asarray(x),
+            1.0,
+            2.0,
+            log_kernel=bessel_mellin_log_kernel,
+            use_numexpr=use_numexpr,
+        ),
     )
 
 
@@ -332,7 +449,14 @@ def test_gh_21661(n, use_numexpr):
         return x ** (mu + 1) * np.exp(-(x**2) / 2)
 
     a_r = f(r, mu)
-    fht_val = fht(a_r, dln, mu=mu, offset=offset, use_numexpr=use_numexpr)
+    fht_val = fht(
+        a_r,
+        dln,
+        mu=mu,
+        offset=offset,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     a_k = f(k, mu)
     rel_err = np.max(np.abs((fht_val - a_k) / a_k))
     assert_array_less(rel_err, np.asarray(7.28e16)[()])
@@ -361,5 +485,12 @@ def test_fht_axis_parameter(shape, axis, use_numexpr):
     a = np.asarray(f(r, mu))
 
     a_reshaped = np.reshape(a, shape)
-    A = fht(a_reshaped, dln, mu, axis=axis, use_numexpr=use_numexpr)
+    A = fht(
+        a_reshaped,
+        dln,
+        mu,
+        axis=axis,
+        log_kernel=bessel_mellin_log_kernel,
+        use_numexpr=use_numexpr,
+    )
     assert A.shape == shape

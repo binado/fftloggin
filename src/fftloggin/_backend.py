@@ -10,7 +10,6 @@ import warnings
 
 import numpy as np
 import numpy.typing as npt
-from scipy import special
 from scipy.fft import irfft, rfft
 
 LN_2 = np.log(2)
@@ -26,11 +25,13 @@ def _fhtcoeff(
     offset: npt.ArrayLike = 0.0,
     bias: float = 0.0,
     inverse: bool = False,
+    kernel: callable = None,
+    log_kernel: callable = None,
 ) -> np.ndarray:
     """
-    Compute the coefficient array for the fast Hankel transform.
+    Compute the coefficient array for the fast Mellin transform.
 
-    This is the vectorized version of scipy's _fhtcoeff function.
+    This is the generalized version that accepts custom kernel functions.
 
     Parameters
     ----------
@@ -39,8 +40,7 @@ def _fhtcoeff(
     dln : float
         Logarithmic spacing of the input array, dln = ln(r[1]/r[0])
     mu : array_like
-        Order of the Hankel transform, mu=q+0.5 where q is the exponent of the
-        power law bias (k*r)^q
+        Order parameter for the kernel (interpretation depends on kernel)
     offset : array_like, optional
         Offset of the uniform logarithmic spacing of the output array.
         Default is 0.0.
@@ -48,48 +48,81 @@ def _fhtcoeff(
         Exponent of the power law bias. Default is 0.0.
     inverse: bool
         Whether coefficients are calculated for inverse transformation
+    kernel : callable, optional
+        Function with signature kernel(mu, y, q) -> complex
+        Returns Mellin transform at frequency y.
+        Either kernel or log_kernel must be provided (not both).
+    log_kernel : callable, optional
+        Function with signature log_kernel(mu, y, q) -> complex
+        Returns LOG of Mellin transform (more numerically stable).
+        Either kernel or log_kernel must be provided (not both).
 
     Returns
     -------
     u : ndarray
         The coefficient array with shape (..., n//2+1) where ... represents
         the broadcasted shape of mu, offset, and bias.
+
+    Raises
+    ------
+    ValueError
+        If neither kernel nor log_kernel is provided, or if both are provided.
+
+    Notes
+    -----
+    The kernel callable should compute the Mellin transform of the desired
+    integral kernel. For the standard Bessel kernel J_μ, use:
+    `from fftloggin.kernels import bessel_mellin_log_kernel`
+
+    The log_kernel version is preferred for numerical stability as it avoids
+    overflow/underflow in intermediate calculations.
     """
+    # Validate kernel parameters
+    if kernel is None and log_kernel is None:
+        raise ValueError(
+            "Either 'kernel' or 'log_kernel' must be provided. "
+            "For standard Hankel transforms, use: "
+            "from fftloggin.kernels import bessel_mellin_log_kernel"
+        )
+    if kernel is not None and log_kernel is not None:
+        raise ValueError("Cannot specify both 'kernel' and 'log_kernel'")
+
     # Ensure inputs are arrays and can broadcast
     mu = np.asarray(mu)
     offset = np.asarray(offset)
 
     q = bias
-    xp = (mu + 1 + q) / 2
-    xm = (mu + 1 - q) / 2
 
-    # Frequency array
+    # Frequency array (kernel-independent)
     xj = np.arange(0, n // 2 + 1)
     m = 2 * np.pi / (n * dln)
-    arg = xp + 0.5j * xj * m
-    loggamma_res = np.empty_like(arg)
-    u = np.zeros_like(arg)
-    special.loggamma(arg, out=loggamma_res)
-    u += loggamma_res
-    arg = xm - 0.5j * xj * m
-    special.loggamma(arg, out=loggamma_res)
-    u -= loggamma_res
-    u += q * LN_2
-    u += 1j * xj * m * (LN_2 - offset)
-    u = np.exp(u, out=u)
+    y = 0.5j * xj * m
 
-    # Handle Nyquist frequency for even n
+    # Compute kernel-specific Mellin transform
+    if log_kernel is not None:
+        log_u = log_kernel(mu, y, q)
+    else:
+        # Compute log from kernel for numerical stability
+        kernel_vals = kernel(mu, y, q)
+        log_u = np.log(kernel_vals)
+
+    # Apply offset and bias (kernel-independent)
+    log_u = log_u + q * LN_2 + 1j * xj * m * (LN_2 - offset)
+    u = np.exp(log_u)
+
+    # Handle Nyquist frequency for even n (kernel-independent)
     if n % 2 == 0:
         u[..., -1] = np.real(u[..., -1])
 
-    # deal with special cases
+    # Check for special cases
     mask = np.isfinite(u[..., 0])
     if not mask.all():
-        # write u_0 = 2^q Gamma(xp)/Gamma(xm) = 2^q poch(xm, xp-xm)
-        # poch() handles special cases for negative integers correctly
-        u[~mask, 0] = 2**q * special.poch(xm[~mask], q)
-        # the coefficient may be inf or 0, meaning the transform or the
-        # inverse transform, respectively, is singular
+        warnings.warn(
+            "Non-finite kernel coefficients at zero frequency. "
+            "This may indicate a singular transform or require "
+            "kernel-specific special case handling.",
+            stacklevel=3,
+        )
 
     # check for singular transform or singular inverse transform
     if not inverse:
@@ -144,6 +177,8 @@ def _fht(
     offset: npt.ArrayLike = 0.0,
     bias: float = 0.0,
     axis: int = -1,
+    kernel: callable = None,
+    log_kernel: callable = None,
 ) -> np.ndarray:
     a = np.asarray(a).copy()
     a = np.moveaxis(a, axis, -1)
@@ -154,7 +189,16 @@ def _fht(
     j = np.arange(n).astype(a.dtype)
 
     a *= np.exp(-bias * (j - jc) * dln)
-    u = _fhtcoeff(n, dln, mu, offset=offset, bias=bias, inverse=False)
+    u = _fhtcoeff(
+        n,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        inverse=False,
+        kernel=kernel,
+        log_kernel=log_kernel,
+    )
     aq_tilde = _fhtq(a, u, axis=-1)
     aq_tilde *= np.exp(-bias * ((j - jc) * dln + offset))
 
@@ -169,6 +213,8 @@ def _ifht(
     offset: npt.ArrayLike = 0.0,
     bias: float = 0.0,
     axis: int = -1,
+    kernel: callable = None,
+    log_kernel: callable = None,
 ) -> np.ndarray:
     a = np.asarray(a).copy()
     a = np.moveaxis(a, axis, -1)
@@ -179,7 +225,16 @@ def _ifht(
     j = np.arange(n).astype(a.dtype)
 
     a *= np.exp(bias * ((j - jc) * dln + offset))
-    u = _fhtcoeff(n, dln, mu, offset=offset, bias=bias, inverse=True)
+    u = _fhtcoeff(
+        n,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        inverse=True,
+        kernel=kernel,
+        log_kernel=log_kernel,
+    )
     aq_tilde = _ifhtq(a, u, axis=-1)
     aq_tilde *= np.exp(bias * (j - jc) * dln)
 
