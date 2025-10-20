@@ -1,3 +1,10 @@
-from .fht import fht, fhtoffset, ifht
+from . import kernels
+from .fht import Grid, fht, fhtoffset, ifht
 
-__all__ = ("fht", "ifht", "fhtoffset")
+__all__ = (
+    "fht",
+    "ifht",
+    "fhtoffset",
+    "Grid",
+    "kernels",
+)

@@ -64,38 +64,64 @@ def _fhtcoeff_numexpr(
     offset: npt.ArrayLike = 0.0,
     bias: float = 0.0,
     inverse: bool = False,
+    kernel: callable = None,
+    log_kernel: callable = None,
 ) -> np.ndarray:
     """
-    Compute the coefficient array for the fast Hankel transform using numexpr.
+    Compute the coefficient array for the fast Mellin transform using numexpr.
+
+    Parameters
+    ----------
+    kernel : callable, optional
+        Function with signature kernel(mu, y, q) -> complex
+        Returns Mellin transform at frequency y.
+    log_kernel : callable, optional
+        Function with signature log_kernel(mu, y, q) -> complex
+        Returns LOG of Mellin transform (more numerically stable).
+
+    Notes
+    -----
+    numexpr optimization is primarily applied to the bias/offset operations.
+    Custom kernels are computed using numpy/scipy (not optimized by numexpr).
     """
+    # Validate kernel parameters
+    if kernel is None and log_kernel is None:
+        raise ValueError(
+            "Either 'kernel' or 'log_kernel' must be provided. "
+            "For standard Hankel transforms, use: "
+            "from fftloggin.kernels import bessel_mellin_log_kernel"
+        )
+    if kernel is not None and log_kernel is not None:
+        raise ValueError("Cannot specify both 'kernel' and 'log_kernel'")
+
     # Ensure inputs are arrays and can broadcast
     mu = np.asarray(mu)
     offset = np.asarray(offset)
 
     q = bias
-    xp = ne.evaluate("(mu + 1 + q) / 2", local_dict={"mu": mu, "q": q})
-    xm = ne.evaluate("(mu + 1 - q) / 2", local_dict={"mu": mu, "q": q})
 
     # Frequency array
     xj = np.arange(0, n // 2 + 1)
     m = 2 * np.pi / (n * dln)
+    y = 0.5j * xj * m
 
-    y = ne.evaluate("xj * m / 2", local_dict=dict(xj=xj, m=m))
+    # Compute kernel-specific Mellin transform
+    # Note: Custom kernels cannot be optimized by numexpr
+    if log_kernel is not None:
+        log_kernel_vals = log_kernel(mu, y, q)
+    else:
+        kernel_vals = kernel(mu, y, q)
+        log_kernel_vals = np.log(kernel_vals)
 
-    # loggamma is not in numexpr, so we compute args with numexpr then use scipy
-    arg1 = ne.evaluate("xp + 1j * y", local_dict=dict(xp=xp, y=y))
-    arg2 = ne.evaluate("xm - 1j * y", local_dict=dict(xm=xm, y=y))
-    loggamma1 = special.loggamma(arg1)
-    loggamma2 = special.loggamma(arg2)
-
+    # Apply offset and bias using numexpr
     log_u = ne.evaluate(
-        "loggamma1 - loggamma2 + q * LN_2 + 1j * y * 2 * (LN_2 - offset)",
+        "log_kernel_vals + q * LN_2 + 1j * xj * m * (LN_2 - offset)",
         local_dict=dict(
-            loggamma1=loggamma1,
-            loggamma2=loggamma2,
+            log_kernel_vals=log_kernel_vals,
             q=q,
             LN_2=LN_2,
-            y=y,
+            xj=xj,
+            m=m,
             offset=offset,
         ),
     )
@@ -105,14 +131,15 @@ def _fhtcoeff_numexpr(
     if n % 2 == 0:
         u[..., -1] = np.real(u[..., -1])
 
-    # deal with special cases
+    # Check for special cases
     mask = np.isfinite(u[..., 0])
     if not mask.all():
-        # write u_0 = 2^q Gamma(xp)/Gamma(xm) = 2^q poch(xm, xp-xm)
-        # poch() handles special cases for negative integers correctly
-        # Not using numexpr here as it's a conditional operation on a
-        # subset of the array and involves a scipy function.
-        u[~mask, 0] = 2**q * special.poch(xm[~mask], q)
+        warnings.warn(
+            "Non-finite kernel coefficients at zero frequency. "
+            "This may indicate a singular transform or require "
+            "kernel-specific special case handling.",
+            stacklevel=3,
+        )
 
     # check for singular transform or singular inverse transform
     if not inverse:
@@ -169,9 +196,11 @@ def _fht_numexpr(
     offset: npt.ArrayLike = 0.0,
     bias: float = 0.0,
     axis: int = -1,
+    kernel: callable = None,
+    log_kernel: callable = None,
 ) -> np.ndarray:
     """
-    Compute the fast Hankel transform using numexpr optimization.
+    Compute the fast Mellin transform using numexpr optimization.
     """
     a = np.asarray(a).copy()
     a = np.moveaxis(a, axis, -1)
@@ -192,7 +221,16 @@ def _fht_numexpr(
             "dln": dln,
         },
     )
-    u = _fhtcoeff_numexpr(n, dln, mu, offset=offset, bias=bias, inverse=False)
+    u = _fhtcoeff_numexpr(
+        n,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        inverse=False,
+        kernel=kernel,
+        log_kernel=log_kernel,
+    )
     aq_tilde = _fhtq(a, u, axis=-1)
     ne.evaluate(
         "aq_tilde * exp(-bias * ((j - jc) * dln + offset))",
@@ -218,9 +256,11 @@ def _ifht_numexpr(
     offset: npt.ArrayLike = 0.0,
     bias: float = 0.0,
     axis: int = -1,
+    kernel: callable = None,
+    log_kernel: callable = None,
 ) -> np.ndarray:
     """
-    Compute the inverse fast Hankel transform using numexpr optimization.
+    Compute the inverse fast Mellin transform using numexpr optimization.
     """
     a = np.asarray(a).copy()
     a = np.moveaxis(a, axis, -1)
@@ -242,7 +282,16 @@ def _ifht_numexpr(
             offset=offset,
         ),
     )
-    u = _fhtcoeff_numexpr(n, dln, mu, offset=offset, bias=bias, inverse=True)
+    u = _fhtcoeff_numexpr(
+        n,
+        dln,
+        mu,
+        offset=offset,
+        bias=bias,
+        inverse=True,
+        kernel=kernel,
+        log_kernel=log_kernel,
+    )
     aq_tilde = _ifhtq(a, u, axis=-1)
     ne.evaluate(
         "aq_tilde * exp(bias * (j - jc) * dln)",
