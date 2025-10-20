@@ -1,5 +1,5 @@
 from . import kernels
-from .fht import FFTLog, fht, fhtoffset, ifht
+from .fftlog import FFTLog, fht, fhtoffset, ifht
 
 __all__ = (
     "FFTLog",
