@@ -105,12 +105,14 @@ def test_kernel_xor_log_kernel(use_numexpr):
 
     # Both None should raise ValueError
     with pytest.raises(
-        ValueError, match="Either 'kernel' or 'log_kernel' must be provided"
+        ValueError, match="Either kernel or log_kernel must be provided"
     ):
         fht(a, dln, mu, use_numexpr=use_numexpr)
 
     # Both provided should raise ValueError
-    with pytest.raises(ValueError, match="Cannot specify both"):
+    with pytest.raises(
+        ValueError, match="Only one of kernel or log_kernel can be provided"
+    ):
         fht(
             a,
             dln,

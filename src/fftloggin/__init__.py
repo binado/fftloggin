@@ -1,10 +1,10 @@
 from . import kernels
-from .fht import Grid, fht, fhtoffset, ifht
+from .fht import FFTLog, fht, fhtoffset, ifht
 
 __all__ = (
+    "FFTLog",
     "fht",
     "ifht",
     "fhtoffset",
-    "Grid",
     "kernels",
 )

@@ -1,4 +1,5 @@
 import warnings
+from typing import Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -10,13 +11,13 @@ from ._backend_numexpr import NUMEXPR_AVAILABLE, _fht_numexpr, _ifht_numexpr
 LN_2 = np.log(2)
 
 
-class Grid:
+class FFTLog:
     """
-    Grid for FFTLog transforms with logarithmically-spaced sampling points.
+    FFTLog transform class for fast Hankel transforms with custom kernels.
 
-    This class represents both input and output grids for forward and inverse
-    Hankel transforms. The grids are always logarithmically spaced and related
-    by the FFTLog algorithm.
+    Provides a complete FFTLog transform interface with forward, inverse, and
+    offset computation methods. Stores kernel configuration, transform parameters,
+    and generates logarithmically-spaced grids for r and k coordinates.
 
     Attributes
     ----------
@@ -32,31 +33,48 @@ class Grid:
         Offset of the output array's logarithmic spacing.
     central : float
         Central value controlling the absolute scale of the grids.
-    mode : str
-        Transform mode: 'fht' for forward or 'ifht' for inverse.
+    mu : array_like
+        Order parameter for the kernel.
+    bias : float
+        Exponent of power law bias.
+    use_numexpr : bool
+        Whether to use numexpr optimization.
+    kernel : Callable or None
+        Mellin transform kernel function.
+    log_kernel : Callable or None
+        Log-Mellin transform kernel function.
 
     Examples
     --------
-    >>> from fftloggin import Grid
-    >>> # Create grid for forward transform
-    >>> grid = Grid.fht(128, dln=0.05, offset=0.0, central=1.0)
-    >>> r, k = grid.r, grid.k
-    >>> # Create grid from existing array
+    >>> from fftloggin import FFTLog
+    >>> from fftloggin.kernels import bessel_mellin_log_kernel
     >>> import numpy as np
-    >>> r = np.logspace(-2, 2, 64)
-    >>> grid = Grid.from_r(r, offset=0.0)
+    >>> # Create FFTLog instance
+    >>> fftlog = FFTLog(128, dln=0.05, mu=0, log_kernel=bessel_mellin_log_kernel)
+    >>> r, k = fftlog.r, fftlog.k
+    >>> # Perform forward transform
+    >>> a = np.exp(-(r/1.0)**2)
+    >>> A = fftlog.forward(a)
+    >>> # Perform inverse transform
+    >>> a_recovered = fftlog.inverse(A)
+    >>> # Compute optimal offset
+    >>> offset_opt = fftlog.compute_offset()
     """
 
     def __init__(
         self,
         n: int,
         dln: float,
-        offset: float,
-        central: float,
-        mode: str,
+        mu: npt.ArrayLike,
+        offset: float = 0.0,
+        central: float = 1.0,
+        bias: float = 0.0,
+        use_numexpr: bool = False,
+        kernel: Callable | None = None,
+        log_kernel: Callable | None = None,
     ):
         """
-        Initialize Grid (use class methods fht/ifht/from_r/from_k instead).
+        Initialize FFTLog instance.
 
         Parameters
         ----------
@@ -64,136 +82,98 @@ class Grid:
             Number of sampling points.
         dln : float
             Uniform logarithmic spacing.
-        offset : float
-            Offset of the output array's logarithmic spacing.
-        central : float
-            Central value controlling the absolute scale.
-        mode : str
-            Transform mode: 'fht' or 'ifht'.
-        """
-        if mode not in ("fht", "ifht"):
-            raise ValueError(f"mode must be 'fht' or 'ifht', got '{mode}'")
+        mu : array_like
+            Order parameter for the kernel.
+        offset : float, optional
+            Offset of the output array's logarithmic spacing. Default is 0.0.
+        central : float, optional
+            Central value controlling the absolute scale. Default is 1.0.
+        bias : float, optional
+            Exponent of power law bias. Default is 0.0.
+        use_numexpr : bool, optional
+            Whether to use numexpr optimization. Default is False.
+        kernel : Callable, optional
+            Mellin transform kernel function.
+        log_kernel : Callable, optional
+            Log-Mellin transform kernel function.
 
+        Examples
+        --------
+        >>> from fftloggin import FFTLog
+        >>> from fftloggin.kernels import bessel_mellin_log_kernel
+        >>> fftlog = FFTLog(128, dln=0.05, mu=0, log_kernel=bessel_mellin_log_kernel)
+        """
+        # Validate kernel arguments
+        if kernel is None and log_kernel is None:
+            raise ValueError("Either kernel or log_kernel must be provided")
+        if kernel is not None and log_kernel is not None:
+            raise ValueError("Only one of kernel or log_kernel can be provided")
+
+        # Store grid parameters
         self._n = n
         self._dln = dln
         self._offset = offset
         self._central = central
-        self._mode = mode
 
-        # Generate grids based on mode
+        # Generate logarithmically-spaced grids
         ic = (n - 1) // 2
         i = np.arange(n)
+        self._r = central * np.exp((i - ic) * dln)
+        self._k = (1.0 / central) * np.exp((i - ic) * dln + offset)
 
-        if mode == "fht":
-            # Forward: r is input, k is output
-            self._r = central * np.exp((i - ic) * dln)
-            self._k = (1.0 / central) * np.exp((i - ic) * dln + offset)
-        else:  # mode == 'ifht'
-            # Inverse: k is input, r is output
-            self._k = central * np.exp((i - ic) * dln)
-            self._r = (1.0 / central) * np.exp((i - ic) * dln + offset)
-
-    @classmethod
-    def fht(
-        cls,
-        n: int,
-        dln: float,
-        offset: float = 0.0,
-        central: float = 1.0,
-    ) -> "Grid":
-        """
-        Create grid for forward Hankel transform.
-
-        Parameters
-        ----------
-        n : int
-            Number of sampling points.
-        dln : float
-            Uniform logarithmic spacing: dln = ln(r[i+1]/r[i]).
-        offset : float, optional
-            Offset of the output k array's logarithmic spacing. Default is 0.0.
-        central : float, optional
-            Central value: r is multiplied by central, k is divided by central.
-            Default is 1.0.
-
-        Returns
-        -------
-        Grid
-            Grid instance with .r (input) and .k (output) attributes.
-
-        Examples
-        --------
-        >>> grid = Grid.fht(128, dln=0.05)
-        >>> r, k = grid.r, grid.k
-        """
-        return cls(n, dln, offset, central, mode="fht")
-
-    @classmethod
-    def ifht(
-        cls,
-        n: int,
-        dln: float,
-        offset: float = 0.0,
-        central: float = 1.0,
-    ) -> "Grid":
-        """
-        Create grid for inverse Hankel transform.
-
-        Parameters
-        ----------
-        n : int
-            Number of sampling points.
-        dln : float
-            Uniform logarithmic spacing: dln = ln(k[i+1]/k[i]).
-        offset : float, optional
-            Offset of the output r array's logarithmic spacing. Default is 0.0.
-        central : float, optional
-            Central value: k is multiplied by central, r is divided by central.
-            Default is 1.0.
-
-        Returns
-        -------
-        Grid
-            Grid instance with .k (input) and .r (output) attributes.
-
-        Examples
-        --------
-        >>> grid = Grid.ifht(128, dln=0.05)
-        >>> k, r = grid.k, grid.r
-        """
-        return cls(n, dln, offset, central, mode="ifht")
+        # Store transform parameters
+        self._mu = np.asarray(mu)
+        self._bias = bias
+        self._use_numexpr = use_numexpr
+        self._kernel = kernel
+        self._log_kernel = log_kernel
 
     @classmethod
     def from_r(
         cls,
         r: npt.ArrayLike,
+        mu: npt.ArrayLike,
         offset: float = 0.0,
-    ) -> "Grid":
+        bias: float = 0.0,
+        use_numexpr: bool = False,
+        kernel: Callable | None = None,
+        log_kernel: Callable | None = None,
+    ) -> "FFTLog":
         """
-        Create forward transform grid from existing r array.
+        Create FFTLog instance from existing r array.
 
-        Infers grid parameters (n, dln, central) from the provided r array
-        and generates the corresponding k output grid.
+        Infers grid parameters (n, dln, central) from the provided r array.
 
         Parameters
         ----------
         r : array_like
-            Input radial grid (1D array) with logarithmically-spaced values.
+            Input radial grid with logarithmically-spaced values.
             Must have at least 2 points.
+        mu : array_like
+            Order parameter for the kernel.
         offset : float, optional
             Offset of the output k array's logarithmic spacing. Default is 0.0.
+        bias : float, optional
+            Exponent of power law bias. Default is 0.0.
+        use_numexpr : bool, optional
+            Whether to use numexpr optimization. Default is False.
+        kernel : Callable, optional
+            Mellin transform kernel function.
+        log_kernel : Callable, optional
+            Log-Mellin transform kernel function.
 
         Returns
         -------
-        Grid
-            Grid instance with inferred parameters.
+        FFTLog
+            FFTLog instance with inferred parameters.
 
         Examples
         --------
         >>> import numpy as np
+        >>> from fftloggin import FFTLog
+        >>> from fftloggin.kernels import bessel_mellin_log_kernel
         >>> r = np.logspace(-2, 2, 64)
-        >>> grid = Grid.from_r(r)
-        >>> k = grid.k
+        >>> fftlog = FFTLog.from_r(r, mu=0, log_kernel=bessel_mellin_log_kernel)
         """
         r = np.asarray(r)
         if r.ndim != 1:
@@ -219,39 +199,66 @@ class Grid:
         # Infer central from r[ic]
         central = r[ic]
 
-        return cls(n, dln, offset, central, mode="fht")
+        return cls(
+            n,
+            dln,
+            mu,
+            offset,
+            central,
+            bias,
+            use_numexpr,
+            kernel,
+            log_kernel,
+        )
 
     @classmethod
     def from_k(
         cls,
         k: npt.ArrayLike,
+        mu: npt.ArrayLike,
         offset: float = 0.0,
-    ) -> "Grid":
+        bias: float = 0.0,
+        use_numexpr: bool = False,
+        kernel: Callable | None = None,
+        log_kernel: Callable | None = None,
+    ) -> "FFTLog":
         """
-        Create inverse transform grid from existing k array.
+        Create FFTLog instance from existing k array.
 
-        Infers grid parameters (n, dln, central) from the provided k array
-        and generates the corresponding r output grid.
+        Infers grid parameters (n, dln, central) from the provided k array.
+        Note: The resulting instance will still have the same r and k grids,
+        but central will be inferred from k rather than r.
 
         Parameters
         ----------
         k : array_like
-            Input wavenumber grid (1D array) with logarithmically-spaced values.
+            Input wavenumber grid with logarithmically-spaced values.
             Must have at least 2 points.
+        mu : array_like
+            Order parameter for the kernel.
         offset : float, optional
-            Offset of the output r array's logarithmic spacing. Default is 0.0.
+            Offset of the output array's logarithmic spacing. Default is 0.0.
+        bias : float, optional
+            Exponent of power law bias. Default is 0.0.
+        use_numexpr : bool, optional
+            Whether to use numexpr optimization. Default is False.
+        kernel : Callable, optional
+            Mellin transform kernel function.
+        log_kernel : Callable, optional
+            Log-Mellin transform kernel function.
 
         Returns
         -------
-        Grid
-            Grid instance with inferred parameters.
+        FFTLog
+            FFTLog instance with inferred parameters.
 
         Examples
         --------
         >>> import numpy as np
+        >>> from fftloggin import FFTLog
+        >>> from fftloggin.kernels import bessel_mellin_log_kernel
         >>> k = np.logspace(-2, 2, 64)
-        >>> grid = Grid.from_k(k)
-        >>> r = grid.r
+        >>> fftlog = FFTLog.from_k(k, mu=0, log_kernel=bessel_mellin_log_kernel)
         """
         k = np.asarray(k)
         if k.ndim != 1:
@@ -275,9 +282,21 @@ class Grid:
             )
 
         # Infer central from k[ic]
-        central = k[ic]
+        # For k: k_c = exp(offset) / central, so central = exp(offset) / k_c
+        k_central = k[ic]
+        central = np.exp(offset) / k_central
 
-        return cls(n, dln, offset, central, mode="ifht")
+        return cls(
+            n,
+            dln,
+            mu,
+            offset,
+            central,
+            bias,
+            use_numexpr,
+            kernel,
+            log_kernel,
+        )
 
     @property
     def r(self) -> np.ndarray:
@@ -310,15 +329,179 @@ class Grid:
         return self._central
 
     @property
-    def mode(self) -> str:
-        """Transform mode ('fht' or 'ifht')."""
-        return self._mode
+    def mu(self) -> np.ndarray:
+        """Order parameter for the kernel."""
+        return self._mu
+
+    @property
+    def bias(self) -> float:
+        """Exponent of power law bias."""
+        return self._bias
+
+    @property
+    def use_numexpr(self) -> bool:
+        """Whether numexpr optimization is enabled."""
+        return self._use_numexpr
+
+    def forward(self, a: npt.ArrayLike, axis: int = -1) -> np.ndarray:
+        """
+        Perform forward Hankel transform.
+
+        Parameters
+        ----------
+        a : array_like
+            Real input array to be transformed.
+        axis : int, optional
+            Axis along which to perform the transform. Default is -1.
+
+        Returns
+        -------
+        A : ndarray
+            The transformed output array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from fftloggin import FFTLog
+        >>> from fftloggin.kernels import bessel_mellin_log_kernel
+        >>> fftlog = FFTLog(128, dln=0.05, mu=0, log_kernel=bessel_mellin_log_kernel)
+        >>> a = np.exp(-(fftlog.r/1.0)**2)
+        >>> A = fftlog.forward(a)
+        """
+        # Use appropriate backend implementation
+        if self._use_numexpr and NUMEXPR_AVAILABLE:
+            return _fht_numexpr(
+                a,
+                self._dln,
+                self._mu,
+                self._offset,
+                self._bias,
+                axis,
+                self._kernel,
+                self._log_kernel,
+            )
+        elif self._use_numexpr and not NUMEXPR_AVAILABLE:
+            warnings.warn(
+                "numexpr requested but not available, using standard implementation",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return _fht(
+                a,
+                self._dln,
+                self._mu,
+                self._offset,
+                self._bias,
+                axis,
+                self._kernel,
+                self._log_kernel,
+            )
+        else:
+            return _fht(
+                a,
+                self._dln,
+                self._mu,
+                self._offset,
+                self._bias,
+                axis,
+                self._kernel,
+                self._log_kernel,
+            )
+
+    def inverse(self, A: npt.ArrayLike, axis: int = -1) -> np.ndarray:
+        """
+        Perform inverse Hankel transform.
+
+        Parameters
+        ----------
+        A : array_like
+            Real input array to be transformed back.
+        axis : int, optional
+            Axis along which to perform the transform. Default is -1.
+
+        Returns
+        -------
+        a : ndarray
+            The inverse transformed output array.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from fftloggin import FFTLog
+        >>> from fftloggin.kernels import bessel_mellin_log_kernel
+        >>> fftlog = FFTLog(128, dln=0.05, mu=0, log_kernel=bessel_mellin_log_kernel)
+        >>> A = np.exp(-(fftlog.k/1.0)**2)
+        >>> a = fftlog.inverse(A)
+        """
+        # Use appropriate backend implementation
+        if self._use_numexpr and NUMEXPR_AVAILABLE:
+            return _ifht_numexpr(
+                A,
+                self._dln,
+                self._mu,
+                self._offset,
+                self._bias,
+                axis,
+                self._kernel,
+                self._log_kernel,
+            )
+        elif self._use_numexpr and not NUMEXPR_AVAILABLE:
+            warnings.warn(
+                "numexpr requested but not available, using standard implementation",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return _ifht(
+                A,
+                self._dln,
+                self._mu,
+                self._offset,
+                self._bias,
+                axis,
+                self._kernel,
+                self._log_kernel,
+            )
+        else:
+            return _ifht(
+                A,
+                self._dln,
+                self._mu,
+                self._offset,
+                self._bias,
+                axis,
+                self._kernel,
+                self._log_kernel,
+            )
+
+    def compute_offset(self, initial: npt.ArrayLike = 0.0) -> np.ndarray:
+        """
+        Compute optimal offset for low-ringing transforms.
+
+        Parameters
+        ----------
+        initial : array_like, optional
+            Original offset of the uniform logarithmic spacing. Default is 0.0.
+
+        Returns
+        -------
+        offset_opt : ndarray
+            Optimal offset value(s).
+
+        Examples
+        --------
+        >>> from fftloggin import FFTLog
+        >>> from fftloggin.kernels import bessel_mellin_log_kernel
+        >>> fftlog = FFTLog(128, dln=0.05, mu=0.5, log_kernel=bessel_mellin_log_kernel)
+        >>> offset_opt = fftlog.compute_offset()
+        """
+        return fhtoffset(self._dln, self._mu, initial, self._bias)
 
     def __repr__(self) -> str:
-        """String representation of the Grid."""
+        """String representation of the FFTLog instance."""
         return (
-            f"Grid(n={self.n}, dln={self.dln:.6f}, offset={self.offset:.6f}, "
-            f"central={self.central:.6f}, mode='{self.mode}')"
+            f"FFTLog(n={self.n}, dln={self.dln:.6f}, mu={self.mu}, "
+            f"offset={self.offset:.6f}, central={self.central:.6f}, "
+            f"bias={self.bias}, use_numexpr={self.use_numexpr})"
         )
 
 
@@ -397,6 +580,10 @@ def fht(
 ) -> np.ndarray:
     """
     Compute the fast Hankel transform or general Mellin transform.
+
+    This is a convenience function that creates a temporary FFTLog instance
+    and calls its forward() method. For repeated transforms with the same
+    parameters, consider using the FFTLog class directly for better performance.
 
     Vectorized transform that supports broadcasting of mu, offset, and bias
     parameters with optional numexpr optimization and custom kernel functions.
@@ -482,19 +669,29 @@ def fht(
     >>> A_multi = fht(a, dln, mu=mu_vals, log_kernel=bessel_mellin_log_kernel)
     >>> # With numexpr optimization
     >>> A_fast = fht(a, dln, mu=0, log_kernel=bessel_mellin_log_kernel, use_numexpr=True)
+
+    See Also
+    --------
+    FFTLog : Class-based interface for repeated transforms
+    ifht : Inverse fast Hankel transform
     """
-    # Use appropriate implementation
-    if use_numexpr and NUMEXPR_AVAILABLE:
-        return _fht_numexpr(a, dln, mu, offset, bias, axis, kernel, log_kernel)
-    elif use_numexpr and not NUMEXPR_AVAILABLE:
-        warnings.warn(
-            "numexpr requested but not available, using standard implementation",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return _fht(a, dln, mu, offset, bias, axis, kernel, log_kernel)
-    else:
-        return _fht(a, dln, mu, offset, bias, axis, kernel, log_kernel)
+    # Get array length along transform axis
+    a_arr = np.asarray(a)
+    n = a_arr.shape[axis]
+
+    # Create temporary FFTLog instance and perform transform
+    # Note: We don't need to specify central since it only affects the grid generation
+    fftlog = FFTLog(
+        n=n,
+        dln=dln,
+        mu=mu,
+        offset=offset,
+        bias=bias,
+        use_numexpr=use_numexpr,
+        kernel=kernel,
+        log_kernel=log_kernel,
+    )
+    return fftlog.forward(a, axis=axis)
 
 
 def ifht(
@@ -510,6 +707,10 @@ def ifht(
 ) -> np.ndarray:
     """
     Compute the inverse fast Hankel transform or general Mellin transform.
+
+    This is a convenience function that creates a temporary FFTLog instance
+    and calls its inverse() method. For repeated transforms with the same
+    parameters, consider using the FFTLog class directly for better performance.
 
     Vectorized transform that supports broadcasting of mu, offset, and bias
     parameters with optional numexpr optimization and custom kernel functions.
@@ -575,16 +776,26 @@ def ifht(
     >>> a_reconstructed = ifht(A, dln, mu=0, log_kernel=bessel_mellin_log_kernel)
     >>> np.allclose(a, a_reconstructed)
     True
+
+    See Also
+    --------
+    FFTLog : Class-based interface for repeated transforms
+    fht : Forward fast Hankel transform
     """
-    # Use appropriate implementation
-    if use_numexpr and NUMEXPR_AVAILABLE:
-        return _ifht_numexpr(A, dln, mu, offset, bias, axis, kernel, log_kernel)
-    elif use_numexpr and not NUMEXPR_AVAILABLE:
-        warnings.warn(
-            "numexpr requested but not available, using standard implementation",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return _ifht(A, dln, mu, offset, bias, axis, kernel, log_kernel)
-    else:
-        return _ifht(A, dln, mu, offset, bias, axis, kernel, log_kernel)
+    # Get array length along transform axis
+    A_arr = np.asarray(A)
+    n = A_arr.shape[axis]
+
+    # Create temporary FFTLog instance and perform transform
+    # Note: We don't need to specify central since it only affects the grid generation
+    fftlog = FFTLog(
+        n=n,
+        dln=dln,
+        mu=mu,
+        offset=offset,
+        bias=bias,
+        use_numexpr=use_numexpr,
+        kernel=kernel,
+        log_kernel=log_kernel,
+    )
+    return fftlog.inverse(A, axis=axis)
