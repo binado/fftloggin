@@ -306,8 +306,10 @@ class FFTLog:
     def shift_logcenter(self, logc: npt.ArrayLike) -> npt.NDArray:
         logc = np.asarray(logc)
         optimal = self.optimal_logcenter()
-        # logc - optimal should be an integer multiple of the log step
-        return logc - (logc - optimal) % self.dlog
+        # Snap to nearest integer multiple of dlog from optimal
+        # This matches Fortran's krgood: krgood = kr * exp((arg - round(arg)) * dlnr)
+        shift = (logc - optimal) / self.dlog
+        return optimal + np.round(shift) * self.dlog
 
     def forward(
         self,
