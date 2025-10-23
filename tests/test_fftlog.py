@@ -1,22 +1,17 @@
 """
-Test suite for vectorized FFTLog implementation.
-Adapted from scipy's test suite with additional tests for vectorization and numexpr.
+Test suite for FFTLog implementation using Grid API.
+Adapted from scipy's test suite with Grid-based interface.
 """
 
-import math
 import warnings
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_less
-from scipy.fft import fhtoffset as fhtoffset_scipy
-from scipy.fft._fftlog_backend import fhtcoeff as fhtcoeff_scipy
 from scipy.special import poch
 
-from fftloggin._backend import _fhtcoeff
-from fftloggin._backend_numexpr import NUMEXPR_AVAILABLE
-from fftloggin.fht import fht, fhtoffset, ifht
-from fftloggin.kernels import bessel_mellin_log_kernel
+from fftloggin.grids import Grid
+from fftloggin.kernels import BesselJKernel
 
 
 # test function, analytical Hankel transform is of the same form
@@ -24,61 +19,21 @@ def f(r, mu):
     return r ** (mu + 1) * np.exp(-(r**2) / 2)
 
 
-@pytest.mark.parametrize("bias", [0, 0.8, -0.8])
-def test_fht_coefficients_agree_with_scipy(bias: float):
+def test_grid_agrees_with_fftlog():
+    """Check that Grid numerically agrees with the output from Fortran FFTLog."""
     r = np.logspace(-4, 4, 16)
-
-    dln = math.log(r[1] / r[0])
     mu = 0.3
-    offset = 0.0
-
-    a = np.asarray(f(r, mu))
-    n = a.shape[-1]
-    ours = _fhtcoeff(
-        n, dln, mu, offset=offset, bias=bias, log_kernel=bessel_mellin_log_kernel
-    )
-    theirs = fhtcoeff_scipy(n, dln, mu, offset=offset, bias=bias)
-    assert_allclose(ours, theirs)
-
-
-@pytest.mark.parametrize("offset", [0.0, 1.0, -1.0])
-@pytest.mark.parametrize("bias", [0, 0.1, -0.1])
-def test_fhtoffset_agrees_with_scipy(offset: float, bias: float):
-    r = np.logspace(-4, 4, 16)
-
-    dln = math.log(r[1] / r[0])
-    mu = 0.3
-
-    ours = fhtoffset(dln, mu, initial=offset, bias=bias)
-    theirs = fhtoffset_scipy(dln, mu, initial=offset, bias=bias)
-    assert_allclose(ours, theirs)
-
-
-@pytest.mark.parametrize("use_numexpr", [True, False])
-def test_fht_agrees_with_fftlog(use_numexpr):
-    """Check that fht numerically agrees with the output from Fortran FFTLog."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
-    r = np.logspace(-4, 4, 16)
-
-    dln = math.log(r[1] / r[0])
-    mu = 0.3
-    offset = 0.0
+    logc = 0.0  # offset parameter from old API maps directly to logc
     bias = 0.0
 
     a = np.asarray(f(r, mu))
 
-    # test 1: compute as given
-    ours = fht(
-        a,
-        dln,
-        mu,
-        offset=offset,
-        bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+    # Test 1: compute as given
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=False, logc=logc
     )
+    ours = grid.forward(a)
+
     theirs = [
         -0.1159922613593045e-02,
         +0.1625822618458832e-02,
@@ -100,17 +55,21 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     theirs = np.asarray(theirs, dtype=np.float64)
     assert_allclose(ours, theirs)
 
-    # test 2: change to optimal offset (using 'initial' for scipy compatibility)
-    offset = fhtoffset(dln, mu, initial=0.0, bias=bias)
-    ours = fht(
-        a,
-        dln,
-        mu,
-        offset=offset,
-        bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+
+def test_grid_with_optimal_logc():
+    """Test Grid with optimal logc (minimize_ringing=True)."""
+    r = np.logspace(-4, 4, 16)
+    mu = 0.3
+    bias = 0.0
+
+    a = np.asarray(f(r, mu))
+
+    # Create grid with optimal logc
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=True, logc=0.0
     )
+    ours = grid.forward(a)
+
     theirs = [
         +0.4353768523152057e-04,
         -0.9197045663594285e-05,
@@ -132,19 +91,20 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     theirs = np.asarray(theirs, dtype=np.float64)
     assert_allclose(ours, theirs)
 
-    # test 3: positive bias
-    bias = 0.8
-    offset = fhtoffset(dln, mu, initial=0.0, bias=bias)
 
-    ours = fht(
-        a,
-        dln,
-        mu,
-        offset=offset,
-        bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+def test_grid_with_positive_bias():
+    """Test Grid with positive bias."""
+    r = np.logspace(-4, 4, 16)
+    mu = 0.3
+    bias = 0.8
+
+    a = np.asarray(f(r, mu))
+
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=True, logc=0.0
     )
+    ours = grid.forward(a)
+
     theirs = [
         -7.3436673558316850e00,
         +0.1710271207817100e00,
@@ -166,19 +126,20 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     theirs = np.asarray(theirs, dtype=np.float64)
     assert_allclose(ours, theirs)
 
-    # test 4: negative bias
-    bias = -0.8
-    offset = fhtoffset(dln, mu, initial=0.0, bias=bias)
 
-    ours = fht(
-        a,
-        dln,
-        mu,
-        offset=offset,
-        bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+def test_grid_with_negative_bias():
+    """Test Grid with negative bias."""
+    r = np.logspace(-4, 4, 16)
+    mu = 0.3
+    bias = -0.8
+
+    a = np.asarray(f(r, mu))
+
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=True, logc=0.0
     )
+    ours = grid.forward(a)
+
     theirs = [
         +0.8985777068568745e-05,
         +0.4074898209936099e-04,
@@ -201,183 +162,116 @@ def test_fht_agrees_with_fftlog(use_numexpr):
     assert_allclose(ours, theirs)
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
-def test_vectorized_fht(use_numexpr):
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
+def test_vectorized_grid():
+    """Test Grid with vectorized kernel (multiple mu values)."""
     n = 16
     r = np.logspace(-4, 4, n)
-    dln = math.log(r[1] / r[0])
 
     # Test scalar mu
     mu = 0.3
     a = f(r, mu)
-    offset = 0.0
-    bias = 0.0
-    out = fht(
-        a,
-        dln,
-        mu,
-        offset,
-        bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=0.0
     )
+    out = grid.forward(a)
     assert out.shape == r.shape
 
     # Test 1d mu
     mu = np.array([0.3]).reshape(1, 1)
     a = f(r, mu)
-    offset = 0.0
-    bias = 0.0
-    out = fht(
-        a,
-        dln,
-        mu,
-        offset,
-        bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=0.0
     )
+    out = grid.forward(a)
     assert out.shape == (1, n)
 
     # Test 2d mu
     mu = np.linspace(0.1, 0.3, 3).reshape(3, 1, 1)
     a = f(r, mu)
-    offset = 0.0
-    bias = 0.0
-    out = fht(
-        a,
-        dln,
-        mu,
-        offset,
-        bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=0.0
     )
+    out = grid.forward(a)
     assert out.shape == (3, 1, n)
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
-@pytest.mark.parametrize("optimal", [True, False])
-@pytest.mark.parametrize("offset", [0.0, 1.0, -1.0])
+@pytest.mark.parametrize("logc", [0.0, 1.0, -1.0])
 @pytest.mark.parametrize("bias", [0, 0.1, -0.1])
 @pytest.mark.parametrize("n", [64, 63])
-def test_fht_identity(n, bias, offset, optimal, use_numexpr):
-    """Test that ifht is the inverse of fht."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
+def test_grid_identity(n, bias, logc):
+    """Test that inverse is the inverse of forward."""
     rng = np.random.RandomState(3491349965)
 
     a = np.asarray(rng.standard_normal(n))
-    dln = rng.uniform(-1, 1)
+    dlog_val = rng.uniform(-1, 1)
     mu = rng.uniform(-2, 2)
 
-    if optimal:
-        # Note: using 'offset' parameter instead of 'initial' for our implementation
-        offset = fhtoffset(dln, mu, initial=offset, bias=bias)
-
-    A = fht(
-        a,
-        dln,
-        mu,
-        offset=offset,
-        bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+    # Create grid for forward transform
+    r = np.exp(np.arange(n) * dlog_val)
+    grid_fwd = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=False, logc=logc
     )
-    a_ = ifht(
-        A,
-        dln,
-        mu,
-        offset=offset,
+    A = grid_fwd.forward(a)
+
+    # Create grid for inverse transform with same logc
+    grid_inv = Grid.from_k(
+        grid_fwd.k,
+        kernel=BesselJKernel(mu),
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+        minimize_ringing=False,
+        logc=logc,
     )
+    a_reconstructed = grid_inv.inverse(A)
 
-    assert_allclose(a_, a, rtol=1.5e-7)
+    assert_allclose(a_reconstructed, a, rtol=1.5e-7)
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
-def test_fht_special_cases(use_numexpr):
+def test_grid_special_cases():
     """Test special cases and singularities."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
     rng = np.random.RandomState(3491349965)
 
     a = np.asarray(rng.standard_normal(64))
-    dln = rng.uniform(-1, 1)
+    dlog_val = rng.uniform(-1, 1)
+    r = np.exp(np.arange(64) * dlog_val)
 
     # let x = (mu+1+q)/2, y = (mu+1-q)/2, M = {0, -1, -2, ...}
 
     # case 1: x in M, y in M => well-defined transform
     mu, bias = -4.0, 1.0
     with warnings.catch_warnings(record=True) as record:
-        fht(
-            a,
-            dln,
-            mu,
-            bias=bias,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        )
-        assert not record, "fht warned about a well-defined transform"
+        grid = Grid.from_r(r, kernel=BesselJKernel(mu), bias=bias)
+        grid.forward(a)
+        assert not record, "Grid warned about a well-defined transform"
 
     # case 2: x not in M, y in M => well-defined transform
     mu, bias = -2.5, 0.5
     with warnings.catch_warnings(record=True) as record:
-        fht(
-            a,
-            dln,
-            mu,
-            bias=bias,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        )
-        assert not record, "fht warned about a well-defined transform"
+        grid = Grid.from_r(r, kernel=BesselJKernel(mu), bias=bias)
+        grid.forward(a)
+        assert not record, "Grid warned about a well-defined transform"
 
     # case 3: x in M, y not in M => singular transform
     mu, bias = -3.5, 0.5
     with pytest.warns(Warning) as record:
-        fht(
-            a,
-            dln,
-            mu,
-            bias=bias,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        )
-        assert record, "fht did not warn about a singular transform"
+        grid = Grid.from_r(r, kernel=BesselJKernel(mu), bias=bias)
+        grid.forward(a)
+        assert record, "Grid did not warn about a singular transform"
 
     # case 4: x not in M, y in M => singular inverse transform
     mu, bias = -2.5, 0.5
     with pytest.warns(Warning) as record:
-        ifht(
-            a,
-            dln,
-            mu,
-            bias=bias,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        )
-        assert record, "ifht did not warn about a singular transform"
+        grid = Grid.from_k(r, kernel=BesselJKernel(mu), bias=bias)
+        grid.inverse(a)
+        assert record, "Grid did not warn about a singular transform"
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
 @pytest.mark.parametrize("n", [64, 63])
-def test_fht_exact(n, use_numexpr):
+def test_grid_exact(n):
     """Test exact transform for power law functions."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
     rng = np.random.RandomState(3491349965)
 
-    # for a(r) a power law r^\gamma, the fast Hankel transform produces the
-    # exact continuous Hankel transform if biased with q = \gamma
+    # for a(r) a power law r^\\gamma, the fast Hankel transform produces the
+    # exact continuous Hankel transform if biased with q = \\gamma
 
     mu = rng.uniform(0, 3)
 
@@ -387,21 +281,12 @@ def test_fht_exact(n, use_numexpr):
     r = np.logspace(-2, 2, n)
     a = np.asarray(r**gamma)
 
-    dln = math.log(r[1] / r[0])
-
-    offset = fhtoffset(dln, mu, initial=0.0, bias=gamma)
-
-    A = fht(
-        a,
-        dln,
-        mu,
-        offset=offset,
-        bias=gamma,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=gamma, minimize_ringing=True, logc=0.0
     )
+    A = grid.forward(a)
 
-    k = np.exp(offset) / r[::-1]
+    k = grid.k
 
     # analytical result
     At = np.asarray((2 / k) ** gamma * poch((mu + 1 - gamma) / 2, gamma))
@@ -409,88 +294,124 @@ def test_fht_exact(n, use_numexpr):
     assert_allclose(A, At)
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
-@pytest.mark.parametrize("op", [fht, ifht])
-def test_array_like(op, use_numexpr):
+def test_array_like():
     """Test that array-like inputs work."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
     x = [[[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]]
-    assert_allclose(
-        op(x, 1.0, 2.0, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr),
-        op(
-            np.asarray(x),
-            1.0,
-            2.0,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        ),
-    )
+    r = np.array([1.0, 2.0])
+
+    grid = Grid.from_r(r, kernel=BesselJKernel(2.0))
+    result1 = grid.forward(x)
+    result2 = grid.forward(np.asarray(x))
+
+    assert_allclose(result1, result2)
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
 @pytest.mark.parametrize("n", [128, 129])
-def test_gh_21661(n, use_numexpr):
+def test_gh_21661(n):
     """Test for github issue 21661."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
     one = np.asarray(1.0)
     mu = 0.0
     r = np.logspace(-7, 1, n)
-    dln = math.log(r[1] / r[0])
-    # Using 'offset' parameter instead of 'initial'
-    offset = fhtoffset(dln, initial=-6 * np.log(10), mu=mu)
-    r = np.asarray(r, dtype=one.dtype)
-    k = math.exp(offset) / np.flip(r, axis=-1)
 
-    def f(x, mu):
+    # Using logc parameter (offset from old API)
+    logc = -6 * np.log(10)
+    r = np.asarray(r, dtype=one.dtype)
+
+    grid = Grid.from_r(
+        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=logc
+    )
+    k = grid.k
+
+    def f_test(x, mu):
         return x ** (mu + 1) * np.exp(-(x**2) / 2)
 
-    a_r = f(r, mu)
-    fht_val = fht(
-        a_r,
-        dln,
-        mu=mu,
-        offset=offset,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
-    )
-    a_k = f(k, mu)
+    a_r = f_test(r, mu)
+    fht_val = grid.forward(a_r)
+    a_k = f_test(k, mu)
     rel_err = np.max(np.abs((fht_val - a_k) / a_k))
     assert_array_less(rel_err, np.asarray(7.28e16)[()])
 
 
-@pytest.mark.parametrize("use_numexpr", [True, False])
-@pytest.mark.parametrize(
-    "shape, axis",
-    [
-        ((1, 16, 1), 1),
-        ((16, 1, 1), 0),
-        ((1, 1, 16), 2),
-        ((1, 16, 1), -2),
-        ((16, 1, 1), -3),
-        ((1, 1, 16), -1),
-    ],
-)
-def test_fht_axis_parameter(shape, axis, use_numexpr):
-    """Test that the axis parameter of fht works correctly."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
+def test_grid_property_errors():
+    """Test that accessing unset properties raises ValueError."""
+    r = np.logspace(-2, 2, 128)
+    grid = Grid.from_r(r, kernel=BesselJKernel(0))
 
-    r = np.logspace(-4, 4, 16)
-    dln = math.log(r[1] / r[0])
-    mu = 0.3
-    a = np.asarray(f(r, mu))
+    # Test that accessing .ar raises ValueError when not set
+    with pytest.raises(ValueError, match="No input data available"):
+        _ = grid.ar
 
-    a_reshaped = np.reshape(a, shape)
-    A = fht(
-        a_reshaped,
-        dln,
-        mu,
-        axis=axis,
-        log_kernel=bessel_mellin_log_kernel,
-        use_numexpr=use_numexpr,
-    )
-    assert A.shape == shape
+    # Test that accessing .ak raises ValueError when not set
+    with pytest.raises(ValueError, match="No transformed data available"):
+        _ = grid.ak
+
+    # After forward, both should be accessible
+    a = np.exp(-((grid.r / 1.0) ** 2))
+    grid.forward(a)
+
+    assert grid.ar is not None
+    assert grid.ak is not None
+
+
+def test_grid_property_setters():
+    """Test property setters with validation."""
+    r = np.logspace(-2, 2, 128)
+    grid = Grid.from_r(r, kernel=BesselJKernel(0))
+
+    # Test setting ar via property
+    a = np.exp(-((grid.r / 1.0) ** 2))
+    grid.ar = a
+    assert np.array_equal(grid.ar, a)
+
+    # Test that wrong shape raises error
+    with pytest.raises(ValueError, match="wrong shape"):
+        grid.ar = np.ones(64)  # Wrong size
+
+    # Test setting ak via property
+    ak = np.ones(128)
+    grid.ak = ak
+    assert np.array_equal(grid.ak, ak)
+
+    # Test that wrong shape raises error
+    with pytest.raises(ValueError, match="wrong shape"):
+        grid.ak = np.ones(64)
+
+
+def test_grid_from_fftlog():
+    """Test Grid.from_fftlog() constructor."""
+    from fftloggin import FFTLog
+
+    fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, bias=0.0)
+    grid = Grid.from_fftlog(fftlog, r_center=1.0)
+
+    # Check that grid has correct size
+    assert grid.n == 128
+    assert grid.dlog == 0.05
+
+    # Check that central r value is 1.0
+    ic = (128 - 1) // 2
+    assert np.isclose(grid.r[ic], 1.0)
+
+    # Test transform works
+    a = np.exp(-((grid.r / 1.0) ** 2))
+    A = grid.forward(a)
+    assert A.shape == (128,)
+
+
+def test_grid_forward_and_inverse_return_arrays():
+    """Test that forward and inverse return arrays, not self."""
+    r = np.logspace(-2, 2, 128)
+    grid = Grid.from_r(r, kernel=BesselJKernel(0))
+
+    a = np.exp(-((grid.r / 1.0) ** 2))
+    result = grid.forward(a)
+
+    # Check that result is ndarray, not Grid
+    assert isinstance(result, np.ndarray)
+    assert not isinstance(result, Grid)
+
+    # Check that inverse also returns array
+    grid2 = Grid.from_k(grid.k, kernel=BesselJKernel(0))
+    result2 = grid2.inverse(result)
+    assert isinstance(result2, np.ndarray)
+    assert not isinstance(result2, Grid)
