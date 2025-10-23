@@ -32,9 +32,6 @@ def _forward_hankel_transform(
 
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
-    if u is None:
-        pass
-
     ak_biased = irfft(a_biased_fftd * u, na, **kwargs)
     ak_biased = np.flip(ak_biased)
 
