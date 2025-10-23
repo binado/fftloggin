@@ -28,13 +28,21 @@ class Kernel:
     Kernels have a strip of convergence in the complex plane where the
     transform is well-defined.
 
+    Parameters
+    ----------
+    bias : float, optional
+        Power-law bias exponent for improved numerical stability (default: 0.0).
+
     Examples
     --------
     >>> from fftloggin.kernels import BesselJKernel
-    >>> kernel = BesselJKernel(mu=0.5)
+    >>> kernel = BesselJKernel(mu=0.5, bias=0.0)
     >>> # Get second derivative
     >>> d2_kernel = kernel.derive(2)
     """
+
+    def __init__(self, bias: float = 0.0) -> None:
+        self.bias = bias
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
@@ -126,6 +134,7 @@ class Kernel:
 
 class Derivative(Kernel):
     def __init__(self, transform: Kernel, order: int) -> None:
+        super().__init__(bias=transform.bias)
         self.transform = transform
         if order < 1:
             raise ValueError(
@@ -162,6 +171,8 @@ class BesselJKernel(Kernel):
     ----------
     mu : array_like
         Order of the Bessel function. Can be scalar or array.
+    bias : float, optional
+        Power-law bias exponent for improved numerical stability (default: 0.0).
 
     Examples
     --------
@@ -171,6 +182,8 @@ class BesselJKernel(Kernel):
     >>> kernel = BesselJKernel(mu=0.5)
     >>> # Multiple orders (for vectorized transforms)
     >>> kernels = BesselJKernel(mu=np.array([0, 0.5, 1.0]))
+    >>> # With bias
+    >>> kernel_biased = BesselJKernel(mu=0.5, bias=0.1)
 
     Notes
     -----
@@ -181,7 +194,8 @@ class BesselJKernel(Kernel):
     .. [1] Hamilton A. J. S., 2000, MNRAS, 312, 257 (astro-ph/9905191)
     """
 
-    def __init__(self, mu: npt.ArrayLike) -> None:
+    def __init__(self, mu: npt.ArrayLike, bias: float = 0.0) -> None:
+        super().__init__(bias=bias)
         self.mu = np.asarray(mu)
 
     @property
