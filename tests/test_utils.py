@@ -94,8 +94,8 @@ class TestOuterBroadcast:
         left_r, right_r = outer_broadcast(left, right)
 
         assert left_r.shape == (3, 1)
-        assert right_r.shape == (1, 2)
-        # Broadcasting should work
+        assert right_r.shape == (2,)
+        # Broadcasting should work (NumPy pads right on the left)
         result = left_r + right_r
         assert result.shape == (3, 2)
 
@@ -103,7 +103,7 @@ class TestOuterBroadcast:
         """Test outer_broadcast with scalar and 1D array.
 
         Scalar (ndim=0) gets 1 trailing dim -> (1,)
-        1D array (ndim=1) gets 0 leading dims -> stays (3,)
+        1D array (ndim=1) stays unchanged -> (3,)
         """
         left = 5.0
         right = np.array([1, 2, 3])
@@ -117,15 +117,15 @@ class TestOuterBroadcast:
     def test_outer_broadcast_1d_scalar(self):
         """Test outer_broadcast with 1D array and scalar.
 
-        1D array (ndim=1) gets 0 trailing dims -> stays (3,)
-        Scalar (ndim=0) gets 1 leading dim -> (1,)
+        1D array (ndim=1) stays unchanged -> (3,)
+        Scalar (ndim=0) stays unchanged -> ()
         """
         left = np.array([1, 2, 3])
         right = 5.0
         left_r, right_r = outer_broadcast(left, right)
 
         assert left_r.shape == (3,)
-        assert right_r.shape == (1,)
+        assert right_r.shape == ()
         result = left_r + right_r
         assert result.shape == (3,)
 
@@ -144,14 +144,14 @@ class TestOuterBroadcast:
         """Test outer_broadcast with 2D and 1D arrays.
 
         2D array gets 1 trailing dim -> (2, 3, 1)
-        1D array gets 2 leading dims -> (1, 1, 2)
+        1D array stays unchanged -> (2,)
         """
         left = np.arange(6).reshape(2, 3)
         right = np.array([1, 2])
         left_r, right_r = outer_broadcast(left, right)
 
         assert left_r.shape == (2, 3, 1)
-        assert right_r.shape == (1, 1, 2)
+        assert right_r.shape == (2,)
         result = left_r + right_r
         assert result.shape == (2, 3, 2)
 
@@ -163,7 +163,7 @@ class TestOuterBroadcast:
 
         # Check values are preserved (just reshaped)
         assert_array_equal(left_r[:, 0], left)
-        assert_array_equal(right_r[0, :], right)
+        assert_array_equal(right_r, right)
 
     def test_outer_broadcast_broadcast_result(self):
         """Test that outer_broadcast result broadcasts correctly."""
@@ -204,7 +204,7 @@ class TestOuterBroadcast:
         left_r, right_r = outer_broadcast(left, right)
 
         assert left_r.shape == (3, 1)
-        assert right_r.shape == (1, 2)
+        assert right_r.shape == (2,)
         result = left_r + right_r
         expected = np.array(
             [
@@ -222,6 +222,6 @@ class TestOuterBroadcast:
         left_r, right_r = outer_broadcast(left, right)
 
         assert left_r.shape == (3, 1)
-        assert right_r.shape == (1, 2)
+        assert right_r.shape == (2,)
         result = left_r + right_r
         assert result.shape == (3, 2)
