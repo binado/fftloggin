@@ -9,6 +9,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy import special
 
+from .utils import append_dims
+
 __all__ = (
     "Kernel",
     "BesselJKernel",
@@ -85,6 +87,9 @@ class Kernel:
         inf, sup = self.strip
         # Strip of convergence applies to the real part of s
         s_real = np.real(s)
+        # Reshape inf/sup to have trailing dimensions for proper broadcasting
+        inf = append_dims(inf, s.ndim, where="right")
+        sup = append_dims(sup, s.ndim, where="right")
         in_bounds = (s_real >= inf) & (s_real <= sup)
         if not np.all(in_bounds):
             raise ValueError("Input array outside strip of definition of the transform")
@@ -177,7 +182,7 @@ class BesselJKernel(Kernel):
     """
 
     def __init__(self, mu: npt.ArrayLike) -> None:
-        self.mu = mu
+        self.mu = np.asarray(mu)
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
@@ -191,9 +196,16 @@ class BesselJKernel(Kernel):
         Implementation uses log-gamma for numerical stability.
         """
         s = np.asarray(s)
+        # Reshape mu and s to enable proper broadcasting: (mu_shape, ..., s_shape)
+        if self.mu.ndim > 0 and s.ndim > 0:
+            # Add trailing dimensions to mu and leading dimensions to s
+            mu = append_dims(self.mu, s.ndim, where="right")
+            s = append_dims(s, self.mu.ndim, where="left")
+        else:
+            mu = self.mu
         logforward = (
             LOG_2 * (s - 1)
-            + special.loggamma(0.5 * (self.mu + s))
-            - special.loggamma(0.5 * (self.mu + 2 - s))
+            + special.loggamma(0.5 * (mu + s))
+            - special.loggamma(0.5 * (mu + 2 - s))
         )
         return np.exp(logforward)
