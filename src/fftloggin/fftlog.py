@@ -99,11 +99,6 @@ def compute_kernel_coefficients(
     angle = 2 * np.pi * m * 1j / (n * dlog)
     s = bias + angle + 1
     coeffs = kernel.forward(s)
-    # If we are batching, logc should have shape (*batch_shape,)
-    # Need to broadcast correctly to (*batch_shape, 1)
-    logc = np.asarray(logc)
-    if logc.ndim > 0 and logc.shape[-1] > 1:
-        logc = np.expand_dims(logc, axis=-1)
     coeffs = coeffs * np.exp(-angle * logc)
     # Handle Nyquist frequency for even n
     if n % 2 == 0:
