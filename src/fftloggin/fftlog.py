@@ -105,6 +105,11 @@ def compute_kernel_coefficients(
     if logc.ndim > 0 and logc.shape[-1] > 1:
         logc = np.expand_dims(logc, axis=-1)
     coeffs = coeffs * np.exp(-angle * logc)
+    # Handle Nyquist frequency for even n
+    if n % 2 == 0:
+        coeffs[-1] = np.real(coeffs[-1])
+
+    return coeffs
 
 
 class FFTLog:
