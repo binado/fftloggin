@@ -13,9 +13,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin import FFTLog, fht, ifht, fhtoffset
+from fftloggin import FFTLog, fht, fhtoffset, ifht
 from fftloggin._backend_numexpr import NUMEXPR_AVAILABLE
-from fftloggin.kernels import bessel_mellin_log_kernel
+from fftloggin.kernels import BesselJKernel
 
 
 @pytest.mark.parametrize("use_numexpr", [True, False])
@@ -28,9 +28,8 @@ def test_fftlog_creation(use_numexpr):
     fftlog = FFTLog(
         n,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -54,7 +53,7 @@ def test_fftlog_from_r(use_numexpr):
     r = np.logspace(-2, 2, 64)
     mu = 0.5
     fftlog = FFTLog.from_r(
-        r, mu, offset=0.0, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr
+        r, kernel=BesselJKernel(mu), offset=0.0, use_numexpr=use_numexpr
     )
 
     assert fftlog.n == 64
@@ -71,7 +70,7 @@ def test_fftlog_from_k(use_numexpr):
     k = np.logspace(-3, 1, 128)
     mu = 1.0
     fftlog = FFTLog.from_k(
-        k, mu, offset=0.0, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr
+        k, kernel=BesselJKernel(mu), offset=0.0, use_numexpr=use_numexpr
     )
 
     assert fftlog.n == 128
@@ -89,9 +88,8 @@ def test_fftlog_forward_method(use_numexpr):
     fftlog = FFTLog(
         n,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -105,9 +103,8 @@ def test_fftlog_forward_method(use_numexpr):
     A_function = fht(
         a,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -125,9 +122,8 @@ def test_fftlog_inverse_method(use_numexpr):
     fftlog = FFTLog(
         n,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -141,9 +137,8 @@ def test_fftlog_inverse_method(use_numexpr):
     a_function = ifht(
         A,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -163,9 +158,8 @@ def test_fftlog_roundtrip(use_numexpr):
     fftlog_fwd = FFTLog(
         n,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -173,9 +167,8 @@ def test_fftlog_roundtrip(use_numexpr):
     fftlog_inv = FFTLog(
         n,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -201,9 +194,8 @@ def test_fftlog_compute_offset(use_numexpr):
     fftlog = FFTLog(
         128,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -229,9 +221,8 @@ def test_fftlog_vectorized_mu(use_numexpr):
     fftlog = FFTLog(
         n,
         dln,
-        mu_vals,
+        kernel=BesselJKernel(mu_vals),
         offset=0.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -258,9 +249,8 @@ def test_fftlog_with_bias(use_numexpr):
     fftlog = FFTLog(
         n,
         dln,
-        mu,
+        kernel=BesselJKernel(mu),
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -275,8 +265,8 @@ def test_fftlog_with_bias(use_numexpr):
         a,
         dln,
         mu,
+        kernel=BesselJKernel(mu),
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -290,9 +280,7 @@ def test_fftlog_axis_parameter(use_numexpr):
         pytest.skip("numexpr not available")
 
     n, dln, mu = 64, 0.1, 0.0
-    fftlog = FFTLog(
-        n, dln, mu, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr
-    )
+    fftlog = FFTLog(n, dln, kernel=BesselJKernel(mu), use_numexpr=use_numexpr)
 
     # Create 2D test input
     a = np.ones((5, n))
@@ -319,8 +307,7 @@ def test_fftlog_kernel_validation():
             64,
             0.1,
             0.0,
-            kernel=lambda mu, y, q: 1.0,
-            log_kernel=bessel_mellin_log_kernel,
+            kernel=BesselJKernel(0.0),
         )
 
 
@@ -336,8 +323,8 @@ def test_fftlog_properties(use_numexpr):
         dln,
         mu,
         offset=0.0,
+        kernel=BesselJKernel(mu),
         central=2.0,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -366,13 +353,14 @@ def test_fftlog_repr(use_numexpr):
     if use_numexpr and not NUMEXPR_AVAILABLE:
         pytest.skip("numexpr not available")
 
+    mu = 0.5
     fftlog = FFTLog(
         64,
         0.1,
         0.5,
         offset=0.0,
+        kernel=BesselJKernel(mu),
         bias=0.5,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -396,8 +384,8 @@ def test_fftlog_with_custom_central(use_numexpr):
         n,
         dln,
         mu,
+        kernel=BesselJKernel(mu),
         central=central,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -416,9 +404,7 @@ def test_fftlog_multidimensional_transform(use_numexpr):
         pytest.skip("numexpr not available")
 
     n, dln, mu = 32, 0.1, 0.0
-    fftlog = FFTLog(
-        n, dln, mu, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr
-    )
+    fftlog = FFTLog(n, dln, kernel=BesselJKernel(mu), use_numexpr=use_numexpr)
 
     # 3D input array
     a = np.random.randn(4, 5, n)
@@ -431,7 +417,7 @@ def test_fftlog_multidimensional_transform(use_numexpr):
 
 def test_fftlog_properties_readonly():
     """Test that FFTLog properties are read-only."""
-    fftlog = FFTLog(64, 0.1, 0.5, log_kernel=bessel_mellin_log_kernel)
+    fftlog = FFTLog(64, 0.1, kernel=BesselJKernel(0.5))
 
     # Grid properties should be read-only
     with pytest.raises(AttributeError):

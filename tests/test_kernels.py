@@ -1,5 +1,5 @@
 """
-Tests for custom Mellin transform kernels.
+Tests for Mellin transform kernel classes.
 """
 
 import math
@@ -8,13 +8,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin import fht, ifht
+from fftloggin import fht, ifht, FFTLog
 from fftloggin._backend_numexpr import NUMEXPR_AVAILABLE
-from fftloggin.kernels import (
-    bessel_derivative_mellin_log_kernel,
-    bessel_mellin_kernel,
-    bessel_mellin_log_kernel,
-)
+from fftloggin.kernels import BesselJKernel, Derivative
 
 
 # test function, analytical Hankel transform is of the same form
@@ -24,7 +20,7 @@ def f(r, mu):
 
 @pytest.mark.parametrize("use_numexpr", [True, False])
 def test_bessel_kernel_forward_transform(use_numexpr):
-    """Test that explicit Bessel kernel works for forward transform."""
+    """Test that BesselJKernel works for forward transform."""
     if use_numexpr and not NUMEXPR_AVAILABLE:
         pytest.skip("numexpr not available")
 
@@ -36,14 +32,13 @@ def test_bessel_kernel_forward_transform(use_numexpr):
 
     a = np.asarray(f(r, mu))
 
-    # Transform with explicit log_kernel
+    # Transform with BesselJKernel
     A = fht(
         a,
         dln,
         mu,
         offset=offset,
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -71,62 +66,9 @@ def test_bessel_kernel_forward_transform(use_numexpr):
 
 
 @pytest.mark.parametrize("use_numexpr", [True, False])
-def test_bessel_kernel_vs_log_kernel(use_numexpr):
-    """Test that kernel and log_kernel give equivalent results."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
-    r = np.logspace(-4, 4, 16)
-    dln = math.log(r[1] / r[0])
-    mu = 0.5
-    a = f(r, mu)
-
-    # Transform with log_kernel
-    A_log = fht(
-        a, dln, mu, log_kernel=bessel_mellin_log_kernel, use_numexpr=use_numexpr
-    )
-
-    # Transform with kernel
-    A_regular = fht(a, dln, mu, kernel=bessel_mellin_kernel, use_numexpr=use_numexpr)
-
-    assert_allclose(A_log, A_regular, rtol=1e-12)
-
-
-@pytest.mark.parametrize("use_numexpr", [True, False])
-def test_kernel_xor_log_kernel(use_numexpr):
-    """Verify that exactly one of kernel/log_kernel must be provided."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
-    r = np.logspace(-4, 4, 16)
-    dln = math.log(r[1] / r[0])
-    mu = 0.5
-    a = f(r, mu)
-
-    # Both None should raise ValueError
-    with pytest.raises(
-        ValueError, match="Either kernel or log_kernel must be provided"
-    ):
-        fht(a, dln, mu, use_numexpr=use_numexpr)
-
-    # Both provided should raise ValueError
-    with pytest.raises(
-        ValueError, match="Only one of kernel or log_kernel can be provided"
-    ):
-        fht(
-            a,
-            dln,
-            mu,
-            kernel=bessel_mellin_kernel,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        )
-
-
-@pytest.mark.parametrize("use_numexpr", [True, False])
 @pytest.mark.parametrize("n", [64, 63])
-def test_fht_identity_with_kernel(n, use_numexpr):
-    """Test that ifht is the inverse of fht with explicit kernel."""
+def test_fht_identity(n, use_numexpr):
+    """Test that ifht is the inverse of fht with BesselJKernel."""
     if use_numexpr and not NUMEXPR_AVAILABLE:
         pytest.skip("numexpr not available")
 
@@ -144,7 +86,6 @@ def test_fht_identity_with_kernel(n, use_numexpr):
         mu,
         offset=offset,
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
     a_ = ifht(
@@ -153,7 +94,6 @@ def test_fht_identity_with_kernel(n, use_numexpr):
         mu,
         offset=offset,
         bias=bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
 
@@ -161,8 +101,8 @@ def test_fht_identity_with_kernel(n, use_numexpr):
 
 
 @pytest.mark.parametrize("use_numexpr", [True, False])
-def test_vectorized_fht_with_kernel(use_numexpr):
-    """Test vectorized transforms with explicit kernel."""
+def test_vectorized_fht(use_numexpr):
+    """Test vectorized transforms with BesselJKernel."""
     if use_numexpr and not NUMEXPR_AVAILABLE:
         pytest.skip("numexpr not available")
 
@@ -181,80 +121,137 @@ def test_vectorized_fht_with_kernel(use_numexpr):
         mu,
         offset,
         bias,
-        log_kernel=bessel_mellin_log_kernel,
         use_numexpr=use_numexpr,
     )
     assert out.shape == (3, 1, n)
 
 
-def test_custom_power_law_kernel():
-    """Test with a simple custom power-law kernel."""
+def test_bessel_kernel_strip():
+    """Test that BesselJKernel has correct strip of convergence."""
+    mu = 0.5
+    kernel = BesselJKernel(mu)
+    inf, sup = kernel.strip
 
-    def power_law_log_kernel(mu, y, q):
-        """Simple power law kernel: k^(-mu) which has Mellin transform related to Gamma functions."""
-        # This is a simplified test kernel
-        # M[r^alpha](s) = Gamma(alpha + s) for appropriate alpha
-        # For testing purposes, use a simple form
-        return -mu * np.log(1 + y**2)  # Simplified for testing
+    # Strip should be (-mu, 1.5)
+    assert_allclose(inf, -mu)
+    assert_allclose(sup, 1.5)
 
-    r = np.logspace(-2, 2, 32)
-    dln = math.log(r[1] / r[0])
-    mu = 1.0
-    a = np.exp(-(r**2))
 
-    # This should not raise an error
-    A = fht(a, dln, mu, log_kernel=power_law_log_kernel)
+def test_bessel_kernel_forward():
+    """Test BesselJKernel.forward() computation."""
+    mu = 0.5
+    kernel = BesselJKernel(mu)
 
-    # Check that we got a result of the right shape
-    assert A.shape == a.shape
-    assert np.all(np.isfinite(A))
+    # Test at s=1 (should be in strip of convergence)
+    s = 1.0
+    result = kernel.forward(s)
+
+    # Result should be a scalar
+    assert np.isscalar(result) or result.shape == ()
+    # Result should be finite
+    assert np.isfinite(result)
+
+
+def test_bessel_kernel_vectorized_mu():
+    """Test BesselJKernel with vectorized mu parameter."""
+    mu_vals = np.array([0, 0.5, 1.0])
+    kernel = BesselJKernel(mu_vals)
+
+    # Strip should be vectorized
+    inf, sup = kernel.strip
+    assert_allclose(inf.ravel(), -mu_vals)
+    assert_allclose(sup, 1.5)
+
+    # Forward should work with vectorized mu
+    s = 1.0
+    result = kernel.forward(s)
+    assert result.shape == (3, 1)
+
+
+def test_derivative_kernel():
+    """Test Derivative kernel wrapper."""
+    mu = 0.5
+    base_kernel = BesselJKernel(mu)
+
+    # Create first derivative
+    d_kernel = Derivative(base_kernel, order=1)
+
+    # Strip should be shifted by order
+    inf_base, sup_base = base_kernel.strip
+    inf_d, sup_d = d_kernel.strip
+    assert_allclose(inf_d, inf_base + 1)
+    assert_allclose(sup_d, sup_base + 1)
+
+
+def test_kernel_derive_method():
+    """Test Kernel.derive() method."""
+    mu = 0.5
+    kernel = BesselJKernel(mu)
+
+    # Test order=0 returns self
+    d0_kernel = kernel.derive(0)
+    assert d0_kernel is kernel
+
+    # Test order=1 returns Derivative
+    d1_kernel = kernel.derive(1)
+    assert isinstance(d1_kernel, Derivative)
+    assert d1_kernel.order == 1
+
+    # Test order=2 returns Derivative
+    d2_kernel = kernel.derive(2)
+    assert isinstance(d2_kernel, Derivative)
+    assert d2_kernel.order == 2
+
+
+def test_derivative_invalid_order():
+    """Test that Derivative raises for invalid order."""
+    kernel = BesselJKernel(0.5)
+
+    with pytest.raises(
+        ValueError, match="Expected derivative order to be an integer greater"
+    ):
+        Derivative(kernel, order=0)
+
+    with pytest.raises(
+        ValueError, match="Expected derivative order to be an integer greater"
+    ):
+        Derivative(kernel, order=-1)
+
+
+def test_bessel_kernel_bounds_checking():
+    """Test that BesselJKernel.forward() checks bounds."""
+    mu = 0.5
+    kernel = BesselJKernel(mu)
+
+    # s outside strip should raise
+    with pytest.raises(ValueError, match="Input array outside strip"):
+        kernel.forward(-mu - 1)  # Below lower bound
+
+    with pytest.raises(ValueError, match="Input array outside strip"):
+        kernel.forward(2.0)  # Above upper bound
 
 
 @pytest.mark.parametrize("use_numexpr", [True, False])
-def test_bessel_derivative_kernel_basic(use_numexpr):
-    """Basic test that Bessel derivative kernel works."""
+def test_fftlog_with_derivative_kernel(use_numexpr):
+    """Test FFTLog with derivative kernel."""
     if use_numexpr and not NUMEXPR_AVAILABLE:
         pytest.skip("numexpr not available")
 
-    r = np.logspace(-2, 2, 32)
-    dln = math.log(r[1] / r[0])
-    mu = 1.0
-    a = np.exp(-(r**2))
+    n, dln, mu = 64, 0.1, 0.5
 
-    # Should not raise an error
-    A = fht(
-        a,
-        dln,
-        mu,
-        log_kernel=bessel_derivative_mellin_log_kernel,
-        use_numexpr=use_numexpr,
-    )
+    # Create derivative kernel
+    base_kernel = BesselJKernel(mu)
+    deriv_kernel = base_kernel.derive(1)
 
-    # Check shape and finiteness
-    assert A.shape == a.shape
+    # Create FFTLog with derivative kernel
+    fftlog = FFTLog(n, dln, deriv_kernel, use_numexpr=use_numexpr)
+
+    # Generate test input
+    a = np.exp(-((fftlog.r / 1.0) ** 2))
+
+    # Transform should work
+    A = fftlog.forward(a)
+
+    # Result should have correct shape
+    assert A.shape == (n,)
     assert np.all(np.isfinite(A))
-
-
-@pytest.mark.parametrize("use_numexpr", [True, False])
-def test_axis_parameter_with_kernel(use_numexpr):
-    """Test that the axis parameter works with custom kernels."""
-    if use_numexpr and not NUMEXPR_AVAILABLE:
-        pytest.skip("numexpr not available")
-
-    r = np.logspace(-4, 4, 16)
-    dln = math.log(r[1] / r[0])
-    mu = 0.3
-    a = np.asarray(f(r, mu))
-
-    # Test different axis values
-    for shape, axis in [((1, 16, 1), 1), ((16, 1, 1), 0), ((1, 1, 16), 2)]:
-        a_reshaped = np.reshape(a, shape)
-        A = fht(
-            a_reshaped,
-            dln,
-            mu,
-            axis=axis,
-            log_kernel=bessel_mellin_log_kernel,
-            use_numexpr=use_numexpr,
-        )
-        assert A.shape == shape
