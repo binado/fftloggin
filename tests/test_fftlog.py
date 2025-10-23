@@ -176,23 +176,23 @@ def test_vectorized_grid():
     out = grid.forward(a)
     assert out.shape == r.shape
 
-    # Test 1d mu
-    mu = np.array([0.3]).reshape(1, 1)
+    # Test 1d mu (single batch element)
+    mu = np.array([0.3])
     a = f(r, mu)
     grid = Grid.from_r(
         r, kernel=BesselJKernel(mu, bias=0.0), minimize_ringing=False, logc=0.0
     )
     out = grid.forward(a)
-    assert out.shape == (1, n)
+    assert out.shape == (n,)
 
-    # Test 2d mu
-    mu = np.linspace(0.1, 0.3, 3).reshape(3, 1, 1)
+    # Test 1d mu (multiple batch elements)
+    mu = np.linspace(0.1, 0.3, 3).reshape(-1, 1)
     a = f(r, mu)
     grid = Grid.from_r(
         r, kernel=BesselJKernel(mu, bias=0.0), minimize_ringing=False, logc=0.0
     )
     out = grid.forward(a)
-    assert out.shape == (3, 1, n)
+    assert out.shape == (3, n)
 
 
 @pytest.mark.parametrize("logc", [0.0, 1.0, -1.0])
