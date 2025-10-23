@@ -104,7 +104,7 @@ def compute_kernel_coefficients(
     logc = np.asarray(logc)
     if logc.ndim > 0 and logc.shape[-1] > 1:
         logc = np.expand_dims(logc, axis=-1)
-    return coeffs * np.exp(logc - angle)
+    coeffs = coeffs * np.exp(-angle * logc)
 
 
 class FFTLog:
