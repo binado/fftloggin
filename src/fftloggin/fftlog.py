@@ -207,8 +207,14 @@ class FFTLog:
         self._logc = logc
 
     def _cleanup(self) -> None:
-        del self.logc
-        del self.kernel_coefficients
+        try:
+            del self.logc
+        except AttributeError:
+            pass
+        try:
+            del self.kernel_coefficients
+        except AttributeError:
+            pass
 
     @property
     def kernel(self) -> Kernel:
