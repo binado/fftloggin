@@ -23,7 +23,7 @@ def _forward_hankel_transform(
     na = a.shape[-1]
     # Step 1: bias a by (r_n / r_0)^{-q}
     i = np.arange(na).astype(a.dtype)
-    ic = (na - 1) // 2
+    ic = (na - 1) / 2
     bias_power_law = np.exp(-bias * (i - ic) * dlog)
     a_biased = a * bias_power_law
 
@@ -54,7 +54,7 @@ def _inverse_hankel_transform(
     na = ak.shape[-1]
     # Step 1: bias a by (k_0 r_0)^{q} (k_n / k_0)^{q}
     i = np.arange(na).astype(ak.dtype)
-    ic = (na - 1) // 2
+    ic = (na - 1) / 2
     bias_power_law = np.exp(bias * (i - ic) * dlog)
     ak_biased = ak * bias_power_law * np.exp(bias * logc)
 
@@ -93,6 +93,7 @@ def compute_kernel_coefficients(
     batch dimension of the kernel.
 
     """
+    # Length of real Fourier transform
     ns = n // 2 + 1
     m = np.arange(0, ns)
     angle = 2 * np.pi * m * 1j / (n * dlog)

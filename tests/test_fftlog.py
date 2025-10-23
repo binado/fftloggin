@@ -389,8 +389,9 @@ def test_grid_from_fftlog():
     assert grid.dlog == 0.05
 
     # Check that central r value is 1.0
+    # For even n, central index is half-integer, so check geometric mean
     ic = (128 - 1) // 2
-    assert np.isclose(grid.r[ic], 1.0)
+    assert np.isclose(np.sqrt(grid.r[ic] * grid.r[ic + 1]), 1.0)
 
     # Test transform works
     a = np.exp(-((grid.r / 1.0) ** 2))
