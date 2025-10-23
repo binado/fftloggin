@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy import special
 
-from .utils import append_dims
+from .utils import outer_broadcast
 
 __all__ = (
     "Kernel",
@@ -96,8 +96,8 @@ class Kernel:
         # Strip of convergence applies to the real part of s
         s_real = np.real(s)
         # Reshape inf/sup to have trailing dimensions for proper broadcasting
-        inf = append_dims(inf, s.ndim, where="right")
-        sup = append_dims(sup, s.ndim, where="right")
+        inf, _ = outer_broadcast(inf, s)
+        sup, _ = outer_broadcast(sup, s)
         in_bounds = (s_real >= inf) & (s_real <= sup)
         if not np.all(in_bounds):
             raise ValueError("Input array outside strip of definition of the transform")
@@ -213,8 +213,7 @@ class BesselJKernel(Kernel):
         # Reshape mu and s to enable proper broadcasting: (mu_shape, ..., s_shape)
         if self.mu.ndim > 0 and s.ndim > 0:
             # Add trailing dimensions to mu and leading dimensions to s
-            mu = append_dims(self.mu, s.ndim, where="right")
-            s = append_dims(s, self.mu.ndim, where="left")
+            mu, s = outer_broadcast(self.mu, s)
         else:
             mu = self.mu
         logforward = (
