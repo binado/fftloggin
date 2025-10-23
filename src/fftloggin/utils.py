@@ -44,15 +44,26 @@ def append_dims(
         raise ValueError(f"where must be 'left' or 'right', got {where}")
 
 
+def count_trailing_ones(shape: tuple) -> int:
+    """Count consecutive 1s at the beginning of a shape tuple."""
+    count = 0
+    for dim in shape:
+        if dim == 1:
+            count += 1
+        else:
+            break
+    return count
+
+
 def outer_broadcast(
     left: npt.ArrayLike, right: npt.ArrayLike
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Reshape left and right for outer-product style broadcasting.
 
-    This function reshapes the inputs so that left has trailing singleton
-    dimensions and right has leading singleton dimensions, enabling NumPy's
-    broadcasting rules to produce an outer product-like result.
+    This function reshapes the left operand to have trailing singleton dimensions
+    as needed to align with the right operand. NumPy's broadcasting rules will
+    automatically pad the right operand on the left during operations.
 
     Parameters
     ----------
@@ -64,11 +75,9 @@ def outer_broadcast(
     Returns
     -------
     left_reshaped : ndarray
-        Left with shape (*left.shape, 1, ..., 1) where the number of trailing
-        1s equals right.ndim.
+        Left with trailing singleton dimensions appended as needed.
     right_reshaped : ndarray
-        Right with shape (1, ..., 1, *right.shape) where the number of leading
-        1s equals left.ndim.
+        Right operand (returned unchanged if compatible).
 
     Examples
     --------
@@ -78,21 +87,20 @@ def outer_broadcast(
     >>> left_r.shape
     (3, 1)
     >>> right_r.shape
-    (1, 2)
+    (2,)
     >>> (left_r + right_r).shape
     (3, 2)
     """
     left = np.asarray(left)
     right = np.asarray(right)
 
-    # Save original ndim values before reshaping
-    left_ndim = left.ndim
-    right_ndim = right.ndim
+    # Count existing trailing ones in left
+    n_trailing_ones_left = count_trailing_ones(left.shape[::-1])
+
+    # Only append dimensions we actually need
+    n_dims_to_add_left = max(0, right.ndim - n_trailing_ones_left)
 
     # Reshape left to add trailing singleton dimensions
-    left = append_dims(left, right_ndim, where="right")
-
-    # Reshape right to add leading singleton dimensions
-    right = append_dims(right, left_ndim, where="left")
+    left = append_dims(left, n_dims_to_add_left, where="right")
 
     return left, right
