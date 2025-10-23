@@ -1,10 +1,13 @@
 from . import kernels
-from .fftlog import FFTLog, fht, fhtoffset, ifht
+from .fftlog import FFTLog
+from .grids import Grid
+from .kernels import BesselJKernel, Derivative, Kernel
 
 __all__ = (
     "FFTLog",
-    "fht",
-    "ifht",
-    "fhtoffset",
+    "Grid",
+    "Kernel",
+    "BesselJKernel",
+    "Derivative",
     "kernels",
 )
