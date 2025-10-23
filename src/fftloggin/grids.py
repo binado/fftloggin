@@ -375,7 +375,7 @@ class Grid:
 
         # Create r grid centered at r_center
         i = np.arange(n)
-        ic = (n - 1) // 2
+        ic = (n - 1) / 2
         r = r_center * np.exp((i - ic) * dlog)
 
         # Generate corresponding k array using scipy formula
