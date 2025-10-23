@@ -76,7 +76,7 @@ def optimal_logcenter(kernel: Kernel, dlog: float, bias: float) -> npt.NDArray:
     Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
     """
     s = bias + 1j * np.pi / dlog + 1
-    arg = np.imag(kernel.forward(s))
+    arg = np.imag(np.log(kernel.forward(s)))
     return dlog * arg / np.pi
 
 
