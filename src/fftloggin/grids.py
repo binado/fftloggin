@@ -223,7 +223,6 @@ class Grid:
         cls,
         r: npt.ArrayLike,
         kernel: Kernel,
-        bias: float = 0.0,
         minimize_ringing: bool = True,
         logc: float | None = None,
     ) -> Self:
@@ -235,9 +234,7 @@ class Grid:
         r : array_like
             Input radial coordinates (must be log-spaced).
         kernel : Kernel
-            Mellin transform kernel.
-        bias : float, optional
-            Power-law bias exponent.
+            Mellin transform kernel (should be configured with desired bias parameter).
         minimize_ringing : bool, optional
             Whether to snap logc to low-ringing condition.
         logc : float, optional
@@ -265,7 +262,6 @@ class Grid:
             kernel=kernel,
             n=n,
             dlog=dlog,
-            bias=bias,
             minimize_ringing=minimize_ringing,
             logc=logc if logc is not None else 0.0,
         )
@@ -280,7 +276,6 @@ class Grid:
         cls,
         k: npt.ArrayLike,
         kernel: Kernel,
-        bias: float = 0.0,
         minimize_ringing: bool = True,
         logc: float | None = None,
     ) -> Self:
@@ -295,9 +290,7 @@ class Grid:
         k : array_like
             Output wavenumber coordinates (must be log-spaced).
         kernel : Kernel
-            Mellin transform kernel.
-        bias : float, optional
-            Power-law bias exponent.
+            Mellin transform kernel (should be configured with desired bias parameter).
         minimize_ringing : bool, optional
             Whether to snap logc to low-ringing condition.
         logc : float, optional
@@ -326,7 +319,6 @@ class Grid:
             kernel=kernel,
             n=n,
             dlog=dlog,
-            bias=bias,
             minimize_ringing=minimize_ringing,
             logc=logc if logc is not None else 0.0,
         )

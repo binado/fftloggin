@@ -30,7 +30,7 @@ def test_grid_agrees_with_fftlog():
 
     # Test 1: compute as given
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=False, logc=logc
+        r, kernel=BesselJKernel(mu, bias=bias), minimize_ringing=False, logc=logc
     )
     ours = grid.forward(a)
 
@@ -66,7 +66,7 @@ def test_grid_with_optimal_logc():
 
     # Create grid with optimal logc
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=True, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=bias), minimize_ringing=True, logc=0.0
     )
     ours = grid.forward(a)
 
@@ -101,7 +101,7 @@ def test_grid_with_positive_bias():
     a = np.asarray(f(r, mu))
 
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=True, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=bias), minimize_ringing=True, logc=0.0
     )
     ours = grid.forward(a)
 
@@ -136,7 +136,7 @@ def test_grid_with_negative_bias():
     a = np.asarray(f(r, mu))
 
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=True, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=bias), minimize_ringing=True, logc=0.0
     )
     ours = grid.forward(a)
 
@@ -171,7 +171,7 @@ def test_vectorized_grid():
     mu = 0.3
     a = f(r, mu)
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=0.0), minimize_ringing=False, logc=0.0
     )
     out = grid.forward(a)
     assert out.shape == r.shape
@@ -180,7 +180,7 @@ def test_vectorized_grid():
     mu = np.array([0.3]).reshape(1, 1)
     a = f(r, mu)
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=0.0), minimize_ringing=False, logc=0.0
     )
     out = grid.forward(a)
     assert out.shape == (1, n)
@@ -189,7 +189,7 @@ def test_vectorized_grid():
     mu = np.linspace(0.1, 0.3, 3).reshape(3, 1, 1)
     a = f(r, mu)
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=0.0), minimize_ringing=False, logc=0.0
     )
     out = grid.forward(a)
     assert out.shape == (3, 1, n)
@@ -209,15 +209,14 @@ def test_grid_identity(n, bias, logc):
     # Create grid for forward transform
     r = np.exp(np.arange(n) * dlog_val)
     grid_fwd = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=bias, minimize_ringing=False, logc=logc
+        r, kernel=BesselJKernel(mu, bias=bias), minimize_ringing=False, logc=logc
     )
     A = grid_fwd.forward(a)
 
     # Create grid for inverse transform with same logc
     grid_inv = Grid.from_k(
         grid_fwd.k,
-        kernel=BesselJKernel(mu),
-        bias=bias,
+        kernel=BesselJKernel(mu, bias=bias),
         minimize_ringing=False,
         logc=logc,
     )
@@ -239,28 +238,28 @@ def test_grid_special_cases():
     # case 1: x in M, y in M => well-defined transform
     mu, bias = -4.0, 1.0
     with warnings.catch_warnings(record=True) as record:
-        grid = Grid.from_r(r, kernel=BesselJKernel(mu), bias=bias)
+        grid = Grid.from_r(r, kernel=BesselJKernel(mu, bias=bias))
         grid.forward(a)
         assert not record, "Grid warned about a well-defined transform"
 
     # case 2: x not in M, y in M => well-defined transform
     mu, bias = -2.5, 0.5
     with warnings.catch_warnings(record=True) as record:
-        grid = Grid.from_r(r, kernel=BesselJKernel(mu), bias=bias)
+        grid = Grid.from_r(r, kernel=BesselJKernel(mu, bias=bias))
         grid.forward(a)
         assert not record, "Grid warned about a well-defined transform"
 
     # case 3: x in M, y not in M => singular transform
     mu, bias = -3.5, 0.5
     with pytest.warns(Warning) as record:
-        grid = Grid.from_r(r, kernel=BesselJKernel(mu), bias=bias)
+        grid = Grid.from_r(r, kernel=BesselJKernel(mu, bias=bias))
         grid.forward(a)
         assert record, "Grid did not warn about a singular transform"
 
     # case 4: x not in M, y in M => singular inverse transform
     mu, bias = -2.5, 0.5
     with pytest.warns(Warning) as record:
-        grid = Grid.from_k(r, kernel=BesselJKernel(mu), bias=bias)
+        grid = Grid.from_k(r, kernel=BesselJKernel(mu, bias=bias))
         grid.inverse(a)
         assert record, "Grid did not warn about a singular transform"
 
@@ -282,7 +281,7 @@ def test_grid_exact(n):
     a = np.asarray(r**gamma)
 
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=gamma, minimize_ringing=True, logc=0.0
+        r, kernel=BesselJKernel(mu, bias=gamma), minimize_ringing=True, logc=0.0
     )
     A = grid.forward(a)
 
@@ -318,7 +317,7 @@ def test_gh_21661(n):
     r = np.asarray(r, dtype=one.dtype)
 
     grid = Grid.from_r(
-        r, kernel=BesselJKernel(mu), bias=0.0, minimize_ringing=False, logc=logc
+        r, kernel=BesselJKernel(mu, bias=0.0), minimize_ringing=False, logc=logc
     )
     k = grid.k
 
@@ -381,7 +380,7 @@ def test_grid_from_fftlog():
     """Test Grid.from_fftlog() constructor."""
     from fftloggin import FFTLog
 
-    fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, bias=0.0)
+    fftlog = FFTLog(kernel=BesselJKernel(0, bias=0.0), n=128, dlog=0.05)
     grid = Grid.from_fftlog(fftlog, r_center=1.0)
 
     # Check that grid has correct size

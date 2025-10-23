@@ -123,13 +123,12 @@ class FFTLog:
     Parameters
     ----------
     kernel : Kernel
-        Mellin transform kernel instance (e.g., BesselJKernel).
+        Mellin transform kernel instance (e.g., BesselJKernel). The kernel
+        should be configured with the desired bias parameter.
     n : int
         Number of sampling points.
     dlog : float
         Uniform logarithmic spacing.
-    bias : float, optional
-        Exponent of power law bias (default: 0.0).
     minimize_ringing : bool, optional
         Whether to snap logc to low-ringing condition (default: True).
     logc : float, optional
@@ -138,13 +137,11 @@ class FFTLog:
     Attributes
     ----------
     kernel : Kernel
-        The Mellin transform kernel.
+        The Mellin transform kernel (includes bias parameter).
     n : int
         Number of sampling points.
     dlog : float
         Uniform logarithmic spacing.
-    bias : float
-        Exponent of power law bias.
     minimize_ringing : bool
         Whether logc is snapped to minimize ringing.
     logc : float
@@ -176,8 +173,9 @@ class FFTLog:
     >>> from fftloggin import FFTLog
     >>> from fftloggin.kernels import BesselJKernel
     >>>
-    >>> # Create transform
-    >>> fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05)
+    >>> # Create transform with bias in kernel
+    >>> kernel = BesselJKernel(mu=0, bias=0.0)
+    >>> fftlog = FFTLog(kernel=kernel, n=128, dlog=0.05)
     >>>
     >>> # Transform data (you manage coordinates separately)
     >>> a = np.random.randn(128)
@@ -199,14 +197,12 @@ class FFTLog:
         kernel: Kernel,
         n: int,
         dlog: float,
-        bias: float = 0.0,
         minimize_ringing: bool = True,
         logc: float = 1,
     ) -> None:
         self._kernel = kernel
         self._n = n
         self._dlog = dlog
-        self._bias = bias
         self._minimize_ringing = minimize_ringing
         self._logc = logc
 
@@ -243,11 +239,11 @@ class FFTLog:
 
     @property
     def bias(self) -> float:
-        return self._bias
+        return self.kernel.bias
 
     @bias.setter
     def bias(self, other: float):
-        self._bias = other
+        self.kernel.bias = other
         self._cleanup()
 
     @property
@@ -286,9 +282,7 @@ class FFTLog:
         )
 
     @classmethod
-    def from_array(
-        cls, a: npt.ArrayLike, kernel: Kernel, bias: float = 0.0, axis: int = -1
-    ) -> "FFTLog":
+    def from_array(cls, a: npt.ArrayLike, kernel: Kernel, axis: int = -1) -> "FFTLog":
         log_a = np.log(a)
         n = log_a.shape[axis]
         if n < 2:
@@ -300,7 +294,7 @@ class FFTLog:
         if not np.allclose(dlog_arr, dlog):
             raise ValueError("Expected array with even log-spacing")
 
-        return cls(kernel, n, dlog, bias=bias)
+        return cls(kernel, n, dlog, bias=kernel.bias)
 
     def optimal_logcenter(self) -> npt.NDArray:
         """
