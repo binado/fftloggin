@@ -152,10 +152,8 @@ class Derivative(Kernel):
 
         self.order = order
 
-    @property
-    def strip(self) -> tuple[float, float]:
-        inf, sup = self.transform.strip
-        return (inf + self.order, sup + self.order)
+    def shift(self, s: npt.ArrayLike) -> npt.NDArray:
+        return super().shift(s) - self.order
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
