@@ -215,7 +215,7 @@ class BesselJKernel(Kernel):
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
         """Strip of convergence: (-μ, 1.5)."""
-        return (-self.mu, 1.5)
+        return (-self.mu, 1.5 * np.ones_like(self.mu))
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
