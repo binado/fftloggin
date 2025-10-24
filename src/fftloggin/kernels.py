@@ -231,13 +231,12 @@ class BesselJKernel(Kernel):
             mu, s = outer_broadcast(self.mu, s)
         else:
             mu = self.mu
-        forward = (
+        logforward = (
             LOG_2 * (s - 1)
             + special.loggamma(0.5 * (mu + s))
             - special.loggamma(0.5 * (mu + 2 - s))
         )
-        np.exp(forward, out=forward)
-        return forward
+        return np.exp(logforward)
 
 
 class SphericalBesselJKernel(BesselJKernel):
