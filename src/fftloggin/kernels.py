@@ -160,8 +160,9 @@ class Derivative(Kernel):
         sign = 1 - 2 * (self.order % 2)
         return (
             sign
-            * special.poch(s - self.order, self.order)
-            * self.transform.forward(s - self.order)
+            * special.gamma(s)
+            * special.rgamma(s - self.order)
+            * self.transform._forward(s - self.order)
         )
 
 
