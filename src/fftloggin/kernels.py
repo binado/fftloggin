@@ -205,6 +205,12 @@ class BesselJKernel(Kernel):
     def __init__(self, mu: npt.ArrayLike, bias: float = 0.0) -> None:
         super().__init__(bias=bias)
         self.mu = np.asarray(mu)
+        if not self._check_bounds(1):
+            low, high = self.strip
+            low_sup, high_inf = np.asarray(low).max(), np.asarray(high).min()
+            raise ValueError(
+                f"bias - order + 1 should be in [{low_sup:.1f}, {high_inf:.1f}]"
+            )
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
