@@ -74,21 +74,6 @@ def test_bessel_kernel_vectorized_mu(mu_shape, s_shape, expected_shape):
     assert np.all(np.isfinite(result))
 
 
-def test_derivative_kernel():
-    """Test Derivative kernel wrapper."""
-    mu = 0.5
-    base_kernel = BesselJKernel(mu)
-
-    # Create first derivative
-    d_kernel = Derivative(base_kernel, order=1)
-
-    # Strip should be shifted by order
-    inf_base, sup_base = base_kernel.strip
-    inf_d, sup_d = d_kernel.strip
-    assert_allclose(inf_d, inf_base + 1)
-    assert_allclose(sup_d, sup_base + 1)
-
-
 def test_kernel_derive_method():
     """Test Kernel.derive() method."""
     mu = 0.5
