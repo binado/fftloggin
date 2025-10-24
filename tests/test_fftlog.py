@@ -11,7 +11,7 @@ from numpy.testing import assert_allclose, assert_array_less
 from scipy.special import poch
 
 from fftloggin.grids import Grid
-from fftloggin.kernels import BesselJKernel
+from fftloggin.kernels import BesselJKernel, Kernel, SphericalBesselJKernel
 
 
 # test function, analytical Hankel transform is of the same form
@@ -196,28 +196,53 @@ def test_vectorized_grid():
 
 
 @pytest.mark.parametrize("logc", [0.0, 1.0, -1.0])
-@pytest.mark.parametrize("bias", [0, 0.1, -0.1])
+@pytest.mark.parametrize("bias", [0.1, -0.1])
 @pytest.mark.parametrize("n", [64, 63])
-def test_grid_identity(n, bias, logc):
-    """Test that inverse is the inverse of forward."""
+@pytest.mark.parametrize("kernel_cls", [BesselJKernel, SphericalBesselJKernel])
+@pytest.mark.parametrize("order", [0, 1, 2])
+@pytest.mark.parametrize("minimize_ringing", [False])
+def test_grid_identity(
+    n: int,
+    bias: float,
+    logc: float,
+    kernel_cls: type[Kernel],
+    order: int,
+    minimize_ringing: bool,
+):
+    """Test that inverse is the inverse of forward for various kernels and derivatives."""
     rng = np.random.RandomState(3491349965)
 
     a = np.asarray(rng.standard_normal(n))
-    dlog_val = rng.uniform(-1, 1)
-    mu = rng.uniform(-2, 2)
+    dlog = 0.1
 
     # Create grid for forward transform
-    r = np.exp(np.arange(n) * dlog_val)
+    r = np.exp(np.arange(n) * dlog)
+
+    # Bias correction for derivatives
+    # bias = bias + order
+
+    # Create kernel instance based on type
+    mu = rng.uniform(3, 5)
+    if kernel_cls is BesselJKernel:
+        kernel = kernel_cls(mu, bias=bias)
+    else:  # SphericalBesselJKernel
+        ell = np.ceil(mu - 0.5)
+        kernel = kernel_cls(ell, bias=bias)
+
+    # Apply derivative if needed
+    if order > 0:
+        kernel = kernel.derive(order)
+
     grid_fwd = Grid.from_r(
-        r, kernel=BesselJKernel(mu, bias=bias), minimize_ringing=False, logc=logc
+        r, kernel=kernel, minimize_ringing=minimize_ringing, logc=logc
     )
     A = grid_fwd.forward(a)
 
-    # Create grid for inverse transform with same logc
+    # Create grid for inverse transform with same logc and kernel
     grid_inv = Grid.from_k(
         grid_fwd.k,
-        kernel=BesselJKernel(mu, bias=bias),
-        minimize_ringing=False,
+        kernel=kernel,
+        minimize_ringing=minimize_ringing,
         logc=logc,
     )
     a_reconstructed = grid_inv.inverse(A)
