@@ -224,15 +224,16 @@ class BesselJKernel(Kernel):
         Implementation uses log-gamma for numerical stability.
         """
         s = np.asarray(s)
-        # Reshape mu and s to enable proper broadcasting: (mu_shape, ..., s_shape)
+        # Reshape mu and s to enable proper broadcasting
         if self.mu.ndim > 0 and s.ndim > 0:
-            # Add trailing dimensions to mu and leading dimensions to s
+            # Add trailing dimensions to mu
             mu, s = outer_broadcast(self.mu, s)
         else:
             mu = self.mu
-        logforward = (
+        forward = (
             LOG_2 * (s - 1)
             + special.loggamma(0.5 * (mu + s))
             - special.loggamma(0.5 * (mu + 2 - s))
         )
-        return np.exp(logforward)
+        np.exp(forward, out=forward)
+        return forward
