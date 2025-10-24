@@ -18,6 +18,7 @@ __all__ = (
 )
 
 LOG_2 = np.log(2)
+SQRT_PI_OVER_2 = np.sqrt(np.pi / 2)
 
 
 class Kernel:
@@ -237,3 +238,12 @@ class BesselJKernel(Kernel):
         )
         np.exp(forward, out=forward)
         return forward
+
+
+class SphericalBesselJKernel(BesselJKernel):
+    def __init__(self, ell: npt.ArrayLike, bias: float = 0) -> None:
+        mu = np.asarray(ell) + 0.5
+        super().__init__(mu, bias - 0.5)
+
+    def _forward(self, s: npt.ArrayLike) -> np.ndarray:
+        return super()._forward(s) * SQRT_PI_OVER_2
