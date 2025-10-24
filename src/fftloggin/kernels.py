@@ -44,6 +44,9 @@ class Kernel:
     def __init__(self, bias: float = 0.0) -> None:
         self.bias = bias
 
+    def shift(self, s: npt.ArrayLike) -> npt.NDArray:
+        return np.asarray(s) + self.bias
+
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
         """
@@ -72,6 +75,17 @@ class Kernel:
         """
         raise NotImplementedError
 
+    def _check_bounds(self, s: npt.ArrayLike) -> bool:
+        s_shifted = self.shift(s)
+        inf, sup = self.strip
+        # Strip of convergence applies to the real part of s
+        s_shifted_real = np.real(s_shifted)
+        # Reshape inf/sup to have trailing dimensions for proper broadcasting
+        inf, _ = outer_broadcast(inf, s)
+        sup, _ = outer_broadcast(sup, s)
+        in_bounds = (s_shifted_real >= inf) & (s_shifted_real <= sup)
+        return bool(np.all(in_bounds))
+
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
         Compute the Mellin transform at s with bounds checking.
@@ -91,18 +105,13 @@ class Kernel:
         ValueError
             If s is outside the strip of convergence.
         """
-        s = np.asarray(s)
-        inf, sup = self.strip
-        # Strip of convergence applies to the real part of s
-        s_real = np.real(s)
-        # Reshape inf/sup to have trailing dimensions for proper broadcasting
-        inf, _ = outer_broadcast(inf, s)
-        sup, _ = outer_broadcast(sup, s)
-        in_bounds = (s_real >= inf) & (s_real <= sup)
-        if not np.all(in_bounds):
+        in_bounds = self._check_bounds(s)
+        if not in_bounds:
             raise ValueError("Input array outside strip of definition of the transform")
 
-        return self._forward(s)
+        # Shift s with value of bias
+        s = np.asarray(s)
+        return self._forward(s + self.bias)
 
     def derive(self, order: int = 1) -> "Kernel":
         """
