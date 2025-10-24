@@ -54,7 +54,7 @@ class Kernel:
         tuple[ArrayLike, ArrayLike]
             Lower and upper bounds of the strip in the complex plane.
         """
-        raise NotImplementedError
+        return (-np.inf, np.inf)
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
