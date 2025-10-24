@@ -71,17 +71,17 @@ def _inverse_hankel_transform(
     return a
 
 
-def optimal_logcenter(kernel: Kernel, dlog: float, bias: float) -> npt.NDArray:
+def optimal_logcenter(kernel: Kernel, dlog: float) -> npt.NDArray:
     """
     Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
     """
-    s = bias + 1j * np.pi / dlog + 1
+    s = 1j * np.pi / dlog + 1
     arg = np.imag(np.log(kernel.forward(s)))
     return dlog * arg / np.pi
 
 
 def compute_kernel_coefficients(
-    kernel: Kernel, n: int, logc: npt.ArrayLike, dlog: float, bias: float
+    kernel: Kernel, n: int, logc: npt.ArrayLike, dlog: float
 ):
     """
     Implements Eq.(18) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
@@ -97,8 +97,9 @@ def compute_kernel_coefficients(
     ns = n // 2 + 1
     m = np.arange(0, ns)
     angle = 2 * np.pi * m * 1j / (n * dlog)
-    s = bias + angle + 1
+    s = angle + 1
     coeffs = kernel.forward(s)
+    logc = np.asarray(logc)
     coeffs = coeffs * np.exp(-angle * logc)
     # Handle Nyquist frequency for even n
     if n % 2 == 0:
@@ -278,9 +279,7 @@ class FFTLog:
         batch dimension of the kernel.
 
         """
-        return compute_kernel_coefficients(
-            self.kernel, self.n, self.logc, self.dlog, self.bias
-        )
+        return compute_kernel_coefficients(self.kernel, self.n, self.logc, self.dlog)
 
     @classmethod
     def from_array(cls, a: npt.ArrayLike, kernel: Kernel, axis: int = -1) -> "FFTLog":
@@ -295,13 +294,13 @@ class FFTLog:
         if not np.allclose(dlog_arr, dlog):
             raise ValueError("Expected array with even log-spacing")
 
-        return cls(kernel, n, dlog, bias=kernel.bias)
+        return cls(kernel, n, dlog)
 
     def optimal_logcenter(self) -> npt.NDArray:
         """
         Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
         """
-        return optimal_logcenter(self.kernel, self.dlog, self.bias)
+        return optimal_logcenter(self.kernel, self.dlog)
 
     def shift_logcenter(self, logc: npt.ArrayLike) -> npt.NDArray:
         logc = np.asarray(logc)
