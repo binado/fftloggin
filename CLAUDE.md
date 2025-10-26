@@ -11,18 +11,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Testing
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run tests with numexpr support (requires numexpr to be installed)
-pytest tests/
+uv run pytest tests/
 
 # Run specific test file
-pytest tests/test_fftlog.py
-pytest tests/test_fftlog_class.py
-pytest tests/test_kernels.py
+uv run pytest tests/test_fftlog.py
+uv run pytest tests/test_fftlog_class.py
+uv run pytest tests/test_kernels.py
 
 # Run tests with verbose output
-pytest -v
+uv run pytest -v
 ```
 
 ### Dependencies
@@ -71,8 +71,8 @@ ruff format .
 - `Grid` class: Combines coordinates (r, k), transform algorithm (FFTLog), and data storage (ar, ak)
 - Stateful API: stores input/output data in `.ar` and `.ak` properties
 - Factory methods: `from_r()`, `from_k()`, `from_fftlog()`
-- Helper functions: `infer_dlog()`, `corresponding_k()`, `corresponding_r()`
-- Follows scipy convention: k = exp(logc) / r[::-1]
+- Helper functions: `infer_dlog()`, `infer_logc()`, `get_other_array()`
+- Follows scipy convention: y = exp(logc) / x[::-1]
 
 ### Design Philosophy
 
