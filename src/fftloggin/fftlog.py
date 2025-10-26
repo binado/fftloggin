@@ -4,6 +4,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.fft import irfft, rfft
 
+from .grids import Grid
 from .kernels import Kernel
 
 LN_2 = np.log(2)
@@ -282,19 +283,102 @@ class FFTLog:
         return compute_kernel_coefficients(self.kernel, self.n, self.logc, self.dlog)
 
     @classmethod
-    def from_array(cls, a: npt.ArrayLike, kernel: Kernel, axis: int = -1) -> "FFTLog":
-        log_a = np.log(a)
-        n = log_a.shape[axis]
-        if n < 2:
-            raise ValueError(
-                f"Expected array to have at least two points in axis {axis}"
-            )
-        dlog = log_a[1] - log_a[0]
-        dlog_arr = np.diff(log_a)
-        if not np.allclose(dlog_arr, dlog):
-            raise ValueError("Expected array with even log-spacing")
+    def from_array(
+        cls,
+        x: npt.ArrayLike,
+        kernel: Kernel,
+        logc: float = 0.0,
+        minimize_ringing: bool = True,
+    ) -> "FFTLog":
+        """
+        Create FFTLog instance from a log-spaced coordinate array.
 
-        return cls(kernel, n, dlog)
+        Parameters
+        ----------
+        x : array_like
+            Log-spaced coordinate array (1D).
+        kernel : Kernel
+            Mellin transform kernel.
+        logc : float, optional
+            Log-center parameter. Default is 0.0.
+        minimize_ringing : bool, optional
+            Whether to snap logc to minimize ringing. Default is True.
+
+        Returns
+        -------
+        FFTLog
+            Configured FFTLog instance.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from fftloggin.fftlog import FFTLog
+        >>> from fftloggin.kernels import BesselJKernel
+        >>> r = np.logspace(-2, 2, 128)
+        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+        """
+        from .grids import infer_dlog
+
+        x = np.asarray(x)
+        n = len(x)
+        dlog = infer_dlog(x)
+
+        return cls(kernel, n, dlog, minimize_ringing=minimize_ringing, logc=logc)
+
+    def create_grid(
+        self,
+        r: npt.ArrayLike | None = None,
+        k: npt.ArrayLike | None = None,
+    ) -> Grid:
+        """
+        Create a Grid from one coordinate array using the FFTLog logc parameter.
+
+        Exactly one of r or k must be provided. The other coordinate array
+        is computed using get_other_array() with the FFTLog instance's logc.
+
+        Parameters
+        ----------
+        r : array_like, optional
+            Input radial coordinates. If provided, k is computed.
+        k : array_like, optional
+            Output wavenumber coordinates. If provided, r is computed.
+
+        Returns
+        -------
+        Grid
+            Configured Grid with both r and k arrays.
+
+        Raises
+        ------
+        ValueError
+            If neither r nor k is provided, or if both are provided.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from fftloggin.fftlog import FFTLog
+        >>> from fftloggin.kernels import BesselJKernel
+        >>> r = np.logspace(-2, 2, 128)
+        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+        >>> grid = fftlog.create_grid(r=r)
+        >>> print(grid.k[0])  # First k value
+        """
+        from .grids import Grid, get_other_array
+
+        if (r is None and k is None) or (r is not None and k is not None):
+            raise ValueError(
+                "Exactly one of 'r' or 'k' must be provided. "
+                f"Got r={r is not None}, k={k is not None}"
+            )
+
+        if r is not None:
+            r_arr = np.asarray(r)
+            k_arr = get_other_array(r_arr, self.logc)
+            return Grid(r_arr, k_arr)
+        else:
+            k_arr = np.asarray(k)
+            r_arr = get_other_array(k_arr, self.logc)
+            return Grid(r_arr, k_arr)
 
     def optimal_logcenter(self) -> npt.NDArray:
         """
