@@ -59,7 +59,7 @@ def infer_dlog(x: npt.ArrayLike) -> float:
 
 def get_other_array(
     x: npt.ArrayLike,
-    logc: float,
+    logc: npt.ArrayLike,
 ) -> np.ndarray:
     """
     Compute the corresponding coordinate array given one coordinate array and logc.
