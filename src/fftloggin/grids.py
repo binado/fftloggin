@@ -39,7 +39,7 @@ def infer_dlog(x: npt.ArrayLike) -> float:
     0.031762
     """
     x = np.asarray(x)
-    if len(x) < 2:
+    if x.shape[-1] < 2:
         raise ValueError("Array must have at least 2 elements")
 
     log_x = np.log(x)
@@ -248,16 +248,17 @@ class Grid:
         self.k = np.asarray(k)
 
         # Validate that arrays have the same length
-        if len(self.r) != len(self.k):
+        nr = self.r.shape[-1]
+        nk = self.r.shape[-1]
+        if nr != nk:
             raise ValueError(
-                f"r and k arrays must have the same length. "
-                f"Got r={len(self.r)}, k={len(self.k)}"
+                f"r and k arrays must have the same length. Got r={nr}, k={nk}"
             )
 
     @property
     def n(self) -> int:
         """Number of sampling points."""
-        return len(self.r)
+        return self.r.shape[-1]
 
     @property
     def dlog(self) -> float:
