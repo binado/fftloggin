@@ -5,13 +5,11 @@ This module provides the Grid class for managing log-spaced coordinate arrays,
 along with helper functions for coordinate transformations.
 """
 
-from typing import Self
-
 import numpy as np
 import numpy.typing as npt
 
 
-def infer_dlog(x: npt.ArrayLike) -> float:
+def infer_dlog(x: npt.ArrayLike, rtol: float = 1e-5) -> npt.NDArray:
     """
     Infer logarithmic spacing from array.
 
@@ -19,10 +17,12 @@ def infer_dlog(x: npt.ArrayLike) -> float:
     ----------
     x : array_like
         Logarithmically-spaced array.
+    rtol : float, optional
+        Relative tolerance for checking uniform spacing. Default is 1e-5.
 
     Returns
     -------
-    dlog : float
+    dlog : ndarray
         Uniform logarithmic spacing: dlog = log(x[1]/x[0])
 
     Raises
@@ -36,25 +36,40 @@ def infer_dlog(x: npt.ArrayLike) -> float:
     >>> r = np.logspace(-2, 2, 128)
     >>> dlog = infer_dlog(r)
     >>> print(f"{dlog:.6f}")
-    0.031762
+    0.072522
     """
     x = np.asarray(x)
-    if x.shape[-1] < 2:
-        raise ValueError("Array must have at least 2 elements")
+    dlog = np.log(x[..., -1] / x[..., 0]) / (x.shape[-1] - 1)
+    dlog_arr = np.diff(np.log(x))
+    batch_shape = dlog_arr.shape[:-1]
+    dlog_broadcast = dlog.reshape(*batch_shape, 1)
 
-    log_x = np.log(x)
-    dlog = log_x[1] - log_x[0]
-    dlog_arr = np.diff(log_x)
-
-    rtol = 1e-5
-    if not np.allclose(dlog_arr, dlog, rtol=rtol):
+    if not np.allclose(dlog_arr, dlog_broadcast, rtol=rtol):
         raise ValueError(
             f"Array is not uniformly log-spaced. "
             f"Expected spacing: {dlog:.6f}, "
             f"got range: [{dlog_arr.min():.6f}, {dlog_arr.max():.6f}]"
         )
 
-    return float(dlog)
+    return dlog
+
+
+def get_array_center(x: npt.ArrayLike):
+    """
+    Compute the geometric center of a log-spaced array.
+
+    Parameters
+    ----------
+    x : array_like
+        Log-spaced array.
+
+    Returns
+    -------
+    center : ndarray
+        Geometric center: sqrt(x_min * x_max)
+    """
+    x = np.asarray(x)
+    return np.sqrt(x[..., 0] * x[..., -1])
 
 
 def get_other_array(
@@ -77,8 +92,9 @@ def get_other_array(
     ----------
     x : array_like
         Input log-spaced coordinate array.
-    logc : float
+    logc : array_like
         Log-center parameter: log(y_c * x_c). In scipy, this was called 'offset'.
+        Can be a scalar or array for batch operations.
 
     Returns
     -------
@@ -97,16 +113,16 @@ def get_other_array(
     """
     x = np.asarray(x)
     # Symmetric formula: y = exp(logc) / x[::-1]
-    return np.exp(logc) / x[::-1]
+    return np.exp(logc) / x[..., ::-1]
 
 
 def infer_logc(
     x: npt.ArrayLike,
-    logc: float | None = None,
-    ycenter: float | None = None,
-    ymax: float | None = None,
-    ymin: float | None = None,
-) -> float:
+    logc: npt.ArrayLike | None = None,
+    ycenter: npt.ArrayLike | None = None,
+    ymax: npt.ArrayLike | None = None,
+    ymin: npt.ArrayLike | None = None,
+) -> npt.NDArray:
     """
     Infer log-center parameter from coordinate array and one of several convenience arguments.
 
@@ -122,18 +138,22 @@ def infer_logc(
     ----------
     x : array_like
         Log-spaced coordinate array.
-    logc : float, optional
+    logc : array_like, optional
         Log-center parameter: log(y_c * x_c). Use directly if provided.
-    ycenter : float, optional
+        Can be a scalar or array for batch operations.
+    ycenter : array_like, optional
         Central y value. Converts to logc using x_center = sqrt(x_min * x_max).
-    ymax : float, optional
+        Can be a scalar or array for batch operations.
+    ymax : array_like, optional
         Maximum y value. Converts to logc using y_max * x_min = exp(logc).
-    ymin : float, optional
+        Can be a scalar or array for batch operations.
+    ymin : array_like, optional
         Minimum y value. Converts to logc using y_min * x_max = exp(logc).
+        Can be a scalar or array for batch operations.
 
     Returns
     -------
-    logc : float
+    logc : ndarray
         The log-center parameter.
 
     Raises
@@ -158,18 +178,18 @@ def infer_logc(
     >>> logc3 = infer_logc(r, ymax=100.0)
     """
     x = np.asarray(x)
-    x_min = x.min()
-    x_max = x.max()
-    x_center = np.sqrt(x_min * x_max)
+    xmin = x[..., 0]
+    xmax = x[..., -1]
+    xcenter = np.sqrt(xmin * xmax)
 
     if logc is not None:
-        return float(logc)
+        return np.asarray(logc)
     elif ycenter is not None:
-        return float(np.log(ycenter * x_center))
+        return np.asarray(np.log(ycenter * xcenter))
     elif ymax is not None:
-        return float(np.log(ymax * x_min))
+        return np.asarray(np.log(ymax * xmin))
     elif ymin is not None:
-        return float(np.log(ymin * x_max))
+        return np.asarray(np.log(ymin * xmax))
     else:
         raise ValueError(
             "One of 'logc', 'ycenter', 'ymax', or 'ymin' must be provided. "
@@ -195,13 +215,13 @@ class Grid:
         Output wavenumber coordinates (log-spaced).
     n : int
         Number of points.
-    dlog : float
+    dlog : ndarray
         Logarithmic spacing.
-    logc : float
+    logc : ndarray
         Log-center parameter: log(k_c * r_c).
-    rcenter : float
+    rcenter : ndarray
         Central r value: sqrt(r_min * r_max).
-    kcenter : float
+    kcenter : ndarray
         Central k value: sqrt(k_min * k_max).
 
     Examples
@@ -222,11 +242,14 @@ class Grid:
     >>> grid = fftlog.create_grid(r=r)
 
     >>> # Access grid properties
-    >>> print(grid.n)       # Number of points
-    >>> print(grid.dlog)    # Log spacing
-    >>> print(grid.logc)    # Log-center parameter
-    >>> print(grid.rcenter) # Central r value
-    >>> print(grid.kcenter) # Central k value
+    >>> grid.n
+    128
+    >>> f"{grid.dlog:.6f}"
+    '0.072522'
+    >>> f"{grid.rcenter:.1f}"
+    '1.0'
+    >>> isinstance(grid.kcenter, (float, np.floating))
+    True
     """
 
     def __init__(
@@ -244,54 +267,76 @@ class Grid:
         k : array_like
             Output wavenumber coordinates (must be log-spaced).
         """
-        self.r = np.asarray(r)
-        self.k = np.asarray(k)
+        self._setup(r, k)
+
+    def _setup(self, r: npt.ArrayLike, k: npt.ArrayLike):
+        self._r = np.asarray(r)
+        self._k = np.asarray(k)
 
         # Validate that arrays have the same length
-        nr = self.r.shape[-1]
-        nk = self.r.shape[-1]
+        nr = self._r.shape[-1]
+        nk = self._k.shape[-1]
         if nr != nk:
             raise ValueError(
                 f"r and k arrays must have the same length. Got r={nr}, k={nk}"
             )
+        if nr < 2:
+            raise ValueError("r and k arrays must have at least 2 elements")
+        self._n = nr
+
+        # Validate that arrays are log-spaced
+        dlog_r = infer_dlog(self._r)
+        dlog_k = infer_dlog(self._k)
+        if not np.allclose(dlog_r, dlog_k):
+            raise ValueError("r and k arrays must have the same log-spacing")
+
+        self._dlog = dlog_r
+        self._rcenter = np.sqrt(self._r[..., 0] * self._r[..., -1])
+        self._kcenter = np.sqrt(self._k[..., 0] * self._k[..., -1])
+        self._logc = np.log(self._rcenter * self._kcenter)
+
+    @property
+    def r(self) -> npt.NDArray:
+        return self._r
+
+    @r.setter
+    def r(self, other: npt.ArrayLike) -> None:
+        k = get_other_array(other, self.logc)
+        self._setup(other, k)
+
+    @property
+    def k(self) -> npt.NDArray:
+        return self._k
+
+    @k.setter
+    def k(self, other: npt.ArrayLike) -> None:
+        r = get_other_array(other, self.logc)
+        self._setup(r, other)
 
     @property
     def n(self) -> int:
         """Number of sampling points."""
-        return self.r.shape[-1]
+        return self._n
 
     @property
-    def dlog(self) -> float:
+    def dlog(self) -> npt.NDArray:
         """Logarithmic spacing."""
-        return infer_dlog(self.r)
+        return self._dlog
 
     @property
-    def logc(self) -> float:
+    def logc(self) -> npt.NDArray:
         """Log-center parameter: log(k_c * r_c)."""
-        r_center = self.rcenter
-        k_center = self.kcenter
-        return float(np.log(k_center * r_center))
+        return self._logc
 
     @property
-    def rcenter(self) -> float:
+    def rcenter(self) -> npt.NDArray:
         """Central r value: sqrt(r_min * r_max)."""
-        return float(np.sqrt(self.r.min() * self.r.max()))
+        return self._rcenter
 
     @property
-    def kcenter(self) -> float:
+    def kcenter(self) -> npt.NDArray:
         """Central k value: sqrt(k_min * k_max)."""
-        return float(np.sqrt(self.k.min() * self.k.max()))
-
-    def copy(self) -> Self:
-        """
-        Create a copy of this Grid.
-
-        Returns
-        -------
-        Grid
-            New Grid instance with copied coordinate arrays.
-        """
-        return Grid(self.r.copy(), self.k.copy())
+        return self._kcenter
 
     def __repr__(self) -> str:
         return (
