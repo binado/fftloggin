@@ -2,11 +2,13 @@
 Tests for Mellin transform kernel classes.
 """
 
+from contextlib import nullcontext
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin.kernels import BesselJKernel, Derivative
+from fftloggin.kernels import BesselJKernel, Derivative, SphericalBesselJKernel
 
 
 def test_bessel_kernel_strip():
@@ -20,19 +22,16 @@ def test_bessel_kernel_strip():
     assert_allclose(sup, 1.5)
 
 
-def test_bessel_kernel_forward():
-    """Test BesselJKernel.forward() computation."""
-    mu = 0.5
-    kernel = BesselJKernel(mu)
+def test_spherical_bessel_kernel_strip():
+    """Test that SphericalBesselJKernel has correct strip of convergence."""
+    ell = 1
+    kernel = SphericalBesselJKernel(ell)
 
-    # Test at s=1 (should be in strip of convergence)
-    s = 1.0
-    result = kernel.forward(s)
-
-    # Result should be a scalar
-    assert np.isscalar(result) or result.shape == ()
-    # Result should be finite
-    assert np.isfinite(result)
+    # Strip should be (-mu, 1.5)
+    mu = ell + 0.5
+    inf, sup = kernel.strip
+    assert_allclose(inf, -mu)
+    assert_allclose(sup, 1.5)
 
 
 @pytest.mark.parametrize(
@@ -109,17 +108,51 @@ def test_derivative_invalid_order():
         Derivative(kernel, order=-1)
 
 
-def test_bessel_kernel_bounds_checking():
-    """Test that BesselJKernel.forward() checks bounds."""
-    mu = 0.5
+@pytest.mark.parametrize("mu", [-1, 1, 5, 10])
+@pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
+@pytest.mark.parametrize("order", [0, 1, 2])
+def test_bessel_kernel_bounds_checking(mu: float, s: complex | float, order: int):
+    """Test that BesselJKernel.forward() correctly checks bounds."""
     kernel = BesselJKernel(mu, check_bounds=True)
+    sr = s.real if isinstance(s, complex) else s
+    if order > 0:
+        kernel = kernel.derive(order)
+
+    is_in_strip = (sr - order >= -mu) & (sr - order <= 1.5)
 
     # s outside strip should raise
-    with pytest.raises(ValueError, match="Input array outside strip"):
-        kernel.forward(-mu - 1)  # Below lower bound
+    context = (
+        nullcontext()
+        if is_in_strip
+        else pytest.raises(ValueError, match="Input array outside strip")
+    )
+    with context:
+        kernel.forward(s)
 
-    with pytest.raises(ValueError, match="Input array outside strip"):
-        kernel.forward(2.0)  # Above upper bound
+
+@pytest.mark.parametrize("ell", [1, 5, 10])
+@pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
+@pytest.mark.parametrize("order", [0, 1, 2])
+def test_spherical_bessel_kernel_bounds_checking(
+    ell: float, s: complex | float, order: int
+):
+    """Test that SphericalBesselJKernel.forward() correctly checks bounds."""
+    kernel = SphericalBesselJKernel(ell, check_bounds=True)
+    if order > 0:
+        kernel = kernel.derive(order)
+
+    sr = s.real if isinstance(s, complex) else s
+    mu = ell + 0.5
+    is_in_strip = (sr - order + 0.5 >= -mu) & (sr - order + 0.5 <= 1.5)
+
+    # s outside strip should raise
+    context = (
+        nullcontext()
+        if is_in_strip
+        else pytest.raises(ValueError, match="Input array outside strip")
+    )
+    with context:
+        kernel.forward(s)
 
 
 def test_bessel_kernel_skips_bounds_checking():
@@ -130,4 +163,15 @@ def test_bessel_kernel_skips_bounds_checking():
     # s outside strip should not raise
     kernel.forward(-mu - 1)  # Below lower bound
 
+    kernel.forward(2.0)  # Above upper bound
+
+
+def test_spherical_bessel_kernel_skips_bounds_checking():
+    """Test that BesselJKernel.forward() skips bounds checking."""
+    ell = 1
+    kernel = SphericalBesselJKernel(ell, check_bounds=False)
+
+    # s outside strip should not raise
+    mu = ell + 0.5
+    kernel.forward(-mu - 1)  # Below lower bound
     kernel.forward(2.0)  # Above upper bound
