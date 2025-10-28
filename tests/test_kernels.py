@@ -112,7 +112,7 @@ def test_derivative_invalid_order():
 def test_bessel_kernel_bounds_checking():
     """Test that BesselJKernel.forward() checks bounds."""
     mu = 0.5
-    kernel = BesselJKernel(mu)
+    kernel = BesselJKernel(mu, check_bounds=True)
 
     # s outside strip should raise
     with pytest.raises(ValueError, match="Input array outside strip"):
@@ -120,3 +120,14 @@ def test_bessel_kernel_bounds_checking():
 
     with pytest.raises(ValueError, match="Input array outside strip"):
         kernel.forward(2.0)  # Above upper bound
+
+
+def test_bessel_kernel_skips_bounds_checking():
+    """Test that BesselJKernel.forward() skips bounds checking."""
+    mu = 0.5
+    kernel = BesselJKernel(mu, check_bounds=False)
+
+    # s outside strip should not raise
+    kernel.forward(-mu - 1)  # Below lower bound
+
+    kernel.forward(2.0)  # Above upper bound
