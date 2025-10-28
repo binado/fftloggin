@@ -200,10 +200,6 @@ class BesselJKernel(Kernel):
     def __init__(self, mu: npt.ArrayLike, check_bounds: bool = True) -> None:
         super().__init__(check_bounds=check_bounds)
         self.mu = np.asarray(mu)
-        if self.check_bounds and not self._is_in_strip(1):
-            low, high = self.strip
-            low_sup, high_inf = np.asarray(low).max(), np.asarray(high).min()
-            raise ValueError(f"1 should be in [{low_sup:.1f}, {high_inf:.1f}]")
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
