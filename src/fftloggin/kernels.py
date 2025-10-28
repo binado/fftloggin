@@ -84,7 +84,7 @@ class Kernel:
         """
         raise NotImplementedError
 
-    def _is_in_strip(self, s: npt.ArrayLike) -> bool:
+    def is_in_strip(self, s: npt.ArrayLike) -> bool:
         inf, sup = self.strip
         # Strip of convergence applies to the real part of s
         s_real = np.real(s)
@@ -114,7 +114,7 @@ class Kernel:
             If s is outside the strip of convergence and check_bounds is True.
         """
         if self.check_bounds:
-            if not self._is_in_strip(s):
+            if not self.is_in_strip(s):
                 raise ValueError(
                     "Input array outside strip of definition of the transform"
                 )
@@ -209,9 +209,9 @@ class Derivative(Kernel):
 
         self.order = order
 
-    def _is_in_strip(self, s: npt.ArrayLike) -> bool:
+    def is_in_strip(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
-        return self.transform._is_in_strip(s - self.order)
+        return self.transform.is_in_strip(s - self.order)
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
@@ -332,9 +332,9 @@ class SphericalBesselJKernel(BesselJKernel):
         mu = np.asarray(ell) + 0.5
         super().__init__(mu, check_bounds=check_bounds)
 
-    def _is_in_strip(self, s: npt.ArrayLike) -> bool:
+    def is_in_strip(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
-        return super()._is_in_strip(s + 0.5)
+        return super().is_in_strip(s + 0.5)
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         return super()._forward(s + 0.5) * SQRT_PI_OVER_2
