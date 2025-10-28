@@ -72,17 +72,17 @@ def _inverse_hankel_transform(
     return a
 
 
-def optimal_logcenter(kernel: Kernel, dlog: float) -> npt.NDArray:
+def optimal_logcenter(kernel: Kernel, dlog: float, bias: float = 0.0) -> npt.NDArray:
     """
     Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
     """
     s = 1j * np.pi / dlog + 1
-    arg = np.angle(kernel.forward(s))
+    arg = np.angle(kernel.forward(s + bias))
     return dlog * arg / np.pi
 
 
 def compute_kernel_coefficients(
-    kernel: Kernel, n: int, logc: npt.ArrayLike, dlog: float
+    kernel: Kernel, n: int, logc: npt.ArrayLike, dlog: float, bias: float = 0.0
 ):
     """
     Implements Eq.(18) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
@@ -92,6 +92,8 @@ def compute_kernel_coefficients(
     logc : array_like
         The value of log(k0r0). If an iterable, its shape must match the
     batch dimension of the kernel.
+    bias : float, optional
+        Power-law bias exponent (default: 0.0).
 
     """
     # Length of real Fourier transform
@@ -99,7 +101,7 @@ def compute_kernel_coefficients(
     m = np.arange(0, ns)
     angle = 2 * np.pi * m * 1j / (n * dlog)
     s = angle + 1
-    coeffs = kernel.forward(s)
+    coeffs = kernel.forward(s + bias)
     logc = np.asarray(logc)
     coeffs = coeffs * np.exp(-angle * logc)
     # Handle Nyquist frequency for even n
@@ -120,12 +122,13 @@ class FFTLog:
     Parameters
     ----------
     kernel : Kernel
-        Mellin transform kernel instance (e.g., BesselJKernel). The kernel
-        should be configured with the desired bias parameter.
+        Mellin transform kernel instance (e.g., BesselJKernel).
     n : int
         Number of sampling points.
     dlog : float
         Uniform logarithmic spacing.
+    bias : float, optional
+        Exponent of power law bias (default: 0.0).
     minimize_ringing : bool, optional
         Whether to snap logc to low-ringing condition (default: True).
     logc : float, optional
@@ -134,11 +137,13 @@ class FFTLog:
     Attributes
     ----------
     kernel : Kernel
-        The Mellin transform kernel (includes bias parameter).
+        The Mellin transform kernel.
     n : int
         Number of sampling points.
     dlog : float
         Uniform logarithmic spacing.
+    bias : float
+        Exponent of power law bias.
     minimize_ringing : bool
         Whether logc is snapped to minimize ringing.
     logc : float
@@ -170,9 +175,8 @@ class FFTLog:
     >>> from fftloggin import FFTLog
     >>> from fftloggin.kernels import BesselJKernel
     >>>
-    >>> # Create transform with bias in kernel
-    >>> kernel = BesselJKernel(mu=0, bias=0.0)
-    >>> fftlog = FFTLog(kernel=kernel, n=128, dlog=0.05)
+    >>> # Create transform
+    >>> fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05)
     >>>
     >>> # Transform data (you manage coordinates separately)
     >>> a = np.random.randn(128)
@@ -194,12 +198,14 @@ class FFTLog:
         kernel: Kernel,
         n: int,
         dlog: float,
+        bias: float = 0.0,
         minimize_ringing: bool = True,
         logc: float = 1,
     ) -> None:
         self._kernel = kernel
         self._n = n
         self._dlog = dlog
+        self._bias = bias
         self._minimize_ringing = minimize_ringing
         self._logc = logc
 
@@ -242,11 +248,11 @@ class FFTLog:
 
     @property
     def bias(self) -> float:
-        return self.kernel.bias
+        return self._bias
 
     @bias.setter
     def bias(self, other: float):
-        self.kernel.bias = other
+        self._bias = other
         self._cleanup()
 
     @property
@@ -280,13 +286,16 @@ class FFTLog:
         batch dimension of the kernel.
 
         """
-        return compute_kernel_coefficients(self.kernel, self.n, self.logc, self.dlog)
+        return compute_kernel_coefficients(
+            self.kernel, self.n, self.logc, self.dlog, self.bias
+        )
 
     @classmethod
     def from_array(
         cls,
         x: npt.ArrayLike,
         kernel: Kernel,
+        bias: float = 0.0,
         logc: float = 0.0,
         minimize_ringing: bool = True,
     ) -> "FFTLog":
@@ -299,6 +308,8 @@ class FFTLog:
             Log-spaced coordinate array (1D).
         kernel : Kernel
             Mellin transform kernel.
+        bias : float, optional
+            Power-law bias exponent. Default is 0.0.
         logc : float, optional
             Log-center parameter. Default is 0.0.
         minimize_ringing : bool, optional
@@ -315,7 +326,7 @@ class FFTLog:
         >>> from fftloggin.fftlog import FFTLog
         >>> from fftloggin.kernels import BesselJKernel
         >>> r = np.logspace(-2, 2, 128)
-        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), bias=0.0, logc=0.0)
         """
         from .grids import infer_dlog
 
@@ -323,7 +334,9 @@ class FFTLog:
         n = len(x)
         dlog = infer_dlog(x)
 
-        return cls(kernel, n, dlog, minimize_ringing=minimize_ringing, logc=logc)
+        return cls(
+            kernel, n, dlog, bias=bias, minimize_ringing=minimize_ringing, logc=logc
+        )
 
     def create_grid(
         self,
@@ -384,7 +397,7 @@ class FFTLog:
         """
         Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
         """
-        return optimal_logcenter(self.kernel, self.dlog)
+        return optimal_logcenter(self.kernel, self.dlog, self.bias)
 
     def shift_logcenter(self, logc: npt.ArrayLike) -> npt.NDArray:
         logc = np.asarray(logc)

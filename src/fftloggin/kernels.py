@@ -31,22 +31,20 @@ class Kernel:
 
     Parameters
     ----------
-    bias : float, optional
-        Power-law bias exponent for improved numerical stability (default: 0.0).
+    check_bounds : bool, optional
+        If True, validate that input values are within the strip of convergence.
+        Default is True.
 
     Examples
     --------
     >>> from fftloggin.kernels import BesselJKernel
-    >>> kernel = BesselJKernel(mu=0.5, bias=0.0)
+    >>> kernel = BesselJKernel(mu=0.5)
     >>> # Get second derivative
     >>> d2_kernel = kernel.derive(2)
     """
 
-    def __init__(self, bias: float = 0.0) -> None:
-        self.bias = bias
-
-    def shift(self, s: npt.ArrayLike) -> npt.NDArray:
-        return np.asarray(s) + self.bias
+    def __init__(self, check_bounds: bool = True) -> None:
+        self.check_bounds = check_bounds
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
@@ -76,20 +74,19 @@ class Kernel:
         """
         raise NotImplementedError
 
-    def _check_bounds(self, s: npt.ArrayLike) -> bool:
-        s_shifted = self.shift(s)
+    def _is_in_strip(self, s: npt.ArrayLike) -> bool:
         inf, sup = self.strip
         # Strip of convergence applies to the real part of s
-        s_shifted_real = np.real(s_shifted)
+        s_real = np.real(s)
         # Reshape inf/sup to have trailing dimensions for proper broadcasting
         inf, _ = outer_broadcast(inf, s)
         sup, _ = outer_broadcast(sup, s)
-        in_bounds = (s_shifted_real >= inf) & (s_shifted_real <= sup)
+        in_bounds = (s_real >= inf) & (s_real <= sup)
         return bool(np.all(in_bounds))
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
-        Compute the Mellin transform at s with bounds checking.
+        Compute the Mellin transform at s with optional bounds checking.
 
         Parameters
         ----------
@@ -104,15 +101,16 @@ class Kernel:
         Raises
         ------
         ValueError
-            If s is outside the strip of convergence.
+            If s is outside the strip of convergence and check_bounds is True.
         """
-        in_bounds = self._check_bounds(s)
-        if not in_bounds:
-            raise ValueError("Input array outside strip of definition of the transform")
+        if self.check_bounds:
+            if not self._is_in_strip(s):
+                raise ValueError(
+                    "Input array outside strip of definition of the transform"
+                )
 
-        # Shift s with value of bias
         s = np.asarray(s)
-        return self._forward(s + self.bias)
+        return self._forward(s)
 
     def derive(self, order: int = 1) -> "Kernel":
         """
@@ -144,7 +142,7 @@ class Kernel:
 
 class Derivative(Kernel):
     def __init__(self, transform: Kernel, order: int) -> None:
-        super().__init__(bias=transform.bias)
+        super().__init__(check_bounds=transform.check_bounds)
         self.transform = transform
         if order < 1:
             raise ValueError(
@@ -152,9 +150,6 @@ class Derivative(Kernel):
             )
 
         self.order = order
-
-    def shift(self, s: npt.ArrayLike) -> npt.NDArray:
-        return super().shift(s) - self.order
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
@@ -180,8 +175,9 @@ class BesselJKernel(Kernel):
     ----------
     mu : array_like
         Order of the Bessel function. Can be scalar or array.
-    bias : float, optional
-        Power-law bias exponent for improved numerical stability (default: 0.0).
+    check_bounds : bool, optional
+        If True, validate that input values are within the strip of convergence.
+        Default is True.
 
     Examples
     --------
@@ -191,8 +187,6 @@ class BesselJKernel(Kernel):
     >>> kernel = BesselJKernel(mu=0.5)
     >>> # Multiple orders (for vectorized transforms)
     >>> kernels = BesselJKernel(mu=np.array([0, 0.5, 1.0]))
-    >>> # With bias
-    >>> kernel_biased = BesselJKernel(mu=0.5, bias=0.1)
 
     Notes
     -----
@@ -203,15 +197,13 @@ class BesselJKernel(Kernel):
     .. [1] Hamilton A. J. S., 2000, MNRAS, 312, 257 (astro-ph/9905191)
     """
 
-    def __init__(self, mu: npt.ArrayLike, bias: float = 0.0) -> None:
-        super().__init__(bias=bias)
+    def __init__(self, mu: npt.ArrayLike, check_bounds: bool = True) -> None:
+        super().__init__(check_bounds=check_bounds)
         self.mu = np.asarray(mu)
-        if not self._check_bounds(1):
+        if self.check_bounds and not self._is_in_strip(1):
             low, high = self.strip
             low_sup, high_inf = np.asarray(low).max(), np.asarray(high).min()
-            raise ValueError(
-                f"bias - order + 1 should be in [{low_sup:.1f}, {high_inf:.1f}]"
-            )
+            raise ValueError(f"1 should be in [{low_sup:.1f}, {high_inf:.1f}]")
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
