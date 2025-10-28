@@ -228,9 +228,27 @@ class BesselJKernel(Kernel):
 
 
 class SphericalBesselJKernel(BesselJKernel):
-    def __init__(self, ell: npt.ArrayLike, bias: float = 0) -> None:
+    """
+    Mellin transform of the spherical Bessel function of the first kind, :math:`j_\mu`.
+    It is related to :math:`J_\mu` by
+    .. math::
+
+        j_\ell(x) = \sqrt{\frac{\pi}{2x}} * J_{\ell+1/2}(x)
+
+    Their Mellin transforms are therefore related by
+    .. math::
+
+        M[j_\ell](s) = \sqrt{\frac{\pi}{2}} * M[J_{\ell+1/2}]\left( s + \frac{1}{2} \right)
+
+    """
+
+    def __init__(self, ell: npt.ArrayLike, check_bounds: bool = True) -> None:
         mu = np.asarray(ell) + 0.5
-        super().__init__(mu, bias - 0.5)
+        super().__init__(mu, check_bounds=check_bounds)
+
+    def _is_in_strip(self, s: npt.ArrayLike) -> bool:
+        s = np.asarray(s)
+        return super()._is_in_strip(s + 0.5)
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
-        return super()._forward(s) * SQRT_PI_OVER_2
+        return super()._forward(s + 0.5) * SQRT_PI_OVER_2
