@@ -153,25 +153,9 @@ class FFTLog:
 
     Examples
     --------
-    Basic usage with Grid (recommended):
+    Direct FFTLog usage (you manage coordinates separately):
 
     >>> import numpy as np
-    >>> from fftloggin import Grid
-    >>> from fftloggin.kernels import BesselJKernel
-    >>>
-    >>> # Create grid from r array
-    >>> r = np.logspace(-2, 2, 128)
-    >>> grid = Grid.from_r(r, kernel=BesselJKernel(0))
-    >>>
-    >>> # Perform transform
-    >>> a = np.exp(-(grid.r/1.0)**2)
-    >>> A = grid.forward(a)
-    >>>
-    >>> # Access coordinates
-    >>> print(grid.k)  # Output wavenumbers
-
-    Advanced usage (direct FFTLog):
-
     >>> from fftloggin import FFTLog
     >>> from fftloggin.kernels import BesselJKernel
     >>>
@@ -181,6 +165,23 @@ class FFTLog:
     >>> # Transform data (you manage coordinates separately)
     >>> a = np.random.randn(128)
     >>> A = fftlog.forward(a)
+
+    For managing coordinates, use FFTLog.create_grid():
+
+    >>> import numpy as np
+    >>> from fftloggin import FFTLog
+    >>> from fftloggin.kernels import BesselJKernel
+    >>>
+    >>> # Create FFTLog from r array
+    >>> r = np.logspace(-2, 2, 128)
+    >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+    >>>
+    >>> # Create grid to manage coordinates
+    >>> grid = fftlog.create_grid(r=r)
+    >>>
+    >>> # Access coordinates
+    >>> print(grid.k.shape)  # Output wavenumbers
+    (128,)
 
     See Also
     --------
@@ -374,7 +375,8 @@ class FFTLog:
         >>> r = np.logspace(-2, 2, 128)
         >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
         >>> grid = fftlog.create_grid(r=r)
-        >>> print(grid.k[0])  # First k value
+        >>> print(f"{grid.k[0]:.6f}")  # First k value
+        0.010129
         """
         from .grids import Grid, get_other_array
 
