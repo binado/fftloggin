@@ -123,7 +123,7 @@ class Kernel:
         return self._forward(s)
 
     def derive(self, order: int = 1) -> "Kernel":
-        """
+        r"""
         Return the nth derivative of this kernel.
 
         Uses the Mellin transform property:
@@ -161,7 +161,7 @@ class Kernel:
 
 
 class Derivative(Kernel):
-    """
+    r"""
     Kernel representing the nth derivative of another kernel.
 
     This class implements the Mellin transform property for derivatives:
@@ -221,7 +221,7 @@ class Derivative(Kernel):
 
 
 class BesselJKernel(Kernel):
-    """
+    r"""
     Mellin transform kernel for Bessel function :math:`J_\\mu`.
 
     This kernel represents the standard Hankel transform with Bessel functions.
@@ -310,7 +310,7 @@ class BesselJKernel(Kernel):
 
 
 class SphericalBesselJKernel(BesselJKernel):
-    """
+    r"""
     Mellin transform of the spherical Bessel function of the first kind, :math:`j_\mu`.
     It is related to :math:`J_\mu` by
     .. math::
