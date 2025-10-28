@@ -209,6 +209,10 @@ class Derivative(Kernel):
 
         self.order = order
 
+    def _is_in_strip(self, s: npt.ArrayLike) -> bool:
+        s = np.asarray(s)
+        return self.transform._is_in_strip(s - self.order)
+
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
         sign = 1 - 2 * (self.order % 2)
