@@ -41,6 +41,16 @@ class Kernel:
     >>> kernel = BesselJKernel(mu=0.5)
     >>> # Get second derivative
     >>> d2_kernel = kernel.derive(2)
+
+    Notes
+    -----
+    The strip of convergence is a range in the complex plane where the Mellin
+    transform is well-defined and analytic.
+
+    See Also
+    --------
+    BesselJKernel : Standard Hankel transform kernel using Bessel functions
+    Derivative : Compute derivatives of kernels
     """
 
     def __init__(self, check_bounds: bool = True) -> None:
@@ -116,7 +126,11 @@ class Kernel:
         """
         Return the nth derivative of this kernel.
 
-        Uses the relationship: M[d^n/dr^n f](s) = (-1)^n * (s-n)...(s-1) * M[f](s-n)
+        Uses the Mellin transform property:
+
+        .. math::
+
+            M\left[\frac{d^n}{dr^n} f\right](s) = (-1)^n \frac{\Gamma(s)}{\Gamma(s-n)} M[f](s-n)
 
         Parameters
         ----------
@@ -134,6 +148,12 @@ class Kernel:
         >>> kernel = BesselJKernel(mu=0.5)
         >>> d_kernel = kernel.derive(1)  # First derivative
         >>> d2_kernel = kernel.derive(2)  # Second derivative
+
+        Notes
+        -----
+        The derivative is computed using the Mellin transform property, which
+        relates derivatives in real space to shifts in the complex frequency
+        domain.
         """
         if order == 0:
             return self
@@ -141,6 +161,44 @@ class Kernel:
 
 
 class Derivative(Kernel):
+    """
+    Kernel representing the nth derivative of another kernel.
+
+    This class implements the Mellin transform property for derivatives:
+
+    .. math::
+
+        M\left[\frac{d^n}{dr^n} f\right](s) = (-1)^n \frac{\Gamma(s)}{\Gamma(s-n)} M[f](s-n)
+
+    Parameters
+    ----------
+    transform : Kernel
+        The base kernel to differentiate.
+    order : int
+        Order of the derivative (must be >= 1).
+
+    Raises
+    ------
+    ValueError
+        If order < 1.
+
+    Examples
+    --------
+    >>> from fftloggin.kernels import BesselJKernel
+    >>> kernel = BesselJKernel(mu=0.5)
+    >>> d_kernel = Derivative(kernel, 1)  # First derivative
+    >>> result = d_kernel.forward(2.0)
+
+    Notes
+    -----
+    The derivative kernel inherits the strip of convergence from the base
+    kernel, adjusted for the derivative order.
+
+    See Also
+    --------
+    Kernel.derive : Recommended way to compute derivatives
+    """
+
     def __init__(self, transform: Kernel, order: int) -> None:
         super().__init__(check_bounds=transform.check_bounds)
         self.transform = transform
@@ -164,12 +222,14 @@ class Derivative(Kernel):
 
 class BesselJKernel(Kernel):
     """
-    Mellin transform kernel for Bessel function J_μ.
+    Mellin transform kernel for Bessel function :math:`J_\\mu`.
 
     This kernel represents the standard Hankel transform with Bessel functions.
-    The Mellin transform is:
+    The Mellin transform is given by:
 
-        M[J_μ](s) = 2^(s-1) * Γ((μ+s)/2) / Γ((μ+2-s)/2)
+    .. math::
+
+        M[J_\\mu](s) = 2^{s-1} \\frac{\\Gamma\\left(\\frac{\\mu+s}{2}\\right)}{\\Gamma\\left(\\frac{\\mu+2-s}{2}\\right)}
 
     Parameters
     ----------
@@ -187,14 +247,23 @@ class BesselJKernel(Kernel):
     >>> kernel = BesselJKernel(mu=0.5)
     >>> # Multiple orders (for vectorized transforms)
     >>> kernels = BesselJKernel(mu=np.array([0, 0.5, 1.0]))
+    >>> # Compute Mellin transform at s = 1.0
+    >>> result = kernel.forward(1.0)
 
     Notes
     -----
-    The strip of convergence is (-μ, 1.5) in the complex s-plane.
+    The strip of convergence is :math:`(-\\mu, 1.5)` in the complex :math:`s`-plane.
+    The kernel uses log-gamma functions for numerical stability in the Mellin
+    transform computation.
 
     References
     ----------
     .. [1] Hamilton A. J. S., 2000, MNRAS, 312, 257 (astro-ph/9905191)
+
+    See Also
+    --------
+    SphericalBesselJKernel : Related spherical Bessel function kernel
+    Derivative : Compute derivatives of kernels
     """
 
     def __init__(self, mu: npt.ArrayLike, check_bounds: bool = True) -> None:
@@ -203,14 +272,27 @@ class BesselJKernel(Kernel):
 
     @property
     def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        """Strip of convergence: (-μ, 1.5)."""
+        """Strip of convergence: (-mu, 1.5)."""
         return (-self.mu, 1.5 * np.ones_like(self.mu))
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
-        Compute M[J_μ](s) = 2^(s-1) * Γ((μ+s)/2) / Γ((μ+2-s)/2).
+        Compute the Mellin transform.
 
-        Implementation uses log-gamma for numerical stability.
+        Parameters
+        ----------
+        s : array_like
+            Complex frequency variable.
+
+        Returns
+        -------
+        ndarray
+            Mellin transform evaluated at s.
+
+        Notes
+        -----
+        The implementation uses log-gamma functions for numerical stability
+        to avoid overflow/underflow in direct gamma computations.
         """
         s = np.asarray(s)
         # Reshape mu and s to enable proper broadcasting
