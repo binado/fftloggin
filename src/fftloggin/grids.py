@@ -16,14 +16,15 @@ def infer_dlog(x: npt.ArrayLike, rtol: float = 1e-5) -> npt.NDArray:
     Parameters
     ----------
     x : array_like
-        Logarithmically-spaced array.
+        Logarithmically-spaced array with shape (..., n).
     rtol : float, optional
         Relative tolerance for checking uniform spacing. Default is 1e-5.
 
     Returns
     -------
     dlog : ndarray
-        Uniform logarithmic spacing: dlog = log(x[1]/x[0])
+        Uniform logarithmic spacing: dlog = log(x[1]/x[0]).
+        Shape is () for 1D input or (*batch_shape,) for batched input.
 
     Raises
     ------
@@ -37,6 +38,11 @@ def infer_dlog(x: npt.ArrayLike, rtol: float = 1e-5) -> npt.NDArray:
     >>> dlog = infer_dlog(r)
     >>> print(f"{dlog:.6f}")
     0.072522
+
+    Notes
+    -----
+    For use with FFTLog batching, reshape the output to add a trailing singleton:
+    `dlog.reshape(-1, 1)` or use `prepare_batch_params()`.
     """
     x = np.asarray(x)
     dlog = np.log(x[..., -1] / x[..., 0]) / (x.shape[-1] - 1)
@@ -91,15 +97,17 @@ def get_other_array(
     Parameters
     ----------
     x : array_like
-        Input log-spaced coordinate array.
+        Input log-spaced coordinate array with shape (..., n).
     logc : array_like
         Log-center parameter: log(y_c * x_c). In scipy, this was called 'offset'.
-        Can be a scalar or array for batch operations.
+        Can be scalar or array with shape (*batch_shape,) or (*batch_shape, 1)
+        for batch operations.
 
     Returns
     -------
     y : ndarray
-        Output coordinate array.
+        Output coordinate array with shape (..., n) matching x, or
+        (*batch_shape, n) if logc has batch dimensions.
 
     Examples
     --------
@@ -110,6 +118,13 @@ def get_other_array(
     >>> r_reconstructed = get_other_array(k, logc)  # Reconstruct r from k
     >>> np.allclose(r_reconstructed, r)
     True
+
+    With batched logc:
+
+    >>> logc_batch = np.array([0.0, 1.0]).reshape(-1, 1)
+    >>> k_batch = get_other_array(r, logc_batch)
+    >>> k_batch.shape
+    (2, 128)
     """
     x = np.asarray(x)
     # Symmetric formula: y = exp(logc) / x[::-1]
@@ -154,7 +169,8 @@ def infer_logc(
     Returns
     -------
     logc : ndarray
-        The log-center parameter.
+        The log-center parameter. Shape () for scalar inputs or (*batch_shape,)
+        for batched inputs.
 
     Raises
     ------
@@ -166,6 +182,9 @@ def infer_logc(
     Arguments are checked in order: logc → ycenter → ymax → ymin.
     The first non-None value is used to compute logc.
 
+    For use with FFTLog batching, reshape the output to add a trailing singleton:
+    `logc.reshape(-1, 1)` or use `prepare_batch_params()`.
+
     Examples
     --------
     >>> import numpy as np
@@ -176,6 +195,13 @@ def infer_logc(
     >>> logc2 = infer_logc(r, ycenter=1.0)
     >>> # Use ymax (k_max when x is r)
     >>> logc3 = infer_logc(r, ymax=100.0)
+
+    Batched inputs:
+
+    >>> ycenter_batch = np.array([0.5, 1.0, 2.0])
+    >>> logc_batch = infer_logc(r, ycenter=ycenter_batch)
+    >>> logc_batch.shape
+    (3,)
     """
     x = np.asarray(x)
     xmin = x[..., 0]

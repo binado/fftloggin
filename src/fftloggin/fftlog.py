@@ -14,10 +14,34 @@ def _forward_hankel_transform(
     a: npt.ArrayLike,
     u: npt.ArrayLike,
     logc: npt.ArrayLike,
-    dlog: float,
-    bias: float,
+    dlog: npt.ArrayLike,
+    bias: npt.ArrayLike,
     **kwargs,
 ):
+    """
+    Low-level forward Hankel transform implementation.
+
+    Parameters
+    ----------
+    a : array_like
+        Input array with shape (n,).
+    u : array_like
+        FFT coefficients with shape (*batch_shape, ns) where ns = n//2 + 1.
+    logc : array_like
+        Log-center parameter. Scalar or shape (*batch_shape, 1).
+    dlog : array_like
+        Logarithmic spacing. Scalar or shape (*batch_shape, 1).
+    bias : array_like
+        Power-law bias. Scalar or shape (*batch_shape, 1).
+    **kwargs
+        Additional arguments for scipy.fft.rfft.
+
+    Returns
+    -------
+    ak : ndarray
+        Transformed array with shape (n,) for scalar params or (*batch_shape, n)
+        for batched params.
+    """
     a = np.asarray(a)
     u = np.asarray(u)
     logc = np.asarray(logc)
@@ -34,7 +58,7 @@ def _forward_hankel_transform(
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
     ak_biased = irfft(a_biased_fftd * u, na, **kwargs)
-    ak_biased = np.flip(ak_biased)
+    ak_biased = np.flip(ak_biased, axis=-1)
 
     # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
     ak = ak_biased * bias_power_law * np.exp(-bias * logc)
@@ -45,10 +69,34 @@ def _inverse_hankel_transform(
     ak: npt.ArrayLike,
     u: npt.ArrayLike,
     logc: npt.ArrayLike,
-    dlog: float,
-    bias: float,
+    dlog: npt.ArrayLike,
+    bias: npt.ArrayLike,
     **kwargs,
 ):
+    """
+    Low-level inverse Hankel transform implementation.
+
+    Parameters
+    ----------
+    ak : array_like
+        Input array with shape (n,).
+    u : array_like
+        FFT coefficients with shape (*batch_shape, ns) where ns = n//2 + 1.
+    logc : array_like
+        Log-center parameter. Scalar or shape (*batch_shape, 1).
+    dlog : array_like
+        Logarithmic spacing. Scalar or shape (*batch_shape, 1).
+    bias : array_like
+        Power-law bias. Scalar or shape (*batch_shape, 1).
+    **kwargs
+        Additional arguments for scipy.fft.rfft.
+
+    Returns
+    -------
+    a : ndarray
+        Inverse transformed array with shape (n,) for scalar params or
+        (*batch_shape, n) for batched params.
+    """
     ak = np.asarray(ak)
     u = np.asarray(u)
     logc = np.asarray(logc)
@@ -65,16 +113,35 @@ def _inverse_hankel_transform(
     # Step 3: divide by coefficients
     # coeffs may be batched, while a is not
     a_biased = irfft(ak_biased_fftd / np.conjugate(u), na, **kwargs)
-    a_biased = np.flip(a_biased)
+    a_biased = np.flip(a_biased, axis=-1)
 
     # Step 4: unbias ak by (r_n / r_0)^{q}
     a = a_biased * bias_power_law
     return a
 
 
-def optimal_logcenter(kernel: Kernel, dlog: float, bias: float = 0.0) -> npt.NDArray:
+def optimal_logcenter(
+    kernel: Kernel, dlog: npt.ArrayLike, bias: npt.ArrayLike = 0.0
+) -> npt.NDArray:
     """
+    Compute optimal log-center parameter to minimize ringing.
+
     Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
+
+    Parameters
+    ----------
+    kernel : Kernel
+        Mellin transform kernel.
+    dlog : array_like
+        Logarithmic spacing. Can be scalar or array with shape (*batch_shape, 1).
+    bias : array_like, optional
+        Power-law bias exponent (default: 0.0). Can be scalar or array with
+        shape (*batch_shape, 1).
+
+    Returns
+    -------
+    logc : ndarray
+        Optimal log-center parameter. Scalar or shape (*batch_shape, 1).
     """
     s = 1j * np.pi / dlog + 1
     arg = np.angle(kernel.forward(s + bias))
@@ -82,19 +149,37 @@ def optimal_logcenter(kernel: Kernel, dlog: float, bias: float = 0.0) -> npt.NDA
 
 
 def compute_kernel_coefficients(
-    kernel: Kernel, n: int, kr: npt.ArrayLike, dlog: float, bias: float = 0.0
+    kernel: Kernel,
+    n: int,
+    kr: npt.ArrayLike,
+    dlog: npt.ArrayLike,
+    bias: npt.ArrayLike = 0.0,
 ):
     """
+    Compute FFT coefficients for FFTLog transform.
+
     Implements Eq.(18) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
 
     Parameters
     ----------
+    kernel : Kernel
+        Mellin transform kernel.
+    n : int
+        Number of sampling points.
     kr : array_like
-        The product k*r at the geometric center of the grid. If an iterable,
-        its shape must match the batch dimension of the kernel.
-    bias : float, optional
-        Power-law bias exponent (default: 0.0).
+        The product k*r at the geometric center of the grid. Can be scalar
+        or array with shape (*batch_shape, 1).
+    dlog : array_like
+        Logarithmic spacing. Can be scalar or array with shape (*batch_shape, 1).
+    bias : array_like, optional
+        Power-law bias exponent (default: 0.0). Can be scalar or array with
+        shape (*batch_shape, 1).
 
+    Returns
+    -------
+    coeffs : ndarray
+        FFT coefficients with shape (ns,) for scalar inputs or (*batch_shape, ns)
+        for batched inputs, where ns = n//2 + 1.
     """
     # Length of real Fourier transform
     ns = n // 2 + 1
@@ -106,7 +191,7 @@ def compute_kernel_coefficients(
     coeffs = coeffs / kr**angle
     # Handle Nyquist frequency for even n
     if n % 2 == 0:
-        coeffs[-1] = np.real(coeffs[-1])
+        coeffs[..., -1] = np.real(coeffs[..., -1])
 
     return coeffs
 
@@ -125,14 +210,17 @@ class FFTLog:
         Mellin transform kernel instance (e.g., BesselJKernel).
     n : int
         Number of sampling points.
-    dlog : float
-        Uniform logarithmic spacing.
-    bias : float, optional
-        Exponent of power law bias (default: 0.0).
+    dlog : array_like
+        Uniform logarithmic spacing. Can be scalar or array with shape
+        (*batch_shape, 1) for batch transforms.
+    bias : array_like, optional
+        Exponent of power law bias (default: 0.0). Can be scalar or array
+        with shape (*batch_shape, 1) for batch transforms.
     lowring : bool, optional
         Whether to snap kr to low-ringing condition (default: True).
-    kr : float, optional
+    kr : array_like, optional
         The product k*r at the geometric center of the grid (default: 1.0).
+        Can be scalar or array with shape (*batch_shape, 1) for batch transforms.
 
     Attributes
     ----------
@@ -140,18 +228,20 @@ class FFTLog:
         The Mellin transform kernel.
     n : int
         Number of sampling points.
-    dlog : float
-        Uniform logarithmic spacing.
-    bias : float
-        Exponent of power law bias.
+    dlog : array_like
+        Uniform logarithmic spacing. Scalar or shape (*batch_shape, 1).
+    bias : array_like
+        Exponent of power law bias. Scalar or shape (*batch_shape, 1).
     lowring : bool
         Whether kr is snapped to minimize ringing.
-    kr : float
+    kr : array_like
         The product k*r at the geometric center of the grid (cached property).
-    logc : float
-        Natural logarithm of kr (cached property).
+        Scalar or shape (*batch_shape, 1).
+    logc : array_like
+        Natural logarithm of kr (cached property). Scalar or shape (*batch_shape, 1).
     kernel_coefficients : ndarray
-        Precomputed FFT coefficients (cached property).
+        Precomputed FFT coefficients (cached property). Shape (*batch_shape, ns)
+        where ns = n//2 + 1.
 
     Examples
     --------
@@ -185,6 +275,53 @@ class FFTLog:
     >>> print(grid.k.shape)  # Output wavenumbers
     (128,)
 
+    Batching with Array Parameters
+    -------------------------------
+    Parameters dlog, bias, and kr can be arrays for batch transforms.
+    Arrays must have shape (*batch_shape, 1) for proper broadcasting
+    with the sample dimension (n,), producing results with shape (*batch_shape, n).
+
+    Using the helper function (recommended):
+
+    >>> from fftloggin import prepare_batch_params
+    >>> dlog, bias, kr = prepare_batch_params(0.05, 0.0, [0.5, 1.0, 2.0])
+    >>> fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=dlog, bias=bias, kr=kr)
+    >>> a = np.random.randn(128)
+    >>> result = fftlog.forward(a)
+    >>> result.shape
+    (3, 128)
+
+    Manual reshaping for batched parameters:
+
+    >>> kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)  # shape (3, 1)
+    >>> fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, kr=kr)
+    >>> result = fftlog.forward(a)  # shape (3, 128)
+
+    Multiple batch dimensions via outer product broadcasting:
+
+    >>> dlog, bias, kr = prepare_batch_params(
+    ...     [0.04, 0.05],  # 2 values
+    ...     0.0,           # scalar
+    ...     [0.5, 1.0]     # 2 values
+    ... )
+    >>> # After prepare_batch_params: dlog=(2,1), bias=(), kr=(2,1)
+    >>> # They broadcast together to shape (2,1)
+    >>> fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=dlog, bias=bias, kr=kr)
+    >>> result = fftlog.forward(a)  # shape (2, 128)
+
+    Important: Batched kernels can be combined with batched parameters.
+    Ensure batch shapes are compatible:
+
+    >>> mu = np.array([0, 1, 2]).reshape(-1, 1)  # shape (3, 1)
+    >>> kr = np.array([0.5, 1.0]).reshape(-1, 1)  # shape (2, 1)
+    >>> # These shapes (3,1) and (2,1) are NOT compatible for broadcasting
+    >>> # You must manually broadcast to a compatible shape like (3, 2, 1):
+    >>> mu_broadcast = mu.reshape(3, 1, 1)  # shape (3, 1, 1)
+    >>> kr_broadcast = kr.reshape(1, 2, 1)  # shape (1, 2, 1)
+    >>> kernel = BesselJKernel(mu_broadcast.squeeze())  # Remove trailing for kernel
+    >>> fftlog = FFTLog(kernel=kernel, n=128, dlog=0.05, kr=kr_broadcast)
+    >>> # Result would have shape (3, 2, 128)
+
     See Also
     --------
     Grid : Workspace class that manages coordinates and data
@@ -200,10 +337,10 @@ class FFTLog:
         self,
         kernel: Kernel,
         n: int,
-        dlog: float,
-        bias: float = 0.0,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike = 0.0,
         lowring: bool = True,
-        kr: float = 1,
+        kr: npt.ArrayLike = 1,
     ) -> None:
         self._kernel = kernel
         self._n = n
@@ -281,19 +418,10 @@ class FFTLog:
 
     @cached_property
     def kernel_coefficients(self) -> npt.NDArray:
-        return self.compute_kernel_coefficients()
+        return self._compute_kernel_coefficients()
 
-    def compute_kernel_coefficients(self) -> npt.NDArray:
-        """
-        Implements Eq.(18) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
-
-        Parameters
-        ----------
-        kr : array_like
-            The product k*r at the geometric center of the grid. If an iterable,
-            its shape must match the batch dimension of the kernel.
-
-        """
+    def _compute_kernel_coefficients(self) -> npt.NDArray:
+        """Compute FFT coefficients using instance parameters."""
         return compute_kernel_coefficients(
             self.kernel, self.n, self.kr, self.dlog, self.bias
         )
@@ -304,7 +432,7 @@ class FFTLog:
         x: npt.ArrayLike,
         kernel: Kernel,
         bias: float = 0.0,
-        kr: float = 1.0,
+        kr: npt.ArrayLike = 1.0,
         lowring: bool = True,
     ) -> "FFTLog":
         """
@@ -318,7 +446,7 @@ class FFTLog:
             Mellin transform kernel.
         bias : float, optional
             Power-law bias exponent. Default is 0.0.
-        kr : float, optional
+        kr : array_like, optional
             The product k*r at the geometric center of the grid. Default is 1.0.
         lowring : bool, optional
             Whether to snap kr to minimize ringing. Default is True.
@@ -339,7 +467,7 @@ class FFTLog:
         from .grids import infer_dlog
 
         x = np.asarray(x)
-        n = len(x)
+        n = x.shape[-1]
         dlog = infer_dlog(x)
 
         return cls(kernel, n, dlog, bias=bias, lowring=lowring, kr=kr)

@@ -10,6 +10,7 @@ from scipy.special import poch
 
 from fftloggin.fftlog import FFTLog
 from fftloggin.kernels import BesselJKernel
+from fftloggin.utils import prepare_batch_params
 
 
 # test function, analytical Hankel transform is of the same form
@@ -326,3 +327,185 @@ def test_gh_21661(n):
     a_k = f_test(k, mu)
     rel_err = np.max(np.abs((fht_val - a_k) / a_k))
     assert_array_less(rel_err, np.asarray(7.28e16)[()])
+
+
+class TestBatchedTransforms:
+    """Tests for batched transforms with array parameters."""
+
+    def test_batched_kr_only(self):
+        """Test batching with array kr, scalar dlog and bias."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        # Batch over 3 different kr values
+        kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)
+        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
+
+        result = fftlog.forward(a)
+        assert result.shape == (3, 128)
+
+        # Each batch should give a different result
+        assert not np.allclose(result[0], result[1])
+        assert not np.allclose(result[1], result[2])
+
+    def test_batched_dlog_only(self):
+        """Test batching with array dlog, scalar bias and kr."""
+        r = np.logspace(-2, 2, 64)
+        mu = 0.3
+
+        # Batch over 2 different dlog values
+        dlog1 = np.log(r[1] / r[0])
+        dlog2 = dlog1 * 1.5  # Different spacing
+        dlog = np.array([dlog1, dlog2]).reshape(-1, 1)
+
+        fftlog = FFTLog(
+            kernel=BesselJKernel(mu), n=64, dlog=dlog, kr=1.0, lowring=False
+        )
+
+        a = f(r, mu)
+        result = fftlog.forward(a)
+        assert result.shape == (2, 64)
+
+    def test_batched_bias_only(self):
+        """Test batching with array bias, scalar dlog and kr."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        # Batch over 2 different bias values
+        bias = np.array([0.0, 0.5]).reshape(-1, 1)
+        fftlog = FFTLog.from_array(
+            r, kernel=BesselJKernel(mu), bias=bias, kr=1.0, lowring=False
+        )
+
+        result = fftlog.forward(a)
+        assert result.shape == (2, 128)
+
+        # Different bias should give different results
+        assert not np.allclose(result[0], result[1])
+
+    def test_all_params_batched_compatible_shapes(self):
+        """Test batching with all three parameters having compatible shapes."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        # All have shape (2, 1) - compatible
+        dlog, bias, kr = prepare_batch_params([0.04, 0.05], [0.0, 0.1], [1.0, 2.0])
+
+        fftlog = FFTLog(
+            kernel=BesselJKernel(mu), n=128, dlog=dlog, bias=bias, kr=kr, lowring=False
+        )
+
+        result = fftlog.forward(a)
+        assert result.shape == (2, 128)
+
+    def test_prepare_batch_params_helper(self):
+        """Test using prepare_batch_params helper function."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        # Use helper to prepare parameters
+        dlog, bias, kr = prepare_batch_params(0.05, 0.0, [0.5, 1.0, 2.0])
+
+        fftlog = FFTLog(
+            kernel=BesselJKernel(mu), n=128, dlog=dlog, bias=bias, kr=kr, lowring=False
+        )
+
+        result = fftlog.forward(a)
+        assert result.shape == (3, 128)
+
+        # kr is scalar, so dlog and bias stay scalar
+        assert dlog.shape == ()
+        assert bias.shape == ()
+        assert kr.shape == (3, 1)
+
+    def test_batched_round_trip(self):
+        """Test forward and inverse transforms with batched parameters."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)
+        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
+
+        # Forward transform with 1D input broadcasts to (3, 128)
+        A = fftlog.forward(a)
+        assert A.shape == (3, 128)
+
+        # Inverse transform - passing full batch
+        a_reconstructed = fftlog.inverse(A)
+        assert a_reconstructed.shape == (3, 128)
+
+        # Each batch should approximately reconstruct original
+        # Note: FFTLog is not exact, so we use a loose tolerance
+        for i in range(3):
+            assert_allclose(a_reconstructed[i], a, rtol=1e-2, atol=1e-2)
+
+    def test_batched_backward_compat_scalar(self):
+        """Test that scalar parameters still work (backward compatibility)."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        # All scalars - should work as before
+        fftlog = FFTLog.from_array(
+            r, kernel=BesselJKernel(mu), bias=0.0, kr=1.0, lowring=False
+        )
+
+        result = fftlog.forward(a)
+        assert result.shape == (128,)  # No batch dimension
+
+    def test_batched_vs_loop_consistency(self):
+        """Test that batched transforms match individual transforms in a loop."""
+        r = np.logspace(-2, 2, 128)
+        a = f(r, 0.3)
+        mu = 0.3
+
+        kr_values = [0.5, 1.0, 2.0]
+
+        # Batched transform
+        kr_batch = np.array(kr_values).reshape(-1, 1)
+        fftlog_batch = FFTLog.from_array(
+            r, kernel=BesselJKernel(mu), kr=kr_batch, lowring=False
+        )
+        result_batch = fftlog_batch.forward(a)
+
+        # Individual transforms in a loop
+        results_loop = []
+        for kr_val in kr_values:
+            fftlog_single = FFTLog.from_array(
+                r, kernel=BesselJKernel(mu), kr=kr_val, lowring=False
+            )
+            result_single = fftlog_single.forward(a)
+            results_loop.append(result_single)
+        results_loop = np.array(results_loop)
+
+        # Should match
+        assert_allclose(result_batch, results_loop, rtol=1e-10)
+
+    def test_batched_kernel_coefficients_shape(self):
+        """Test that kernel_coefficients have correct shape for batched params."""
+        r = np.logspace(-2, 2, 128)
+        mu = 0.3
+
+        kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)
+        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
+
+        coeffs = fftlog.kernel_coefficients
+        ns = 128 // 2 + 1
+        assert coeffs.shape == (3, ns)
+
+    def test_batched_optimal_logcenter(self):
+        """Test optimal_logcenter with batched dlog."""
+        mu = 0.3
+
+        dlog = np.array([0.04, 0.05]).reshape(-1, 1)
+        fftlog = FFTLog(
+            kernel=BesselJKernel(mu), n=128, dlog=dlog, kr=1.0, lowring=False
+        )
+
+        logc_opt = fftlog.optimal_logcenter()
+        assert logc_opt.shape == (2, 1)
