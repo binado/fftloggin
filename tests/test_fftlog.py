@@ -3,15 +3,13 @@ Test suite for FFTLog implementation using Grid API.
 Adapted from scipy's test suite with Grid-based interface.
 """
 
-import warnings
-
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_less
 from scipy.special import poch
 
 from fftloggin.fftlog import FFTLog
-from fftloggin.kernels import BesselJKernel, Kernel, SphericalBesselJKernel
+from fftloggin.kernels import BesselJKernel
 
 
 # test function, analytical Hankel transform is of the same form
@@ -19,8 +17,12 @@ def f(r, mu):
     return r ** (mu + 1) * np.exp(-(r**2) / 2)
 
 
-def test_grid_agrees_with_fftlog():
-    """Check that Grid numerically agrees with the output from Fortran FFTLog."""
+def test_fftlog_agrees_with_fortran():
+    """
+    Check that FFTLog numerically agrees with the output from Fortran FFTLog.
+    This test is adapted from scipy's test suite, see
+    https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
+    """
     r = np.logspace(-4, 4, 16)
     mu = 0.3
     logc = 0.0  # offset parameter from old API maps directly to logc
@@ -30,7 +32,7 @@ def test_grid_agrees_with_fftlog():
 
     # Test 1: compute as given
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=bias), logc=logc, minimize_ringing=False
+        r, kernel=BesselJKernel(mu), bias=bias, logc=logc, minimize_ringing=False
     )
     fftlog.create_grid(r=r)
     ours = fftlog.forward(a)
@@ -57,8 +59,12 @@ def test_grid_agrees_with_fftlog():
     assert_allclose(ours, theirs)
 
 
-def test_grid_with_optimal_logc():
-    """Test Grid with optimal logc (minimize_ringing=True)."""
+def test_fftlog_with_optimal_logc():
+    """
+    Test fftlog with optimal logc (minimize_ringing=True).
+    This test is adapted from scipy's test suite, see
+    https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
+    """
     r = np.logspace(-4, 4, 16)
     mu = 0.3
     bias = 0.0
@@ -67,7 +73,7 @@ def test_grid_with_optimal_logc():
 
     # Create grid with optimal logc
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=bias), logc=0.0, minimize_ringing=True
+        r, kernel=BesselJKernel(mu), bias=bias, logc=0.0, minimize_ringing=True
     )
     fftlog.create_grid(r=r)
     ours = fftlog.forward(a)
@@ -94,18 +100,29 @@ def test_grid_with_optimal_logc():
     assert_allclose(ours, theirs)
 
 
-def test_grid_with_positive_bias():
-    """Test Grid with positive bias."""
+def test_fftlog_with_positive_bias():
+    """
+    Test fftlog with positive bias.
+    This test is adapted from scipy's test suite, see
+    https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
+    """
     r = np.logspace(-4, 4, 16)
     mu = 0.3
     bias = 0.8
 
     a = np.asarray(f(r, mu))
 
+    # This value for the bias lies outside the strip of definition
+    # of the kernel, but we skip the bound checking here for
+    # compatibility with scipy's implementation.
+    kernel = BesselJKernel(mu, check_bounds=False)
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=bias), logc=0.0, minimize_ringing=True
+        r,
+        kernel=kernel,
+        bias=bias,
+        logc=0.0,
+        minimize_ringing=True,
     )
-    fftlog.create_grid(r=r)
     ours = fftlog.forward(a)
 
     theirs = [
@@ -130,8 +147,13 @@ def test_grid_with_positive_bias():
     assert_allclose(ours, theirs)
 
 
-def test_grid_with_negative_bias():
-    """Test Grid with negative bias."""
+def test_fftlog_with_negative_bias():
+    """
+    Test Grid with negative bias.
+
+    This test is adapted from scipy's test suite, see
+    https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
+    """
     r = np.logspace(-4, 4, 16)
     mu = 0.3
     bias = -0.8
@@ -139,9 +161,8 @@ def test_grid_with_negative_bias():
     a = np.asarray(f(r, mu))
 
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=bias), logc=0.0, minimize_ringing=True
+        r, kernel=BesselJKernel(mu), bias=bias, logc=0.0, minimize_ringing=True
     )
-    fftlog.create_grid(r=r)
     ours = fftlog.forward(a)
 
     theirs = [
@@ -166,7 +187,7 @@ def test_grid_with_negative_bias():
     assert_allclose(ours, theirs)
 
 
-def test_vectorized_grid():
+def test_fftlog_with_vectorized_kernel():
     """Test Grid with vectorized kernel (multiple mu values)."""
     n = 16
     r = np.logspace(-4, 4, n)
@@ -175,9 +196,8 @@ def test_vectorized_grid():
     mu = 0.3
     a = f(r, mu)
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=0.0), logc=0.0, minimize_ringing=False
+        r, kernel=BesselJKernel(mu), logc=0.0, minimize_ringing=False
     )
-    fftlog.create_grid(r=r)
     out = fftlog.forward(a)
     assert out.shape == r.shape
 
@@ -185,9 +205,8 @@ def test_vectorized_grid():
     mu = np.array([0.3])
     a = f(r, mu)
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=0.0), logc=0.0, minimize_ringing=False
+        r, kernel=BesselJKernel(mu), logc=0.0, minimize_ringing=False
     )
-    fftlog.create_grid(r=r)
     out = fftlog.forward(a)
     assert out.shape == (n,)
 
@@ -195,9 +214,8 @@ def test_vectorized_grid():
     mu = np.linspace(0.1, 0.3, 3).reshape(-1, 1)
     a = f(r, mu)
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=0.0), logc=0.0, minimize_ringing=False
+        r, kernel=BesselJKernel(mu), logc=0.0, minimize_ringing=False
     )
-    fftlog.create_grid(r=r)
     out = fftlog.forward(a)
     assert out.shape == (3, n)
 
@@ -205,14 +223,12 @@ def test_vectorized_grid():
 @pytest.mark.parametrize("logc", [0.0, 1.0, -1.0])
 @pytest.mark.parametrize("bias", [0.1, -0.1])
 @pytest.mark.parametrize("n", [64, 63])
-@pytest.mark.parametrize("kernel_cls", [BesselJKernel, SphericalBesselJKernel])
 @pytest.mark.parametrize("order", [0, 1, 2])
 @pytest.mark.parametrize("minimize_ringing", [False])
-def test_grid_identity(
+def test_fftlog_identity(
     n: int,
     bias: float,
     logc: float,
-    kernel_cls: type[Kernel],
     order: int,
     minimize_ringing: bool,
 ):
@@ -225,16 +241,9 @@ def test_grid_identity(
     # Create grid for forward transform
     r = np.exp(np.arange(n) * dlog)
 
-    # Bias correction for derivatives
-    # bias = bias + order
-
-    # Create kernel instance based on type
+    # Create kernel instance
     mu = rng.uniform(3, 5)
-    if kernel_cls is BesselJKernel:
-        kernel = kernel_cls(mu, bias=bias)
-    else:  # SphericalBesselJKernel
-        ell = np.ceil(mu - 0.5)
-        kernel = kernel_cls(ell, bias=bias)
+    kernel = BesselJKernel(mu)
 
     # Apply derivative if needed
     if order > 0:
@@ -242,60 +251,23 @@ def test_grid_identity(
 
     # Create FFTLog for forward and inverse transforms
     fftlog = FFTLog.from_array(
-        r, kernel=kernel, logc=logc, minimize_ringing=minimize_ringing
+        r, kernel=kernel, bias=bias, logc=logc, minimize_ringing=minimize_ringing
     )
-    grid_fwd = fftlog.create_grid(r=r)
     A = fftlog.forward(a)
 
     # Create grid for inverse transform with same FFTLog
-    fftlog.create_grid(k=grid_fwd.k)
     a_reconstructed = fftlog.inverse(A)
 
     assert_allclose(a_reconstructed, a, rtol=1.5e-7)
 
 
-def test_grid_special_cases():
-    """Test special cases and singularities."""
-    rng = np.random.RandomState(3491349965)
-
-    a = np.asarray(rng.standard_normal(64))
-    dlog_val = rng.uniform(-1, 1)
-    r = np.exp(np.arange(64) * dlog_val)
-
-    # let x = (mu+1+q)/2, y = (mu+1-q)/2, M = {0, -1, -2, ...}
-
-    # case 1: x in M, y in M => well-defined transform
-    mu, bias = -4.0, 1.0
-    with warnings.catch_warnings(record=True) as record:
-        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu, bias=bias))
-        fftlog.forward(a)
-        assert not record, "FFTLog warned about a well-defined transform"
-
-    # case 2: x not in M, y in M => well-defined transform
-    mu, bias = -2.5, 0.5
-    with warnings.catch_warnings(record=True) as record:
-        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu, bias=bias))
-        fftlog.forward(a)
-        assert not record, "FFTLog warned about a well-defined transform"
-
-    # case 3: x in M, y not in M => singular transform
-    mu, bias = -3.5, 0.5
-    with pytest.warns(Warning) as record:
-        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu, bias=bias))
-        fftlog.forward(a)
-        assert record, "FFTLog did not warn about a singular transform"
-
-    # case 4: x not in M, y in M => singular inverse transform
-    mu, bias = -2.5, 0.5
-    with pytest.warns(Warning) as record:
-        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu, bias=bias))
-        fftlog.inverse(a)
-        assert record, "FFTLog did not warn about a singular transform"
-
-
 @pytest.mark.parametrize("n", [64, 63])
-def test_grid_exact(n):
-    """Test exact transform for power law functions."""
+def test_fftlog_exact(n):
+    """
+    Test exact transform for power law functions.
+    This test is adapted from scipy's test suite, see
+    https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
+    """
     rng = np.random.RandomState(3491349965)
 
     # for a(r) a power law r^\\gamma, the fast Hankel transform produces the
@@ -310,7 +282,7 @@ def test_grid_exact(n):
     a = np.asarray(r**gamma)
 
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=gamma), logc=0.0, minimize_ringing=True
+        r, kernel=BesselJKernel(mu), bias=gamma, logc=0.0, minimize_ringing=True
     )
     grid = fftlog.create_grid(r=r)
     A = fftlog.forward(a)
@@ -329,7 +301,6 @@ def test_array_like():
     r = np.array([1.0, 2.0])
 
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(2.0))
-    fftlog.create_grid(r=r)
     result1 = fftlog.forward(x)
     result2 = fftlog.forward(np.asarray(x))
 
@@ -338,7 +309,11 @@ def test_array_like():
 
 @pytest.mark.parametrize("n", [128, 129])
 def test_gh_21661(n):
-    """Test for github issue 21661."""
+    """
+    Test for github issue 21661.
+    This test is adapted from scipy's test suite, see
+    https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
+    """
     one = np.asarray(1.0)
     mu = 0.0
     r = np.logspace(-7, 1, n)
@@ -348,7 +323,7 @@ def test_gh_21661(n):
     r = np.asarray(r, dtype=one.dtype)
 
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu, bias=0.0), logc=logc, minimize_ringing=False
+        r, kernel=BesselJKernel(mu), logc=logc, minimize_ringing=False
     )
     grid = fftlog.create_grid(r=r)
     k = grid.k
