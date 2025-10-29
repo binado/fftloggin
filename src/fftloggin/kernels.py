@@ -334,7 +334,7 @@ class SphericalBesselJKernel(BesselJKernel):
 
     def is_in_strip(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
-        return super().is_in_strip(s + 0.5)
+        return super().is_in_strip(s - 0.5)
 
     def _forward(self, s: npt.ArrayLike) -> np.ndarray:
-        return super()._forward(s + 0.5) * SQRT_PI_OVER_2
+        return super()._forward(s - 0.5) * SQRT_PI_OVER_2
