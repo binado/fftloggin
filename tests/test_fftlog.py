@@ -25,14 +25,14 @@ def test_fftlog_agrees_with_fortran():
     """
     r = np.logspace(-4, 4, 16)
     mu = 0.3
-    logc = 0.0  # offset parameter from old API maps directly to logc
+    kr = 1.0  # product k*r at the geometric center of the grid
     bias = 0.0
 
     a = np.asarray(f(r, mu))
 
     # Test 1: compute as given
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), bias=bias, logc=logc, minimize_ringing=False
+        r, kernel=BesselJKernel(mu), bias=bias, kr=kr, lowring=False
     )
     fftlog.create_grid(r=r)
     ours = fftlog.forward(a)
@@ -59,9 +59,9 @@ def test_fftlog_agrees_with_fortran():
     assert_allclose(ours, theirs)
 
 
-def test_fftlog_with_optimal_logc():
+def test_fftlog_with_optimal_kr():
     """
-    Test fftlog with optimal logc (minimize_ringing=True).
+    Test fftlog with optimal kr (lowring=True).
     This test is adapted from scipy's test suite, see
     https://github.com/scipy/scipy/blob/main/scipy/special/tests/test_fftlog.py
     """
@@ -71,9 +71,9 @@ def test_fftlog_with_optimal_logc():
 
     a = np.asarray(f(r, mu))
 
-    # Create grid with optimal logc
+    # Create grid with optimal kr
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), bias=bias, logc=0.0, minimize_ringing=True
+        r, kernel=BesselJKernel(mu), bias=bias, kr=1.0, lowring=True
     )
     fftlog.create_grid(r=r)
     ours = fftlog.forward(a)
@@ -120,8 +120,8 @@ def test_fftlog_with_positive_bias():
         r,
         kernel=kernel,
         bias=bias,
-        logc=0.0,
-        minimize_ringing=True,
+        kr=1.0,
+        lowring=True,
     )
     ours = fftlog.forward(a)
 
@@ -161,7 +161,7 @@ def test_fftlog_with_negative_bias():
     a = np.asarray(f(r, mu))
 
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), bias=bias, logc=0.0, minimize_ringing=True
+        r, kernel=BesselJKernel(mu), bias=bias, kr=1.0, lowring=True
     )
     ours = fftlog.forward(a)
 
@@ -195,42 +195,36 @@ def test_fftlog_with_vectorized_kernel():
     # Test scalar mu
     mu = 0.3
     a = f(r, mu)
-    fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), logc=0.0, minimize_ringing=False
-    )
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=1.0, lowring=False)
     out = fftlog.forward(a)
     assert out.shape == r.shape
 
     # Test 1d mu (single batch element)
     mu = np.array([0.3])
     a = f(r, mu)
-    fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), logc=0.0, minimize_ringing=False
-    )
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=1.0, lowring=False)
     out = fftlog.forward(a)
     assert out.shape == (n,)
 
     # Test 1d mu (multiple batch elements)
     mu = np.linspace(0.1, 0.3, 3).reshape(-1, 1)
     a = f(r, mu)
-    fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), logc=0.0, minimize_ringing=False
-    )
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=1.0, lowring=False)
     out = fftlog.forward(a)
     assert out.shape == (3, n)
 
 
-@pytest.mark.parametrize("logc", [0.0, 1.0, -1.0])
+@pytest.mark.parametrize("kr", [1.0, np.exp(1.0), np.exp(-1.0)])
 @pytest.mark.parametrize("bias", [0.1, -0.1])
 @pytest.mark.parametrize("n", [64, 63])
 @pytest.mark.parametrize("order", [0, 1, 2])
-@pytest.mark.parametrize("minimize_ringing", [False])
+@pytest.mark.parametrize("lowring", [False])
 def test_fftlog_identity(
     n: int,
     bias: float,
-    logc: float,
+    kr: float,
     order: int,
-    minimize_ringing: bool,
+    lowring: bool,
 ):
     """Test that inverse is the inverse of forward for various kernels and derivatives."""
     rng = np.random.RandomState(3491349965)
@@ -250,9 +244,7 @@ def test_fftlog_identity(
         kernel = kernel.derive(order)
 
     # Create FFTLog for forward and inverse transforms
-    fftlog = FFTLog.from_array(
-        r, kernel=kernel, bias=bias, logc=logc, minimize_ringing=minimize_ringing
-    )
+    fftlog = FFTLog.from_array(r, kernel=kernel, bias=bias, kr=kr, lowring=lowring)
     A = fftlog.forward(a)
 
     # Create grid for inverse transform with same FFTLog
@@ -282,7 +274,7 @@ def test_fftlog_exact(n):
     a = np.asarray(r**gamma)
 
     fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), bias=gamma, logc=0.0, minimize_ringing=True
+        r, kernel=BesselJKernel(mu), bias=gamma, kr=1.0, lowring=True
     )
     grid = fftlog.create_grid(r=r)
     A = fftlog.forward(a)
@@ -318,13 +310,11 @@ def test_gh_21661(n):
     mu = 0.0
     r = np.logspace(-7, 1, n)
 
-    # Using logc parameter (offset from old API)
-    logc = -6 * np.log(10)
+    # Using kr parameter (product k*r at geometric center)
+    kr = np.exp(-6 * np.log(10))
     r = np.asarray(r, dtype=one.dtype)
 
-    fftlog = FFTLog.from_array(
-        r, kernel=BesselJKernel(mu), logc=logc, minimize_ringing=False
-    )
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
     grid = fftlog.create_grid(r=r)
     k = grid.k
 

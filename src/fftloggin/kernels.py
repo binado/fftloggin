@@ -68,9 +68,9 @@ class Kernel:
         """
         return (-np.inf, np.inf)
 
-    def _forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
-        Compute the Mellin transform at s (internal implementation).
+        Compute the Mellin transform at s.
 
         Parameters
         ----------
@@ -81,6 +81,11 @@ class Kernel:
         -------
         ndarray
             Mellin transform evaluated at s.
+
+        Notes
+        -----
+        Bounds checking is not performed in this method; it is done in __call__.
+        Subclasses should override this method to implement the Mellin transform.
         """
         raise NotImplementedError
 
@@ -94,7 +99,7 @@ class Kernel:
         in_bounds = (s_real >= inf) & (s_real <= sup)
         return bool(np.all(in_bounds))
 
-    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def __call__(self, s: npt.ArrayLike) -> np.ndarray:
         """
         Compute the Mellin transform at s with optional bounds checking.
 
@@ -120,7 +125,7 @@ class Kernel:
                 )
 
         s = np.asarray(s)
-        return self._forward(s)
+        return self.forward(s)
 
     def derive(self, order: int = 1) -> "Kernel":
         r"""
@@ -213,14 +218,14 @@ class Derivative(Kernel):
         s = np.asarray(s)
         return self.transform.is_in_strip(s - self.order)
 
-    def _forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
         sign = 1 - 2 * (self.order % 2)
         return (
             sign
             * special.gamma(s)
             * special.rgamma(s - self.order)
-            * self.transform._forward(s - self.order)
+            * self.transform.forward(s - self.order)
         )
 
 
@@ -279,7 +284,7 @@ class BesselJKernel(Kernel):
         """Strip of convergence: (-mu, 1.5)."""
         return (-self.mu, 1.5 * np.ones_like(self.mu))
 
-    def _forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> np.ndarray:
         """
         Compute the Mellin transform.
 
@@ -336,5 +341,5 @@ class SphericalBesselJKernel(BesselJKernel):
         s = np.asarray(s)
         return super().is_in_strip(s - 0.5)
 
-    def _forward(self, s: npt.ArrayLike) -> np.ndarray:
-        return super()._forward(s - 0.5) * SQRT_PI_OVER_2
+    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+        return super().forward(s - 0.5) * SQRT_PI_OVER_2

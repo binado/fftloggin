@@ -82,16 +82,16 @@ def optimal_logcenter(kernel: Kernel, dlog: float, bias: float = 0.0) -> npt.NDA
 
 
 def compute_kernel_coefficients(
-    kernel: Kernel, n: int, logc: npt.ArrayLike, dlog: float, bias: float = 0.0
+    kernel: Kernel, n: int, kr: npt.ArrayLike, dlog: float, bias: float = 0.0
 ):
     """
     Implements Eq.(18) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
 
     Parameters
     ----------
-    logc : array_like
-        The value of log(k0r0). If an iterable, its shape must match the
-    batch dimension of the kernel.
+    kr : array_like
+        The product k*r at the geometric center of the grid. If an iterable,
+        its shape must match the batch dimension of the kernel.
     bias : float, optional
         Power-law bias exponent (default: 0.0).
 
@@ -102,8 +102,8 @@ def compute_kernel_coefficients(
     angle = 2 * np.pi * m * 1j / (n * dlog)
     s = angle + 1
     coeffs = kernel.forward(s + bias)
-    logc = np.asarray(logc)
-    coeffs = coeffs * np.exp(-angle * logc)
+    kr = np.asarray(kr)
+    coeffs = coeffs / kr**angle
     # Handle Nyquist frequency for even n
     if n % 2 == 0:
         coeffs[-1] = np.real(coeffs[-1])
@@ -129,10 +129,10 @@ class FFTLog:
         Uniform logarithmic spacing.
     bias : float, optional
         Exponent of power law bias (default: 0.0).
-    minimize_ringing : bool, optional
-        Whether to snap logc to low-ringing condition (default: True).
-    logc : float, optional
-        Log-center parameter log(k_c * r_c) (default: 1.0).
+    lowring : bool, optional
+        Whether to snap kr to low-ringing condition (default: True).
+    kr : float, optional
+        The product k*r at the geometric center of the grid (default: 1.0).
 
     Attributes
     ----------
@@ -144,10 +144,12 @@ class FFTLog:
         Uniform logarithmic spacing.
     bias : float
         Exponent of power law bias.
-    minimize_ringing : bool
-        Whether logc is snapped to minimize ringing.
+    lowring : bool
+        Whether kr is snapped to minimize ringing.
+    kr : float
+        The product k*r at the geometric center of the grid (cached property).
     logc : float
-        Log-center parameter (cached property).
+        Natural logarithm of kr (cached property).
     kernel_coefficients : ndarray
         Precomputed FFT coefficients (cached property).
 
@@ -174,7 +176,7 @@ class FFTLog:
     >>>
     >>> # Create FFTLog from r array
     >>> r = np.logspace(-2, 2, 128)
-    >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+    >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), kr=1.0)
     >>>
     >>> # Create grid to manage coordinates
     >>> grid = fftlog.create_grid(r=r)
@@ -200,15 +202,15 @@ class FFTLog:
         n: int,
         dlog: float,
         bias: float = 0.0,
-        minimize_ringing: bool = True,
-        logc: float = 1,
+        lowring: bool = True,
+        kr: float = 1,
     ) -> None:
         self._kernel = kernel
         self._n = n
         self._dlog = dlog
         self._bias = bias
-        self._minimize_ringing = minimize_ringing
-        self._logc = logc
+        self._lowring = lowring
+        self._kr = kr
 
     def _cleanup(self) -> None:
         try:
@@ -257,20 +259,25 @@ class FFTLog:
         self._cleanup()
 
     @property
-    def minimize_ringing(self) -> bool:
-        return self._minimize_ringing
+    def lowring(self) -> bool:
+        return self._lowring
 
-    @minimize_ringing.setter
-    def minimize_ringing(self, other: bool):
-        self._minimize_ringing = other
+    @lowring.setter
+    def lowring(self, other: bool):
+        self._lowring = other
         self._cleanup()
 
     @cached_property
-    def logc(self) -> npt.ArrayLike:
-        if self.minimize_ringing:
-            return self.shift_logcenter(self._logc)
+    def kr(self) -> npt.ArrayLike:
+        if self.lowring:
+            logc_snapped = self.shift_logcenter(np.log(self._kr))
+            return np.exp(logc_snapped)
         else:
-            return self._logc
+            return self._kr
+
+    @cached_property
+    def logc(self) -> npt.ArrayLike:
+        return np.log(self.kr)
 
     @cached_property
     def kernel_coefficients(self) -> npt.NDArray:
@@ -282,13 +289,13 @@ class FFTLog:
 
         Parameters
         ----------
-        logc : array_like
-            The value of log(k0r0). If an iterable, its shape must match the
-        batch dimension of the kernel.
+        kr : array_like
+            The product k*r at the geometric center of the grid. If an iterable,
+            its shape must match the batch dimension of the kernel.
 
         """
         return compute_kernel_coefficients(
-            self.kernel, self.n, self.logc, self.dlog, self.bias
+            self.kernel, self.n, self.kr, self.dlog, self.bias
         )
 
     @classmethod
@@ -297,8 +304,8 @@ class FFTLog:
         x: npt.ArrayLike,
         kernel: Kernel,
         bias: float = 0.0,
-        logc: float = 0.0,
-        minimize_ringing: bool = True,
+        kr: float = 1.0,
+        lowring: bool = True,
     ) -> "FFTLog":
         """
         Create FFTLog instance from a log-spaced coordinate array.
@@ -311,10 +318,10 @@ class FFTLog:
             Mellin transform kernel.
         bias : float, optional
             Power-law bias exponent. Default is 0.0.
-        logc : float, optional
-            Log-center parameter. Default is 0.0.
-        minimize_ringing : bool, optional
-            Whether to snap logc to minimize ringing. Default is True.
+        kr : float, optional
+            The product k*r at the geometric center of the grid. Default is 1.0.
+        lowring : bool, optional
+            Whether to snap kr to minimize ringing. Default is True.
 
         Returns
         -------
@@ -327,7 +334,7 @@ class FFTLog:
         >>> from fftloggin.fftlog import FFTLog
         >>> from fftloggin.kernels import BesselJKernel
         >>> r = np.logspace(-2, 2, 128)
-        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), bias=0.0, logc=0.0)
+        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), bias=0.0, kr=1.0)
         """
         from .grids import infer_dlog
 
@@ -335,9 +342,7 @@ class FFTLog:
         n = len(x)
         dlog = infer_dlog(x)
 
-        return cls(
-            kernel, n, dlog, bias=bias, minimize_ringing=minimize_ringing, logc=logc
-        )
+        return cls(kernel, n, dlog, bias=bias, lowring=lowring, kr=kr)
 
     def create_grid(
         self,
@@ -345,10 +350,10 @@ class FFTLog:
         k: npt.ArrayLike | None = None,
     ) -> Grid:
         """
-        Create a Grid from one coordinate array using the FFTLog logc parameter.
+        Create a Grid from one coordinate array using the FFTLog kr parameter.
 
         Exactly one of r or k must be provided. The other coordinate array
-        is computed using get_other_array() with the FFTLog instance's logc.
+        is computed using get_other_array() with the FFTLog instance's kr.
 
         Parameters
         ----------
@@ -373,7 +378,7 @@ class FFTLog:
         >>> from fftloggin.fftlog import FFTLog
         >>> from fftloggin.kernels import BesselJKernel
         >>> r = np.logspace(-2, 2, 128)
-        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+        >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), kr=1.0)
         >>> grid = fftlog.create_grid(r=r)
         >>> print(f"{grid.k[0]:.6f}")  # First k value
         0.010129
