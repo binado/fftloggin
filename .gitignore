@@ -206,3 +206,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .DS_Store
+
+# Fortran build artifacts
+benchmark/fftlogtest
+benchmark/*.o
+benchmark/*.mod
+
+# Generated benchmark data
+tests/benchmarks/*.txt

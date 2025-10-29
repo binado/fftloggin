@@ -26,8 +26,66 @@ jobs:
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
-      - name: Run tests
-        run: uv run pytest
+      - name: Run tests (excluding benchmarks)
+        run: uv run pytest -m "not benchmark"
 
       - name: Run linting
         run: uv run ruff check .
+
+  benchmark:
+    name: benchmark-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Setup Fortran
+        uses: fortran-lang/setup-fortran@v1
+        id: setup-fortran
+        with:
+          compiler: gcc
+          version: 13
+
+      - name: Cache Fortran executable
+        id: cache-executable
+        uses: actions/cache@v4
+        with:
+          path: benchmark/fftlogtest
+          key: fftlogtest-${{ runner.os }}-${{ hashFiles('benchmark/*.f') }}
+
+      - name: Build Fortran executable
+        if: steps.cache-executable.outputs.cache-hit != 'true'
+        run: bash benchmark/build.sh
+
+      - name: Install the project
+        run: uv sync --locked --all-extras --dev
+
+      - name: Cache benchmark files
+        id: cache-benchmarks
+        uses: actions/cache@v4
+        with:
+          path: tests/benchmarks
+          key: benchmarks-${{ hashFiles('benchmark/*.f', 'tests/generate_benchmarks.py') }}
+
+      - name: Generate benchmarks
+        if: steps.cache-benchmarks.outputs.cache-hit != 'true'
+        run: |
+          echo "Generating benchmarks (this will take a few minutes)..."
+          python tests/generate_benchmarks.py
+
+      - name: Verify benchmarks
+        run: |
+          count=$(ls tests/benchmarks/*.txt 2>/dev/null | wc -l)
+          echo "Found $count benchmark files"
+          if [ "$count" -ne "216" ]; then
+            echo "ERROR: Expected 216 benchmark files, found $count"
+            exit 1
+          fi
+
+      - name: Run benchmark tests
+        run: uv run pytest tests/test_benchmark.py --run-benchmarks -v
