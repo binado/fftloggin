@@ -4,7 +4,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.fft import irfft, rfft
 
-from .grids import Grid
+from .grids import Grid, get_other_array, infer_dlog
 from .kernels import Kernel
 
 LN_2 = np.log(2)
@@ -336,8 +336,6 @@ class FFTLog:
         >>> r = np.logspace(-2, 2, 128)
         >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), bias=0.0, kr=1.0)
         """
-        from .grids import infer_dlog
-
         x = np.asarray(x)
         n = len(x)
         dlog = infer_dlog(x)
@@ -383,8 +381,6 @@ class FFTLog:
         >>> print(f"{grid.k[0]:.6f}")  # First k value
         0.010129
         """
-        from .grids import Grid, get_other_array
-
         if (r is None and k is None) or (r is not None and k is not None):
             raise ValueError(
                 "Exactly one of 'r' or 'k' must be provided. "
