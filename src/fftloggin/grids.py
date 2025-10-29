@@ -217,6 +217,8 @@ class Grid:
         Number of points.
     dlog : ndarray
         Logarithmic spacing.
+    kr : ndarray
+        Product k*r at the geometric center of the grid: k_c * r_c.
     logc : ndarray
         Log-center parameter: log(k_c * r_c).
     rcenter : ndarray
@@ -238,7 +240,7 @@ class Grid:
     >>> grid = Grid(r, k)
 
     >>> # Or use FFTLog.create_grid() for convenience
-    >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), logc=0.0)
+    >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), kr=1.0)
     >>> grid = fftlog.create_grid(r=r)
 
     >>> # Access grid properties
@@ -327,6 +329,11 @@ class Grid:
     def logc(self) -> npt.NDArray:
         """Log-center parameter: log(k_c * r_c)."""
         return self._logc
+
+    @property
+    def kr(self) -> npt.NDArray:
+        """Product k*r at the geometric center of the grid: k_c * r_c."""
+        return np.exp(self._logc)
 
     @property
     def rcenter(self) -> npt.NDArray:

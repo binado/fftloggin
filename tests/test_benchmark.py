@@ -106,9 +106,7 @@ def test_benchmark(benchmark_file: Path, rtol: float):
     kernel = BesselJKernel(mu)
     dlog = (log10rmax - log10rmin) / (n - 1) * np.log(10)
 
-    fftlog = FFTLog(
-        kernel=kernel, n=n, dlog=dlog, bias=q, logc=np.log(kr), minimize_ringing=lowring
-    )
+    fftlog = FFTLog(kernel=kernel, n=n, dlog=dlog, bias=q, kr=kr, lowring=lowring)
 
     # Create grid
     grid = fftlog.create_grid(r=r)

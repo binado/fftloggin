@@ -49,7 +49,7 @@ def test_spherical_bessel_kernel_strip():
 def test_bessel_kernel_vectorized_mu(mu_shape, s_shape, expected_shape):
     """Test BesselJKernel with vectorized mu and s parameters.
 
-    Tests that kernel.forward(s) returns shape (*mu.shape, *s.shape).
+    Tests that kernel(s) returns shape (*mu.shape, *s.shape).
     """
     # Create mu with specified shape
     if mu_shape == ():
@@ -66,7 +66,7 @@ def test_bessel_kernel_vectorized_mu(mu_shape, s_shape, expected_shape):
     kernel = BesselJKernel(mu)
 
     # Forward should return correct broadcast shape
-    result = kernel.forward(s)
+    result = kernel(s)
     assert result.shape == expected_shape
 
     # Result should be finite
@@ -112,7 +112,7 @@ def test_derivative_invalid_order():
 @pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
 @pytest.mark.parametrize("order", [0, 1, 2])
 def test_bessel_kernel_bounds_checking(mu: float, s: complex | float, order: int):
-    """Test that BesselJKernel.forward() correctly checks bounds."""
+    """Test that BesselJKernel.__call__() correctly checks bounds."""
     kernel = BesselJKernel(mu, check_bounds=True)
     sr = s.real if isinstance(s, complex) else s
     if order > 0:
@@ -127,7 +127,7 @@ def test_bessel_kernel_bounds_checking(mu: float, s: complex | float, order: int
         else pytest.raises(ValueError, match="Input array outside strip")
     )
     with context:
-        kernel.forward(s)
+        kernel(s)
 
 
 @pytest.mark.parametrize("ell", [1, 5, 10])
@@ -136,7 +136,7 @@ def test_bessel_kernel_bounds_checking(mu: float, s: complex | float, order: int
 def test_spherical_bessel_kernel_bounds_checking(
     ell: float, s: complex | float, order: int
 ):
-    """Test that SphericalBesselJKernel.forward() correctly checks bounds."""
+    """Test that SphericalBesselJKernel.__call__() correctly checks bounds."""
     kernel = SphericalBesselJKernel(ell, check_bounds=True)
     if order > 0:
         kernel = kernel.derive(order)
@@ -152,26 +152,26 @@ def test_spherical_bessel_kernel_bounds_checking(
         else pytest.raises(ValueError, match="Input array outside strip")
     )
     with context:
-        kernel.forward(s)
+        kernel(s)
 
 
 def test_bessel_kernel_skips_bounds_checking():
-    """Test that BesselJKernel.forward() skips bounds checking."""
+    """Test that BesselJKernel.__call__() skips bounds checking."""
     mu = 0.5
     kernel = BesselJKernel(mu, check_bounds=False)
 
     # s outside strip should not raise
-    kernel.forward(-mu - 1)  # Below lower bound
+    kernel(-mu - 1)  # Below lower bound
 
-    kernel.forward(2.0)  # Above upper bound
+    kernel(2.0)  # Above upper bound
 
 
 def test_spherical_bessel_kernel_skips_bounds_checking():
-    """Test that BesselJKernel.forward() skips bounds checking."""
+    """Test that SphericalBesselJKernel.__call__() skips bounds checking."""
     ell = 1
     kernel = SphericalBesselJKernel(ell, check_bounds=False)
 
     # s outside strip should not raise
     mu = ell + 0.5
-    kernel.forward(-mu - 1)  # Below lower bound
-    kernel.forward(2.0)  # Above upper bound
+    kernel(-mu - 1)  # Below lower bound
+    kernel(2.0)  # Above upper bound
