@@ -54,14 +54,14 @@ ruff format .
 ### Core Modules
 
 **fftlog.py** - Core FFTLog transform algorithm
-- `FFTLog` class: Pure transform algorithm with configurable parameters (kernel, n, dlog, bias, logc)
+- `FFTLog` class: Pure transform algorithm with configurable parameters (kernel, n, dlog, bias, kr, lowring)
 - Focus on computation only - does NOT manage coordinates
 - Key methods: `forward()`, `inverse()`, `compute_kernel_coefficients()`, `optimal_logcenter()`
-- Cached properties for performance: `logc`, `kernel_coefficients`
+- Cached properties for performance: `kr`, `logc`, `kernel_coefficients`
 - Low-level functions: `_forward_hankel_transform()`, `_inverse_hankel_transform()`
 
 **kernels.py** - Mellin transform kernels for integral transforms
-- `Kernel` base class: Defines interface for all kernels with `forward()` method and `strip` property
+- `Kernel` base class: Defines interface for all kernels with `forward()` method (computation) and `__call__()` method (with bounds checking) and `strip` property
 - `BesselJKernel`: Standard Hankel transform with Bessel function J_μ
 - `Derivative`: Wrapper for computing derivatives of transforms via the Mellin transform property
 - All kernels have a "strip of convergence" in the complex plane where the transform is valid
@@ -87,10 +87,11 @@ Users can choose between:
 
 ### Key Concepts
 
-**Log-center parameter (logc)**:
-- Controls the relationship between input (r) and output (k) grids
-- Can be "snapped" to minimize ringing artifacts via `minimize_ringing=True`
-- Computed optimally via `optimal_logcenter()` method
+**Log-center parameter (kr)**:
+- The product k*r at the geometric center of the grid (public user-facing parameter)
+- Internally represented as `logc = np.log(kr)` for mathematical computations
+- Can be "snapped" to minimize ringing artifacts via `lowring=True`
+- Both `kr` and `logc` properties are available for convenience
 
 **Bias parameter**:
 - Power-law bias exponent for improved numerical stability
@@ -108,30 +109,33 @@ Users can choose between:
 
 Tests are organized by module:
 - `test_fftlog.py` - Low-level FFTLog algorithm tests
-- `test_fftlog_class.py` - FFTLog class API tests (currently references old API)
+- `test_grid.py` - Grid API tests
 - `test_kernels.py` - Kernel implementations
-
-Note: Some test files may reference an older API (e.g., `fht`, `ifht` functions, `offset` parameter). The current API uses `FFTLog` class with `logc` parameter instead.
+- `test_utils.py` - Utility function tests
+- `test_benchmark.py` - Benchmark tests comparing against Fortran reference implementation (optional)
 
 ## Common Patterns
 
 ### Creating a Grid and performing transforms
 ```python
-from fftloggin import Grid
+from fftloggin import FFTLog, Grid
 from fftloggin.kernels import BesselJKernel
 import numpy as np
 
-# From r coordinates
+# Create FFTLog from r coordinates
 r = np.logspace(-2, 2, 128)
-grid = Grid.from_r(r, kernel=BesselJKernel(0))
+fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0), kr=1.0)
+
+# Create grid
+grid = fftlog.create_grid(r=r)
 
 # Transform
 a = np.exp(-(grid.r/1.0)**2)
-A = grid.forward(a)
+A = fftlog.forward(a)
 
 # Access results
 print(grid.k)  # Output coordinates
-print(grid.ak)  # Transformed data
+print(A)  # Transformed data
 ```
 
 ### Using FFTLog directly (low-level)
