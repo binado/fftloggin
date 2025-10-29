@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from fftloggin.utils import append_dims, outer_broadcast
+from fftloggin.utils import append_dims, outer_broadcast, prepare_batch_params
 
 
 class TestAppendDims:
@@ -225,3 +225,123 @@ class TestOuterBroadcast:
         assert right_r.shape == (2,)
         result = left_r + right_r
         assert result.shape == (3, 2)
+
+
+class TestPrepareBatchParams:
+    """Tests for prepare_batch_params function."""
+
+    def test_all_scalars(self):
+        """Test with all scalar inputs."""
+        dlog, bias, kr = prepare_batch_params(0.05, 0.0, 1.0)
+
+        assert dlog.shape == ()
+        assert bias.shape == ()
+        assert kr.shape == ()
+        assert dlog == 0.05
+        assert bias == 0.0
+        assert kr == 1.0
+
+    def test_one_array_others_scalar(self):
+        """Test with one array parameter and two scalars."""
+        dlog, bias, kr = prepare_batch_params(0.05, 0.0, [0.5, 1.0, 2.0])
+
+        assert dlog.shape == ()
+        assert bias.shape == ()
+        assert kr.shape == (3, 1)
+        assert_array_equal(kr.squeeze(), [0.5, 1.0, 2.0])
+
+    def test_1d_array_reshaping(self):
+        """Test that 1D arrays are reshaped to (m, 1)."""
+        dlog, bias, kr = prepare_batch_params([0.04, 0.05], [0.0, 0.1], [0.5, 1.0])
+
+        assert dlog.shape == (2, 1)
+        assert bias.shape == (2, 1)
+        assert kr.shape == (2, 1)
+
+    def test_compatible_shapes_broadcast(self):
+        """Test that compatible shapes broadcast correctly."""
+        dlog, bias, kr = prepare_batch_params(
+            [0.04, 0.05],  # Will become (2, 1)
+            0.0,  # Scalar
+            [1.0, 2.0],  # Will become (2, 1)
+        )
+
+        # After broadcasting, should all have shape (2, 1)
+        assert dlog.shape == (2, 1)
+        assert bias.shape == ()  # Scalar stays scalar
+        assert kr.shape == (2, 1)
+
+    def test_incompatible_shapes_raise_error(self):
+        """Test that incompatible shapes raise ValueError."""
+        with pytest.raises(ValueError, match="incompatible shapes"):
+            prepare_batch_params([0.04, 0.05], 0.0, [0.5, 1.0, 2.0])
+
+    def test_2d_array_with_trailing_singleton(self):
+        """Test that 2D arrays with trailing singleton pass through."""
+        dlog_in = np.array([[0.04], [0.05]])  # shape (2, 1)
+        dlog, bias, kr = prepare_batch_params(dlog_in, 0.0, 1.0)
+
+        assert dlog.shape == (2, 1)
+        assert_array_equal(dlog, dlog_in)
+
+    def test_2d_array_without_trailing_singleton(self):
+        """Test that 2D arrays without trailing singleton get one added."""
+        dlog_in = np.array([[0.04, 0.05]])  # shape (1, 2)
+        dlog, bias, kr = prepare_batch_params(dlog_in, 0.0, 1.0)
+
+        assert dlog.shape == (1, 2, 1)  # Trailing singleton added
+
+    def test_array_like_inputs(self):
+        """Test with list and tuple inputs."""
+        dlog, bias, kr = prepare_batch_params([0.04, 0.05], (0.0, 0.1), [1.0, 2.0])
+
+        assert dlog.shape == (2, 1)
+        assert bias.shape == (2, 1)
+        assert kr.shape == (2, 1)
+
+    def test_values_preserved(self):
+        """Test that values are preserved after reshaping."""
+        dlog_val = [0.04, 0.05, 0.06]
+        bias_val = [0.0, 0.1, 0.2]
+        kr_val = [0.5, 1.0, 1.5]
+
+        dlog, bias, kr = prepare_batch_params(dlog_val, bias_val, kr_val)
+
+        assert_array_equal(dlog.squeeze(), dlog_val)
+        assert_array_equal(bias.squeeze(), bias_val)
+        assert_array_equal(kr.squeeze(), kr_val)
+
+    def test_broadcast_validation(self):
+        """Test that broadcast validation works correctly."""
+        # These should broadcast fine (both become (2, 1))
+        dlog, bias, kr = prepare_batch_params([0.04, 0.05], 0.0, [1.0, 2.0])
+        assert dlog.shape == (2, 1)
+        assert kr.shape == (2, 1)
+
+        # These should fail (2 vs 3 elements)
+        with pytest.raises(ValueError, match="incompatible shapes"):
+            prepare_batch_params([0.04, 0.05], 0.0, [0.5, 1.0, 2.0])
+
+    def test_single_element_array(self):
+        """Test with single-element arrays."""
+        dlog, bias, kr = prepare_batch_params([0.05], [0.0], [1.0])
+
+        # Single element arrays have shape (1,) and are already broadcastable
+        # No need to add trailing dimension since (1,) broadcasts with (n,)
+        assert dlog.shape == (1,)
+        assert bias.shape == (1,)
+        assert kr.shape == (1,)
+
+    def test_error_message_quality(self):
+        """Test that error messages are informative."""
+        with pytest.raises(ValueError, match=r"incompatible shapes.*\("):
+            prepare_batch_params([0.04, 0.05], 0.0, [0.5, 1.0, 2.0])
+
+    def test_float_vs_int_types(self):
+        """Test with mixed float and int types."""
+        dlog, bias, kr = prepare_batch_params(0.05, 0, [1, 2, 3])
+
+        # All should be converted to float arrays
+        assert dlog.dtype == np.float64 or dlog.dtype == np.int64
+        assert bias.dtype == np.float64 or bias.dtype == np.int64
+        assert kr.dtype == np.int64 or kr.dtype == np.float64

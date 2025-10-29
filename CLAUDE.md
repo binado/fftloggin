@@ -56,7 +56,8 @@ ruff format .
 **fftlog.py** - Core FFTLog transform algorithm
 - `FFTLog` class: Pure transform algorithm with configurable parameters (kernel, n, dlog, bias, kr, lowring)
 - Focus on computation only - does NOT manage coordinates
-- Key methods: `forward()`, `inverse()`, `compute_kernel_coefficients()`, `optimal_logcenter()`
+- Parameters `dlog`, `bias`, `kr` can be scalars or arrays with shape `(*batch_shape, 1)` for batch transforms
+- Key methods: `forward()`, `inverse()`, `optimal_logcenter()`
 - Cached properties for performance: `kr`, `logc`, `kernel_coefficients`
 - Low-level functions: `_forward_hankel_transform()`, `_inverse_hankel_transform()`
 
@@ -101,9 +102,11 @@ Users can choose between:
 - Each kernel defines a range in complex s-plane where Mellin transform is valid
 - Kernels validate input automatically in `forward()` method
 
-**Vectorization**:
+**Vectorization and Batching**:
 - Kernels support batch transforms (e.g., multiple μ values)
-- Grid batching: kernel parameters can be arrays with shape (*batch_shape,)
+- Parameters `dlog`, `bias`, `kr` can be arrays with shape `(*batch_shape, 1)` for batch transforms
+- Use `prepare_batch_params()` helper to prepare parameters for batching
+- Result arrays have shape `(*batch_shape, n)` when using batched parameters
 
 ## Testing Strategy
 
@@ -155,6 +158,70 @@ kernel = BesselJKernel(0)
 d_kernel = kernel.derive(1)  # First derivative
 d2_kernel = kernel.derive(2)  # Second derivative
 ```
+
+### Batching transforms with array parameters
+```python
+from fftloggin import FFTLog, prepare_batch_params
+from fftloggin.kernels import BesselJKernel
+import numpy as np
+
+# Setup input data and coordinates
+r = np.logspace(-2, 2, 128)
+a = np.exp(-(r/1.0)**2)
+
+# Method 1: Using prepare_batch_params helper (recommended)
+# Automatically handles reshaping to (*batch_shape, 1)
+dlog, bias, kr = prepare_batch_params(
+    dlog=0.05,           # scalar
+    bias=0.0,            # scalar
+    kr=[0.5, 1.0, 2.0]  # batch over 3 kr values
+)
+
+fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=dlog, bias=bias, kr=kr)
+result = fftlog.forward(a)
+print(result.shape)  # (3, 128)
+
+# Method 2: Manual reshaping
+# Must add trailing singleton dimension for proper broadcasting
+kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)  # shape (3, 1)
+fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, kr=kr)
+result = fftlog.forward(a)  # shape (3, 128)
+
+# Batch over multiple parameters
+dlog, bias, kr = prepare_batch_params(
+    dlog=[0.04, 0.05],   # 2 values
+    bias=[0.0, 0.1],     # 2 values
+    kr=[1.0, 2.0]        # 2 values
+)
+# After prepare_batch_params, all have compatible shapes (2, 1)
+fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=dlog, bias=bias, kr=kr)
+result = fftlog.forward(a)  # shape (2, 128)
+
+# Combining kernel batching with parameter batching
+# Requires manual shape management for outer product broadcasting
+mu_values = np.array([0, 1, 2])  # 3 different orders
+kr_values = np.array([0.5, 1.0])  # 2 different kr values
+
+# For outer product: need shapes (3, 1, 1) and (1, 2, 1)
+mu_batch = mu_values.reshape(-1, 1, 1)  # Remove last singleton for kernel
+kr_batch = kr_values.reshape(1, -1, 1)
+
+kernel = BesselJKernel(mu_batch.squeeze(-1))  # shape (3, 1) for kernel
+fftlog = FFTLog(kernel=kernel, n=128, dlog=0.05, kr=kr_batch)
+result = fftlog.forward(a)  # shape (3, 2, 128)
+```
+
+**Key principles for batching**:
+1. **Pre-shaped arrays**: Parameters must arrive with shape `(*batch_shape, 1)` for proper broadcasting
+2. **Use `prepare_batch_params`**: Handles common reshaping and validates compatibility
+3. **Manual control**: For complex batch shapes, reshape arrays explicitly before passing to FFTLog
+4. **Broadcasting rules**: Standard NumPy broadcasting applies - shapes must be compatible
+
+**Shape requirements**:
+- Input data `a`: shape `(n,)` (no batch dimension)
+- Parameters `dlog`, `bias`, `kr`: scalar or shape `(*batch_shape, 1)`
+- Kernel coefficients: shape `(*batch_shape, ns)` where `ns = n//2 + 1`
+- Result: shape `(*batch_shape, n)`
 
 ## References
 
