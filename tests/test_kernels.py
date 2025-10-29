@@ -143,7 +143,7 @@ def test_spherical_bessel_kernel_bounds_checking(
 
     sr = s.real if isinstance(s, complex) else s
     mu = ell + 0.5
-    is_in_strip = (sr - order + 0.5 >= -mu) & (sr - order + 0.5 <= 1.5)
+    is_in_strip = (sr - order - 0.5 >= -mu) & (sr - order - 0.5 <= 1.5)
 
     # s outside strip should raise
     context = (
