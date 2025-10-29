@@ -28,4 +28,4 @@ gfortran --std=legacy -O2 -o fftlogtest fftlogtest.f fftlog.f drffti.f drfftf.f 
 
 ## Generating benchmark files
 
-We provide a simple python script [`generate_benchmarks.py`](./generate_benchmarks.py) that creates benchmark files for a set of input parameters. These files are used in our test suite.
+We provide a simple python script [`generate_benchmarks.py`](..tests/generate_benchmarks.py) that creates benchmark files for a set of input parameters. These files are used in our test suite.
