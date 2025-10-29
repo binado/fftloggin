@@ -34,7 +34,7 @@ def _forward_hankel_transform(
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
     ak_biased = irfft(a_biased_fftd * u, na, **kwargs)
-    ak_biased = np.flip(ak_biased)
+    ak_biased = np.flip(ak_biased)  # type: ignore
 
     # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
     ak = ak_biased * bias_power_law * np.exp(-bias * logc)
@@ -65,7 +65,7 @@ def _inverse_hankel_transform(
     # Step 3: divide by coefficients
     # coeffs may be batched, while a is not
     a_biased = irfft(ak_biased_fftd / np.conjugate(u), na, **kwargs)
-    a_biased = np.flip(a_biased)
+    a_biased = np.flip(a_biased)  # type: ignore
 
     # Step 4: unbias ak by (r_n / r_0)^{q}
     a = a_biased * bias_power_law
