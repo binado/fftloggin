@@ -45,6 +45,7 @@ def _forward_hankel_transform(
     a = np.asarray(a)
     u = np.asarray(u)
     logc = np.asarray(logc)
+    bias = np.asarray(bias)
     na = a.shape[-1]
     # Step 1: bias a by (r_n / r_0)^{-q}
     i = np.arange(na).astype(a.dtype)
@@ -58,7 +59,7 @@ def _forward_hankel_transform(
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
     ak_biased = irfft(a_biased_fftd * u, na, **kwargs)
-    ak_biased = np.flip(ak_biased, axis=-1)
+    ak_biased = np.flip(ak_biased, axis=-1)  # type: ignore
 
     # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
     ak = ak_biased * bias_power_law * np.exp(-bias * logc)
@@ -113,7 +114,7 @@ def _inverse_hankel_transform(
     # Step 3: divide by coefficients
     # coeffs may be batched, while a is not
     a_biased = irfft(ak_biased_fftd / np.conjugate(u), na, **kwargs)
-    a_biased = np.flip(a_biased, axis=-1)
+    a_biased = np.flip(a_biased, axis=-1)  # type: ignore
 
     # Step 4: unbias ak by (r_n / r_0)^{q}
     a = a_biased * bias_power_law
@@ -143,6 +144,8 @@ def optimal_logcenter(
     logc : ndarray
         Optimal log-center parameter. Scalar or shape (*batch_shape, 1).
     """
+    dlog = np.asarray(dlog)
+    bias = np.asarray(bias)
     s = 1j * np.pi / dlog + 1
     arg = np.angle(kernel.forward(s + bias))
     return dlog * arg / np.pi
@@ -181,6 +184,8 @@ def compute_kernel_coefficients(
         FFT coefficients with shape (ns,) for scalar inputs or (*batch_shape, ns)
         for batched inputs, where ns = n//2 + 1.
     """
+    dlog = np.asarray(dlog)
+    bias = np.asarray(bias)
     # Length of real Fourier transform
     ns = n // 2 + 1
     m = np.arange(0, ns)
@@ -536,11 +541,12 @@ class FFTLog:
 
     def shift_logcenter(self, logc: npt.ArrayLike) -> npt.NDArray:
         logc = np.asarray(logc)
+        dlog = np.asarray(self.dlog)
         optimal = self.optimal_logcenter()
         # Snap to nearest integer multiple of dlog from optimal
         # This matches Fortran's krgood: krgood = kr * exp((arg - round(arg)) * dlnr)
-        shift = (logc - optimal) / self.dlog
-        return optimal + np.round(shift) * self.dlog
+        shift = (logc - optimal) / dlog
+        return optimal + np.round(shift) * dlog
 
     def forward(
         self,
