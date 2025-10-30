@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy import special
 
-from .utils import outer_broadcast
+from .utils import safe_broadcast
 
 __all__ = (
     "Kernel",
@@ -94,8 +94,8 @@ class Kernel:
         # Strip of convergence applies to the real part of s
         s_real = np.real(s)
         # Reshape inf/sup to have trailing dimensions for proper broadcasting
-        inf, _ = outer_broadcast(inf, s)
-        sup, _ = outer_broadcast(sup, s)
+        inf, _ = safe_broadcast(inf, s)
+        sup, _ = safe_broadcast(sup, s)
         in_bounds = (s_real >= inf) & (s_real <= sup)
         return bool(np.all(in_bounds))
 
@@ -303,13 +303,8 @@ class BesselJKernel(Kernel):
         The implementation uses log-gamma functions for numerical stability
         to avoid overflow/underflow in direct gamma computations.
         """
-        s = np.asarray(s)
         # Reshape mu and s to enable proper broadcasting
-        if self.mu.ndim > 0 and s.ndim > 0:
-            # Add trailing dimensions to mu
-            mu, s = outer_broadcast(self.mu, s)
-        else:
-            mu = self.mu
+        mu, s = safe_broadcast(self.mu, s)
         logforward = (
             LOG_2 * (s - 1)
             + special.loggamma(0.5 * (mu + s))
@@ -342,4 +337,5 @@ class SphericalBesselJKernel(BesselJKernel):
         return super().is_in_strip(s - 0.5)
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
+        s = np.asarray(s)
         return super().forward(s - 0.5) * SQRT_PI_OVER_2
