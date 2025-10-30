@@ -53,6 +53,13 @@ ruff format .
 
 ### Core Modules
 
+**cosmology.py** - Cosmology utilities for angular power spectra
+- `RadialIntegrator` class: Compute line-of-sight integrals for angular power spectrum calculations
+- Handles batch transforms for multiple ells efficiently
+- Key features: source interpolation, recentering, chi masking
+- Public methods: `build_interpolator()`, `compute(**fft_kwargs)`
+- Properties: `fftlog`, `grid`, `source_interpolator`, `result`, `s_resampled`, `chi_mask`, `ells`, `chi`, `k`
+
 **fftlog.py** - Core FFTLog transform algorithm
 - `FFTLog` class: Pure transform algorithm with configurable parameters (kernel, n, dlog, bias, kr, lowring)
 - Focus on computation only - does NOT manage coordinates
@@ -111,10 +118,43 @@ Tests are organized by module:
 - `test_fftlog.py` - Low-level FFTLog algorithm tests
 - `test_grid.py` - Grid API tests
 - `test_kernels.py` - Kernel implementations
+- `test_cosmology.py` - RadialIntegrator and cosmology utilities tests
 - `test_utils.py` - Utility function tests
 - `test_benchmark.py` - Benchmark tests comparing against Fortran reference implementation (optional)
 
 ## Common Patterns
+
+### Computing line-of-sight integrals (cosmology)
+```python
+from fftloggin.cosmology import RadialIntegrator
+import numpy as np
+
+# Create comoving distance and window function
+chi = np.logspace(0, 3, 128)
+s = np.exp(-((chi - 100) / 50)**2)  # Gaussian window
+
+# Compute for multiple ells (batch transform)
+ells = np.array([0, 10, 20, 30])
+integrator = RadialIntegrator(chi, s, ells, recenter=True)
+
+# Access results
+result = integrator.result  # Shape: (4, 128)
+k = integrator.k  # Shape: (4, 128) - each ell has different kr
+chi_grid = integrator.chi  # Shape: (128,)
+mask = integrator.chi_mask  # Boolean mask for valid chi
+
+# Deferred computation
+integrator = RadialIntegrator(chi, s, ells, compute=False)
+result = integrator.compute(workers=-1)  # Compute with parallel FFT
+
+# Custom interpolator
+from scipy.interpolate import interp1d
+integrator.source_interpolator = interp1d(chi, s, kind='linear', fill_value=0.0, bounds_error=False)
+result = integrator.compute()
+
+# Direct r0 specification
+integrator = RadialIntegrator(chi, s, ells, recenter=150.0)
+```
 
 ### Creating a Grid and performing transforms
 ```python

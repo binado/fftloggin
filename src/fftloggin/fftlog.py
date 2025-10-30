@@ -4,7 +4,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.fft import irfft, rfft
 
-from .grids import Grid
+from .grids import Grid, get_other_array, infer_dlog
 from .kernels import Kernel
 
 LN_2 = np.log(2)
@@ -34,7 +34,7 @@ def _forward_hankel_transform(
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
     ak_biased = irfft(a_biased_fftd * u, na, **kwargs)
-    ak_biased = np.flip(ak_biased)
+    ak_biased = np.flip(ak_biased)  # type: ignore
 
     # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
     ak = ak_biased * bias_power_law * np.exp(-bias * logc)
@@ -65,7 +65,7 @@ def _inverse_hankel_transform(
     # Step 3: divide by coefficients
     # coeffs may be batched, while a is not
     a_biased = irfft(ak_biased_fftd / np.conjugate(u), na, **kwargs)
-    a_biased = np.flip(a_biased)
+    a_biased = np.flip(a_biased)  # type: ignore
 
     # Step 4: unbias ak by (r_n / r_0)^{q}
     a = a_biased * bias_power_law
@@ -336,8 +336,6 @@ class FFTLog:
         >>> r = np.logspace(-2, 2, 128)
         >>> fftlog = FFTLog.from_array(r, BesselJKernel(0), bias=0.0, kr=1.0)
         """
-        from .grids import infer_dlog
-
         x = np.asarray(x)
         n = len(x)
         dlog = infer_dlog(x)
@@ -383,8 +381,6 @@ class FFTLog:
         >>> print(f"{grid.k[0]:.6f}")  # First k value
         0.010129
         """
-        from .grids import Grid, get_other_array
-
         if (r is None and k is None) or (r is not None and k is not None):
             raise ValueError(
                 "Exactly one of 'r' or 'k' must be provided. "
