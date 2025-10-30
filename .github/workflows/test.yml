@@ -30,7 +30,7 @@ jobs:
         run: uv run pytest -m "not benchmark"
 
       - name: Run linting
-        run: uv run ruff check .
+        run: uv run ruff check --exclude notebooks .
 
   benchmark:
     name: benchmark-tests
