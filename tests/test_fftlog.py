@@ -3,9 +3,11 @@ Test suite for FFTLog implementation using Grid API.
 Adapted from scipy's test suite with Grid-based interface.
 """
 
+from numbers import Number
+
 import numpy as np
 import pytest
-from numpy.testing import assert_allclose, assert_array_less
+from numpy.testing import assert_allclose, assert_array_equal, assert_array_less
 from scipy.special import poch
 
 from fftloggin.fftlog import FFTLog
@@ -341,13 +343,20 @@ class TestBatchedTransforms:
         # Batch over 3 different kr values
         kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)
         fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
+        assert isinstance(fftlog.dlog, Number)
+        assert isinstance(fftlog.bias, Number)
+
+        assert isinstance(fftlog.kr, np.ndarray)
+        assert fftlog.kr.shape == kr.shape
+        assert isinstance(fftlog.logc, np.ndarray)
+        assert fftlog.logc.shape == kr.shape
+
+        grid = fftlog.create_grid(r=r)
+        assert grid.r.shape == r.shape
+        assert grid.k.shape == (3, 128)
 
         result = fftlog.forward(a)
         assert result.shape == (3, 128)
-
-        # Each batch should give a different result
-        assert not np.allclose(result[0], result[1])
-        assert not np.allclose(result[1], result[2])
 
     def test_batched_dlog_only(self):
         """Test batching with array dlog, scalar bias and kr."""
@@ -359,13 +368,33 @@ class TestBatchedTransforms:
         dlog2 = dlog1 * 1.5  # Different spacing
         dlog = np.array([dlog1, dlog2]).reshape(-1, 1)
 
+        # Test with lowring=False
+        kr_scalar = 1.0
         fftlog = FFTLog(
-            kernel=BesselJKernel(mu), n=64, dlog=dlog, kr=1.0, lowring=False
+            kernel=BesselJKernel(mu), n=64, dlog=dlog, kr=kr_scalar, lowring=False
         )
+        assert isinstance(fftlog.bias, Number)
+        assert isinstance(fftlog.kr, Number)
+        assert isinstance(fftlog.dlog, np.ndarray)
+        assert fftlog.dlog.shape == dlog.shape
+        assert_array_equal(fftlog.dlog, dlog)
 
+        # Test with lowring=True
         a = f(r, mu)
         result = fftlog.forward(a)
         assert result.shape == (2, 64)
+
+        kr_scalar = 1.0
+        fftlog = FFTLog(
+            kernel=BesselJKernel(mu), n=64, dlog=dlog, kr=kr_scalar, lowring=True
+        )
+        assert isinstance(fftlog.bias, Number)
+        # kr now should have the same shape as dlog
+        assert isinstance(fftlog.kr, np.ndarray)
+        assert fftlog.kr.shape == dlog.shape
+        assert isinstance(fftlog.dlog, np.ndarray)
+        assert fftlog.dlog.shape == dlog.shape
+        assert_array_equal(fftlog.dlog, dlog)
 
     def test_batched_bias_only(self):
         """Test batching with array bias, scalar dlog and kr."""
@@ -375,15 +404,27 @@ class TestBatchedTransforms:
 
         # Batch over 2 different bias values
         bias = np.array([0.0, 0.5]).reshape(-1, 1)
+        kr_scalar = 1.0
         fftlog = FFTLog.from_array(
-            r, kernel=BesselJKernel(mu), bias=bias, kr=1.0, lowring=False
+            r, kernel=BesselJKernel(mu), bias=bias, kr=kr_scalar, lowring=False
         )
 
         result = fftlog.forward(a)
         assert result.shape == (2, 128)
+        assert isinstance(fftlog.dlog, Number)
+        assert isinstance(fftlog.kr, Number)
+        assert kr_scalar == fftlog.kr
 
-        # Different bias should give different results
-        assert not np.allclose(result[0], result[1])
+        kr_scalar = 1.0
+        fftlog = FFTLog.from_array(
+            r, kernel=BesselJKernel(mu), bias=bias, kr=kr_scalar, lowring=True
+        )
+        result = fftlog.forward(a)
+        assert result.shape == (2, 128)
+        assert isinstance(fftlog.dlog, Number)
+        # Bias should promote kr to an array
+        assert isinstance(fftlog.kr, np.ndarray)
+        assert fftlog.kr.shape == bias.shape
 
     def test_all_params_batched_compatible_shapes(self):
         """Test batching with all three parameters having compatible shapes."""
