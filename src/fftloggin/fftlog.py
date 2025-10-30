@@ -378,20 +378,20 @@ class FFTLog:
         self._cleanup()
 
     @property
-    def dlog(self) -> float:
+    def dlog(self) -> npt.ArrayLike:
         return self._dlog
 
     @dlog.setter
-    def dlog(self, other: float):
+    def dlog(self, other: npt.ArrayLike):
         self._dlog = other
         self._cleanup()
 
     @property
-    def bias(self) -> float:
+    def bias(self) -> npt.ArrayLike:
         return self._bias
 
     @bias.setter
-    def bias(self, other: float):
+    def bias(self, other: npt.ArrayLike):
         self._bias = other
         self._cleanup()
 
@@ -431,7 +431,7 @@ class FFTLog:
         cls,
         x: npt.ArrayLike,
         kernel: Kernel,
-        bias: float = 0.0,
+        bias: npt.ArrayLike = 0.0,
         kr: npt.ArrayLike = 1.0,
         lowring: bool = True,
     ) -> "FFTLog":
@@ -444,7 +444,7 @@ class FFTLog:
             Log-spaced coordinate array (1D).
         kernel : Kernel
             Mellin transform kernel.
-        bias : float, optional
+        bias : array_like, optional
             Power-law bias exponent. Default is 0.0.
         kr : array_like, optional
             The product k*r at the geometric center of the grid. Default is 1.0.
