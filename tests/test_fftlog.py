@@ -481,9 +481,9 @@ class TestBatchedTransforms:
         assert a_reconstructed.shape == (3, 128)
 
         # Each batch should approximately reconstruct original
-        # Note: FFTLog is not exact, so we use a loose tolerance
+        # Round-trip should be accurate to machine precision
         for i in range(3):
-            assert_allclose(a_reconstructed[i], a, rtol=1e-2, atol=1e-2)
+            assert_allclose(a_reconstructed[i], a, rtol=1e-7, atol=1e-15)
 
     def test_batched_backward_compat_scalar(self):
         """Test that scalar parameters still work (backward compatibility)."""
