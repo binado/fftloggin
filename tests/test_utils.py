@@ -4,7 +4,12 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from fftloggin.utils import append_dims, outer_broadcast, prepare_batch_params
+from fftloggin.utils import (
+    append_dims,
+    outer_broadcast,
+    prepare_batch_params,
+    safe_broadcast,
+)
 
 
 class TestAppendDims:
@@ -84,8 +89,8 @@ class TestAppendDims:
         assert_array_equal(result[:, :, 0, 0], a)
 
 
-class TestOuterBroadcast:
-    """Tests for outer_broadcast function."""
+class TestOuterAndSafeBroadcast:
+    """Tests for outer_broadcast and safe_broadcast functions."""
 
     def test_outer_broadcast_1d_1d(self):
         """Test outer_broadcast with two 1D arrays."""
@@ -98,6 +103,13 @@ class TestOuterBroadcast:
         # Broadcasting should work (NumPy pads right on the left)
         result = left_r + right_r
         assert result.shape == (3, 2)
+
+        # Test safe_broadcast - should delegate to outer_broadcast for arrays
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == (3, 1)
+        assert right_s.shape == (2,)
+        result_s = left_s + right_s
+        assert result_s.shape == (3, 2)
 
     def test_outer_broadcast_scalar_1d(self):
         """Test outer_broadcast with scalar and 1D array.
@@ -114,6 +126,13 @@ class TestOuterBroadcast:
         result = left_r + right_r
         assert result.shape == (3,)
 
+        # Test safe_broadcast - should keep scalar unchanged (standard broadcasting)
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == ()
+        assert right_s.shape == (3,)
+        result_s = left_s + right_s
+        assert result_s.shape == (3,)
+
     def test_outer_broadcast_1d_scalar(self):
         """Test outer_broadcast with 1D array and scalar.
 
@@ -129,6 +148,13 @@ class TestOuterBroadcast:
         result = left_r + right_r
         assert result.shape == (3,)
 
+        # Test safe_broadcast - should keep both unchanged (standard broadcasting)
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == (3,)
+        assert right_s.shape == ()
+        result_s = left_s + right_s
+        assert result_s.shape == (3,)
+
     def test_outer_broadcast_scalar_scalar(self):
         """Test outer_broadcast with two scalars."""
         left = 3.0
@@ -139,6 +165,13 @@ class TestOuterBroadcast:
         assert right_r.shape == ()
         result = left_r + right_r
         assert result.shape == ()
+
+        # Test safe_broadcast - should keep both scalars unchanged
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == ()
+        assert right_s.shape == ()
+        result_s = left_s + right_s
+        assert result_s.shape == ()
 
     def test_outer_broadcast_2d_1d(self):
         """Test outer_broadcast with 2D and 1D arrays.
@@ -155,6 +188,13 @@ class TestOuterBroadcast:
         result = left_r + right_r
         assert result.shape == (2, 3, 2)
 
+        # Test safe_broadcast - should delegate to outer_broadcast for arrays
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == (2, 3, 1)
+        assert right_s.shape == (2,)
+        result_s = left_s + right_s
+        assert result_s.shape == (2, 3, 2)
+
     def test_outer_broadcast_values_preserved(self):
         """Test that outer_broadcast preserves values."""
         left = np.array([1, 2, 3])
@@ -164,6 +204,11 @@ class TestOuterBroadcast:
         # Check values are preserved (just reshaped)
         assert_array_equal(left_r[:, 0], left)
         assert_array_equal(right_r, right)
+
+        # Test safe_broadcast - should also preserve values
+        left_s, right_s = safe_broadcast(left, right)
+        assert_array_equal(left_s[:, 0], left)
+        assert_array_equal(right_s, right)
 
     def test_outer_broadcast_broadcast_result(self):
         """Test that outer_broadcast result broadcasts correctly."""
@@ -181,6 +226,11 @@ class TestOuterBroadcast:
         )
         assert_array_equal(result, expected)
 
+        # Test safe_broadcast - should produce same result
+        left_s, right_s = safe_broadcast(left, right)
+        result_s = left_s + right_s
+        assert_array_equal(result_s, expected)
+
     def test_outer_broadcast_multiplication(self):
         """Test outer_broadcast with multiplication."""
         left = np.array([1, 2, 3])
@@ -196,6 +246,11 @@ class TestOuterBroadcast:
             ]
         )
         assert_array_equal(result, expected)
+
+        # Test safe_broadcast - should produce same result
+        left_s, right_s = safe_broadcast(left, right)
+        result_s = left_s * right_s
+        assert_array_equal(result_s, expected)
 
     def test_outer_broadcast_with_floats(self):
         """Test outer_broadcast with floating point arrays."""
@@ -215,6 +270,13 @@ class TestOuterBroadcast:
         )
         assert_allclose(result, expected)
 
+        # Test safe_broadcast - should produce same result
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == (3, 1)
+        assert right_s.shape == (2,)
+        result_s = left_s + right_s
+        assert_allclose(result_s, expected)
+
     def test_outer_broadcast_array_like_inputs(self):
         """Test outer_broadcast with array-like inputs."""
         left = [1, 2, 3]
@@ -225,6 +287,13 @@ class TestOuterBroadcast:
         assert right_r.shape == (2,)
         result = left_r + right_r
         assert result.shape == (3, 2)
+
+        # Test safe_broadcast - should also handle array-like inputs
+        left_s, right_s = safe_broadcast(left, right)
+        assert left_s.shape == (3, 1)
+        assert right_s.shape == (2,)
+        result_s = left_s + right_s
+        assert result_s.shape == (3, 2)
 
 
 class TestPrepareBatchParams:
