@@ -223,8 +223,7 @@ class Derivative(Kernel):
         sign = 1 - 2 * (self.order % 2)
         return (
             sign
-            * special.gamma(s)
-            * special.rgamma(s - self.order)
+            * np.prod(s.reshape(*s.shape, 1) - np.arange(1, self.order + 1), axis=-1)
             * self.transform.forward(s - self.order)
         )
 
