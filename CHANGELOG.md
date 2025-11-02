@@ -1,3 +1,9 @@
+## 0.2.1 (2025-11-02)
+
+### Fix
+
+- calculate Pochhammer symbol in a safer way for kernel derivatives
+
 ## 0.2.0 (2025-11-01)
 
 ### Feat
