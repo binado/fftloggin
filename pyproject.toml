@@ -71,3 +71,11 @@ tutorial = [
 [tool.pytest.ini_options]
 addopts = ["--doctest-modules"]
 testpaths = ["tests", "src"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "semver2"
+version_provider = "uv"
+update_changelog_on_bump = true
+major_version_zero = true

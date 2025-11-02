@@ -1,40 +1,41 @@
 repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
-    hooks:
-      - id: check-yaml
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.11.6
-    hooks:
-      # Run the linter.
-      - id: ruff
-        types_or: [python]
-        args: [--fix]
-      # Run the formatter.
-      - id: ruff-format
-        types_or: [python]
-  - repo: https://github.com/srstevenson/nb-clean
-    rev: 4.0.1
-    hooks:
-      - id: nb-clean
-        args:
-        - --remove-empty-cells
-        - --remove-all-notebook-metadata
-  - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.6.0
-    hooks:
-      - id: commitizen
-      - id: commitizen-branch
-        stages: [pre-push]
-  - repo: https://github.com/binado/pixi-sync-environment
-    rev: v0.1.3
-    hooks:
-      - id: pixi-sync-environment
-        files: ^code/injections/(pyproject\.toml|pixi\.lock|environment\.yml)$
-        args:
-        - --explicit
-        - --name
-        - injections
+- hooks:
+  - id: check-yaml
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+  repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+- hooks:
+  - args:
+    - --fix
+    id: ruff
+    types_or:
+    - python
+  - id: ruff-format
+    types_or:
+    - python
+  repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.11.6
+- hooks:
+  - args:
+    - --remove-empty-cells
+    - --remove-all-notebook-metadata
+    id: nb-clean
+  repo: https://github.com/srstevenson/nb-clean
+  rev: 4.0.1
+- hooks:
+  - id: commitizen
+  - id: commitizen-branch
+    stages:
+    - pre-push
+  repo: https://github.com/commitizen-tools/commitizen
+  rev: v4.6.0
+- hooks:
+  - args:
+    - --explicit
+    - --name
+    - injections
+    files: ^code/injections/(pyproject\.toml|pixi\.lock|environment\.yml)$
+    id: pixi-sync-environment
+  repo: https://github.com/binado/pixi-sync-environment
+  rev: v0.1.3
