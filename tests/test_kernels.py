@@ -113,6 +113,82 @@ def test_derivative_invalid_order():
         Derivative(kernel, order=-1)
 
 
+@pytest.mark.parametrize("mu", [0, 0.5, 1, 2])
+@pytest.mark.parametrize("order", [1, 2, 3, 5])
+def test_derivative_strip_shifted(mu, order):
+    """Test that Derivative.strip is correctly shifted by derivative order."""
+    kernel = BesselJKernel(mu)
+    base_inf, base_sup = kernel.strip
+
+    # Get derivative
+    d_kernel = kernel.derive(order)
+    d_inf, d_sup = d_kernel.strip
+
+    # Strip should be shifted by order: (a, b) -> (a + order, b + order)
+    assert_allclose(d_inf, base_inf + order)
+    assert_allclose(d_sup, base_sup + order)
+
+
+def test_derivative_chained_vs_direct():
+    """Test that chained derivatives match direct higher-order derivatives."""
+    kernel = BesselJKernel(0.5)
+
+    # Chained: derive(1).derive(1)
+    chained = kernel.derive(1).derive(1)
+
+    # Direct: derive(2)
+    direct = kernel.derive(2)
+
+    # Both should have same strip
+    assert_allclose(chained.strip[0], direct.strip[0])
+    assert_allclose(chained.strip[1], direct.strip[1])
+
+    # Both should give same results
+    s = 2.5
+    assert_allclose(chained.forward(s), direct.forward(s))
+
+
+def test_derivative_strip_vectorized_kernel():
+    """Test Derivative.strip with vectorized mu parameter."""
+    mu_values = np.array([0, 1, 2])
+    kernel = BesselJKernel(mu_values)
+
+    base_inf, base_sup = kernel.strip
+    # base_inf should be array([-0, -1, -2])
+    # base_sup should be array([1.5, 1.5, 1.5])
+
+    d1 = kernel.derive(1)
+    d1_inf, d1_sup = d1.strip
+
+    # Should be shifted by 1
+    assert_allclose(d1_inf, base_inf + 1)  # [1, 0, -1]
+    assert_allclose(d1_sup, base_sup + 1)  # [2.5, 2.5, 2.5]
+
+    d2 = kernel.derive(2)
+    d2_inf, d2_sup = d2.strip
+
+    # Should be shifted by 2
+    assert_allclose(d2_inf, base_inf + 2)  # [2, 1, 0]
+    assert_allclose(d2_sup, base_sup + 2)  # [3.5, 3.5, 3.5]
+
+
+def test_derivative_is_in_strip_consistency():
+    """Test that Derivative.is_in_strip is consistent with Derivative.strip."""
+    kernel = BesselJKernel(0.5)
+    d_kernel = kernel.derive(2)
+
+    inf, sup = d_kernel.strip
+
+    # Values inside strip
+    assert d_kernel.is_in_strip(inf + 0.1)
+    assert d_kernel.is_in_strip(sup - 0.1)
+    assert d_kernel.is_in_strip((inf + sup) / 2)
+
+    # Values outside strip
+    assert not d_kernel.is_in_strip(inf - 0.1)
+    assert not d_kernel.is_in_strip(sup + 0.1)
+
+
 @pytest.mark.parametrize("mu", [-1, 1, 5, 10])
 @pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
 @pytest.mark.parametrize("order", [0, 1, 2])
