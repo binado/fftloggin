@@ -8,7 +8,12 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin.kernels import BesselJKernel, Derivative, SphericalBesselJKernel
+from fftloggin.kernels import (
+    BesselJKernel,
+    CombinedKernel,
+    Derivative,
+    SphericalBesselJKernel,
+)
 
 
 def test_bessel_kernel_strip():
@@ -175,3 +180,193 @@ def test_spherical_bessel_kernel_skips_bounds_checking():
     mu = ell + 0.5
     kernel(-mu - 1)  # Below lower bound
     kernel(2.0)  # Above upper bound
+
+
+# CombinedKernel tests
+
+
+def test_combined_kernel_empty_list():
+    """Test that CombinedKernel raises for empty kernel list."""
+    with pytest.raises(ValueError, match="requires at least one kernel"):
+        CombinedKernel([])
+
+
+def test_combined_kernel_single_kernel():
+    """Test CombinedKernel with a single kernel."""
+    kernel = CombinedKernel([BesselJKernel(0)])
+    result = kernel.forward(1.0)
+
+    # Should have shape (1,) for scalar s
+    assert result.shape == (1,)
+    assert np.isfinite(result[0])
+
+
+def test_combined_kernel_multiple_kernels():
+    """Test CombinedKernel with multiple kernels."""
+    kernels = [BesselJKernel(0), BesselJKernel(1), BesselJKernel(2)]
+    combined = CombinedKernel(kernels)
+
+    s = 1.0
+    result = combined.forward(s)
+
+    # Should stack along axis 0
+    assert result.shape == (3,)
+
+    # Each element should match individual kernel
+    for i, k in enumerate(kernels):
+        assert_allclose(result[i], k.forward(s))
+
+
+def test_combined_kernel_with_array_s():
+    """Test CombinedKernel with array input."""
+    kernels = [BesselJKernel(0), BesselJKernel(1)]
+    combined = CombinedKernel(kernels)
+
+    s = np.array([0.5, 1.0, 1.5])
+    result = combined.forward(s)
+
+    # Should have shape (len(kernels), len(s))
+    assert result.shape == (2, 3)
+
+    # Verify each row matches individual kernel
+    assert_allclose(result[0], kernels[0].forward(s))
+    assert_allclose(result[1], kernels[1].forward(s))
+
+
+def test_combined_kernel_strip_intersection():
+    """Test that CombinedKernel strip is intersection of component strips."""
+    # BesselJKernel(0) has strip (-0, 1.5)
+    # BesselJKernel(1) has strip (-1, 1.5)
+    # Intersection should be (0, 1.5) - most restrictive
+    combined = CombinedKernel([BesselJKernel(0), BesselJKernel(1)])
+
+    inf, sup = combined.strip
+    assert_allclose(inf, 0.0)  # max(-0, -1) = 0
+    assert_allclose(sup, 1.5)
+
+
+def test_combined_kernel_strip_with_derivative():
+    """Test CombinedKernel strip with derivative kernels."""
+    # BesselJKernel(0) has strip (-0, 1.5)
+    # BesselJKernel(0).derive(1) shifts strip by 1: (-0+1, 1.5+1) = (1, 2.5)
+    # Intersection should be (1, 1.5)
+    base = BesselJKernel(0)
+    combined = CombinedKernel([base, base.derive(1)])
+
+    inf, sup = combined.strip
+
+    # The derivative shifts the strip: effective strip is (1, 2.5)
+    # Intersection with base (0, 1.5) is (1, 1.5)
+    assert_allclose(inf, 1.0)
+    assert_allclose(sup, 1.5)
+
+
+def test_combined_kernel_derive():
+    """Test CombinedKernel.derive() method."""
+    kernels = [BesselJKernel(0), BesselJKernel(1)]
+    combined = CombinedKernel(kernels)
+
+    # Test order=0 returns self
+    d0 = combined.derive(0)
+    assert d0 is combined
+
+    # Test order=1
+    d1 = combined.derive(1)
+    assert isinstance(d1, CombinedKernel)
+    assert len(d1.kernels) == 2
+
+    # Each component should be a Derivative
+    for k in d1.kernels:
+        assert isinstance(k, Derivative)
+        assert k.order == 1
+
+    # Test order=2
+    d2 = combined.derive(2)
+    for k in d2.kernels:
+        assert isinstance(k, Derivative)
+        assert k.order == 2
+
+
+def test_combined_kernel_bounds_checking():
+    """Test CombinedKernel bounds checking."""
+    combined = CombinedKernel([BesselJKernel(0), BesselJKernel(1)], check_bounds=True)
+
+    # Strip intersection is (0, 1.5)
+    # s = 1.0 is inside
+    result = combined(1.0)
+    assert result.shape == (2,)
+
+    # s = -0.5 is outside (below intersection lower bound)
+    with pytest.raises(ValueError, match="Input array outside strip"):
+        combined(-0.5)
+
+    # s = 2.0 is outside (above intersection upper bound)
+    with pytest.raises(ValueError, match="Input array outside strip"):
+        combined(2.0)
+
+
+def test_combined_kernel_skip_bounds_checking():
+    """Test CombinedKernel with bounds checking disabled."""
+    combined = CombinedKernel([BesselJKernel(0), BesselJKernel(1)], check_bounds=False)
+
+    # Should not raise even outside strip
+    result = combined(-0.5)
+    assert result.shape == (2,)
+
+    result = combined(2.0)
+    assert result.shape == (2,)
+
+
+def test_combined_kernel_heterogeneous_types():
+    """Test CombinedKernel with different kernel types."""
+    kernels = [
+        BesselJKernel(0),
+        SphericalBesselJKernel(1),
+        BesselJKernel(0).derive(1),
+    ]
+    combined = CombinedKernel(kernels)
+
+    s = 1.0
+    result = combined.forward(s)
+
+    assert result.shape == (3,)
+
+    # Verify each matches individual kernel
+    for i, k in enumerate(kernels):
+        assert_allclose(result[i], k.forward(s))
+
+
+def test_combined_kernel_preserves_check_bounds():
+    """Test that CombinedKernel preserves check_bounds in derive()."""
+    combined = CombinedKernel([BesselJKernel(0)], check_bounds=False)
+    derived = combined.derive(1)
+
+    assert derived.check_bounds is False
+
+
+@pytest.mark.parametrize(
+    "mu_values,s_shape,expected_shape",
+    [
+        # Single kernel, various s shapes
+        ([0], (), (1,)),
+        ([0], (4,), (1, 4)),
+        # Multiple kernels, scalar s
+        ([0, 1], (), (2,)),
+        ([0, 1, 2], (), (3,)),
+        # Multiple kernels, array s
+        ([0, 1], (4,), (2, 4)),
+        ([0, 1, 2], (5,), (3, 5)),
+    ],
+)
+def test_combined_kernel_output_shapes(mu_values, s_shape, expected_shape):
+    """Test CombinedKernel output shapes with various inputs."""
+    kernels = [BesselJKernel(mu) for mu in mu_values]
+    combined = CombinedKernel(kernels)
+
+    if s_shape == ():
+        s = 1.0
+    else:
+        s = np.linspace(0.5, 1.5, np.prod(s_shape)).reshape(s_shape)
+
+    result = combined.forward(s)
+    assert result.shape == expected_shape

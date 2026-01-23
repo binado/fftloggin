@@ -14,6 +14,7 @@ from .utils import safe_broadcast
 __all__ = (
     "Kernel",
     "BesselJKernel",
+    "CombinedKernel",
     "Derivative",
 )
 
@@ -214,6 +215,22 @@ class Derivative(Kernel):
 
         self.order = order
 
+    @property
+    def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        """
+        Strip of convergence shifted by derivative order.
+
+        For an nth derivative, the strip (a, b) of the base kernel
+        becomes (a + n, b + n).
+
+        Returns
+        -------
+        tuple[ArrayLike, ArrayLike]
+            Lower and upper bounds of the shifted strip.
+        """
+        inf, sup = self.transform.strip
+        return (inf + self.order, sup + self.order)
+
     def is_in_strip(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
         return self.transform.is_in_strip(s - self.order)
@@ -226,6 +243,138 @@ class Derivative(Kernel):
             * np.prod(s.reshape(*s.shape, 1) - np.arange(1, self.order + 1), axis=-1)
             * self.transform.forward(s - self.order)
         )
+
+
+class CombinedKernel(Kernel):
+    r"""
+    Kernel that combines multiple kernels by stacking their outputs.
+
+    This allows heterogeneous kernel composition, mixing different kernel types
+    and derivative orders in a single transform. Results are stacked along axis 0.
+
+    Parameters
+    ----------
+    kernels : list[Kernel]
+        List of kernels to combine. Must contain at least one kernel.
+    check_bounds : bool, optional
+        If True, validate that input values are within the strip of convergence
+        (intersection of all component strips). Default is True.
+
+    Raises
+    ------
+    ValueError
+        If kernels list is empty.
+
+    Examples
+    --------
+    >>> from fftloggin.kernels import BesselJKernel, CombinedKernel
+    >>> # Combine different kernel types and derivatives
+    >>> kernel = CombinedKernel([
+    ...     BesselJKernel(0),
+    ...     BesselJKernel(1),
+    ...     BesselJKernel(0).derive(1),
+    ... ])
+    >>> result = kernel.forward(1.0)
+    >>> result.shape
+    (3,)
+
+    >>> # Combine with different kernel types
+    >>> from fftloggin.kernels import SphericalBesselJKernel
+    >>> kernel = CombinedKernel([
+    ...     BesselJKernel(0),
+    ...     SphericalBesselJKernel(1),
+    ... ])
+
+    Notes
+    -----
+    The strip of convergence is the intersection of all component strips,
+    which is the most restrictive region where all transforms are valid.
+
+    The output has shape ``(len(kernels), *s.shape)`` where results are stacked
+    along the first axis.
+
+    See Also
+    --------
+    Kernel : Base kernel class
+    BesselJKernel : Standard Bessel function kernel
+    Derivative : Derivative of a kernel
+    """
+
+    def __init__(self, kernels: list[Kernel], check_bounds: bool = True) -> None:
+        super().__init__(check_bounds=check_bounds)
+        if not kernels:
+            raise ValueError("CombinedKernel requires at least one kernel")
+        self.kernels = kernels
+
+    @property
+    def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        """
+        Strip of convergence as intersection of all component strips.
+
+        Returns
+        -------
+        tuple[ArrayLike, ArrayLike]
+            Lower and upper bounds of the intersection strip.
+
+        Notes
+        -----
+        The intersection is computed element-wise using the most restrictive
+        (maximum lower bound, minimum upper bound) from all components.
+        """
+        infs, sups = zip(*[k.strip for k in self.kernels])
+        # Most restrictive bounds (intersection)
+        inf = np.maximum.reduce(infs)
+        sup = np.minimum.reduce(sups)
+        return (inf, sup)
+
+    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+        """
+        Compute the Mellin transform for all component kernels.
+
+        Parameters
+        ----------
+        s : array_like
+            Complex frequency variable.
+
+        Returns
+        -------
+        ndarray
+            Stacked results with shape ``(len(kernels), *s.shape)``.
+
+        Notes
+        -----
+        Bounds checking is not performed in this method; it is done in __call__.
+        Each component kernel's forward method is called sequentially and
+        results are stacked along axis 0.
+        """
+        results = [k.forward(s) for k in self.kernels]
+        return np.stack(results, axis=0)
+
+    def derive(self, order: int = 1) -> "CombinedKernel":
+        """
+        Return a new CombinedKernel with all components derived.
+
+        Parameters
+        ----------
+        order : int, optional
+            Order of derivative (must be >= 0). Default is 1.
+
+        Returns
+        -------
+        CombinedKernel
+            A new CombinedKernel with all components derived by the given order.
+            If order is 0, returns self unchanged.
+
+        Examples
+        --------
+        >>> kernel = CombinedKernel([BesselJKernel(0), BesselJKernel(1)])
+        >>> d_kernel = kernel.derive(1)  # First derivative of both
+        >>> d2_kernel = kernel.derive(2)  # Second derivative of both
+        """
+        if order == 0:
+            return self
+        derived_kernels = [k.derive(order) for k in self.kernels]
+        return CombinedKernel(derived_kernels, check_bounds=self.check_bounds)
 
 
 class BesselJKernel(Kernel):
