@@ -10,6 +10,8 @@ The Fortran source code is downloaded on-demand from the original FFTLog
 distribution at https://jila.colorado.edu/~ajsh/FFTLog/
 """
 
+import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -120,10 +122,6 @@ def apply_patches():
 
 def build_executable():
     """Compile the Fortran source into an executable."""
-    # Check for Fortran compiler
-    import os
-    import shutil
-
     # Respect FC environment variable first, then fall back to compiler search
     fc = os.environ.get("FC")
     if fc:
