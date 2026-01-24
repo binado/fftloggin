@@ -72,9 +72,10 @@ def download_fortran_source():
         # Extract required files
         with tarfile.open(tmp_path, "r:gz") as tar:
             for member in tar.getmembers():
-                if member.name in REQUIRED_FILES:
+                member_basename = Path(member.name).name
+                if member_basename in REQUIRED_FILES:
                     # Extract to benchmark directory
-                    member.name = Path(member.name).name  # Remove any path prefix
+                    member.name = member_basename  # Remove any path prefix
                     tar.extract(member, BENCHMARK_DIR)
                     print(f"  Extracted: {member.name}")
 
