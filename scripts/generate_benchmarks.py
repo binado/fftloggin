@@ -11,6 +11,7 @@ distribution at https://jila.colorado.edu/~ajsh/FFTLog/
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -232,6 +233,19 @@ def run_benchmark(log10rmin, log10rmax, n, mu, q, kr, lowring, filename):
         return False, str(e)
 
 
+def normalize_fortran_output(filepath: Path) -> bool:
+    """Fix missing exponent markers in Fortran output files."""
+    if not filepath.exists():
+        return False
+
+    content = filepath.read_text()
+    pattern = re.compile(r"(?<![EeDd])([+-]?\d*\.\d+)([+-]\d{2,3})")
+    updated = pattern.sub(r"\1e\2", content)
+    if updated != content:
+        filepath.write_text(updated)
+    return True
+
+
 def main():
     """Generate all benchmark files."""
     if not ensure_executable():
@@ -292,6 +306,7 @@ def main():
                             if success:
                                 # Program creates the file itself
                                 if filepath.exists():
+                                    normalize_fortran_output(filepath)
                                     print("✓")
                                 else:
                                     print("✗ (File not created)")
