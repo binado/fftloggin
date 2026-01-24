@@ -17,11 +17,11 @@ The following patches are applied to `fftlogtest.f` after download:
 +dlogr=(logrmax-logrmin)/(n-1)
 ```
 
-2. Changed the output format string in the `write` call to explicitly write exponents with more than two digits:
+2. Changed the output format string in the `write` call to use a wider field width (30 instead of 25) to ensure the `E` is not dropped when exponents have 3 digits:
 
 ```diff
 -write (unit,'(3es25)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)
-+write (unit,'(3es25.16e3)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)
++write (unit,'(3es30.16e3)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)
 ```
 
 ## Prerequisites

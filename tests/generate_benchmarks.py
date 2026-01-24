@@ -38,9 +38,9 @@ REQUIRED_FILES = [
 FFTLOGTEST_PATCHES = [
     # Fix typo in dlogr computation: use (n-1) instead of n
     ("dlogr=(logrmax-logrmin)/n", "dlogr=(logrmax-logrmin)/(n-1)"),
-    # Use explicit exponent format for portability
+    # Use wider field width (30) to ensure 'E' is not dropped with 3-digit exponents
     ("write (unit,'(3es25)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)",
-     "write (unit,'(3es25.16e3)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)"),
+     "write (unit,'(3es30.16e3)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)"),
 ]
 
 # Output directory

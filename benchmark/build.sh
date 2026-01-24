@@ -39,8 +39,8 @@ apply_patches() {
     # Patch 1: Fix dlogr computation (use n-1 instead of n)
     sed -i.bak 's/dlogr=(logrmax-logrmin)\/n/dlogr=(logrmax-logrmin)\/(n-1)/' fftlogtest.f
 
-    # Patch 2: Use explicit exponent format for portability
-    sed -i.bak "s/write (unit,'(3es25)')/write (unit,'(3es25.16e3)')/" fftlogtest.f
+    # Patch 2: Use wider field width (30) to ensure 'E' is not dropped with 3-digit exponents
+    sed -i.bak "s/write (unit,'(3es25)')/write (unit,'(3es30.16e3)')/" fftlogtest.f
 
     # Clean up backup files
     rm -f fftlogtest.f.bak
