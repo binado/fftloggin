@@ -121,15 +121,27 @@ def apply_patches():
 def build_executable():
     """Compile the Fortran source into an executable."""
     # Check for Fortran compiler
+    import os
     import shutil
 
-    fc = shutil.which("gfortran") or shutil.which("f77") or shutil.which("f95")
-    if not fc:
-        print("ERROR: No Fortran compiler found. Please install gfortran:")
-        print("  - macOS: brew install gcc")
-        print("  - Ubuntu/Debian: sudo apt-get install gfortran")
-        print("  - Fedora/RHEL: sudo dnf install gcc-gfortran")
-        return False
+    # Respect FC environment variable first, then fall back to compiler search
+    fc = os.environ.get("FC")
+    if fc:
+        # Validate that the FC environment variable points to an actual compiler
+        fc_path = shutil.which(fc)
+        if not fc_path:
+            print(f"ERROR: FC environment variable is set to '{fc}' but not found in PATH")
+            return False
+        fc = fc_path
+    else:
+        # Fall back to searching for common Fortran compilers
+        fc = shutil.which("gfortran") or shutil.which("f77") or shutil.which("f95")
+        if not fc:
+            print("ERROR: No Fortran compiler found. Please install gfortran:")
+            print("  - macOS: brew install gcc")
+            print("  - Ubuntu/Debian: sudo apt-get install gfortran")
+            print("  - Fedora/RHEL: sudo dnf install gcc-gfortran")
+            return False
 
     print(f"Building fftlogtest with {fc}...")
 
