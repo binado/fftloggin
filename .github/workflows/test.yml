@@ -58,10 +58,6 @@ jobs:
           path: benchmark/fftlogtest
           key: fftlogtest-${{ runner.os }}-${{ hashFiles('benchmark/*.f') }}
 
-      - name: Build Fortran executable
-        if: steps.cache-executable.outputs.cache-hit != 'true'
-        run: bash benchmark/build.sh
-
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
@@ -70,13 +66,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tests/benchmarks
-          key: benchmarks-${{ hashFiles('benchmark/*.f', 'tests/generate_benchmarks.py') }}
+          key: benchmarks-${{ hashFiles('benchmark/*.f', 'scripts/generate_benchmarks.py') }}
 
       - name: Generate benchmarks
         if: steps.cache-benchmarks.outputs.cache-hit != 'true'
         run: |
           echo "Generating benchmarks (this will take a few minutes)..."
-          python tests/generate_benchmarks.py
+          python scripts/generate_benchmarks.py
 
       - name: Verify benchmarks
         run: |
