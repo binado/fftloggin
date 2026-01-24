@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -68,6 +69,7 @@ def download_fortran_source():
     # Create benchmark directory if it doesn't exist
     BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
 
+    tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".tgz", delete=False) as tmp:
             tmp_path = Path(tmp.name)
@@ -83,8 +85,6 @@ def download_fortran_source():
                     tar.extract(member, BENCHMARK_DIR)
                     print(f"  Extracted: {member.name}")
 
-        tmp_path.unlink()  # Clean up temp file
-
         # Verify all required files were extracted
         missing = [f for f in REQUIRED_FILES if not (BENCHMARK_DIR / f).exists()]
         if missing:
@@ -99,6 +99,9 @@ def download_fortran_source():
     except tarfile.TarError as e:
         print(f"ERROR: Failed to extract archive: {e}")
         return False
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
 
 
 def apply_patches():
