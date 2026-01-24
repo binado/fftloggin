@@ -147,7 +147,7 @@ def optimal_logcenter(
     dlog = np.asarray(dlog)
     bias = np.asarray(bias)
     s = 1j * np.pi / dlog + 1
-    arg = np.angle(kernel.forward(s + bias))
+    arg = np.angle(kernel(s + bias))
     return dlog * arg / np.pi
 
 
@@ -191,7 +191,7 @@ def compute_kernel_coefficients(
     m = np.arange(0, ns)
     angle = 2 * np.pi * m * 1j / (n * dlog)
     s = angle + 1
-    coeffs = kernel.forward(s + bias)
+    coeffs = kernel(s + bias)
     kr = np.asarray(kr)
     coeffs = coeffs / kr**angle
     # Handle Nyquist frequency for even n
