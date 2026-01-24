@@ -50,7 +50,7 @@ Benchmark tests compare the Python implementation against the original Fortran F
 
 ```bash
 # Generate benchmark reference files
-python tests/generate_benchmarks.py
+python scripts/generate_benchmarks.py
 
 # Run benchmark tests
 uv run pytest --run-benchmarks
@@ -71,7 +71,7 @@ If you need to regenerate the benchmark files:
 rm -rf tests/benchmarks/*.txt
 
 # Generate fresh benchmarks
-python tests/generate_benchmarks.py
+python scripts/generate_benchmarks.py
 ```
 
 ### Linting

@@ -46,8 +46,8 @@ def generate_benchmarks_fixture(request):
     if not request.config.getoption("--generate-benchmarks"):
         return
 
-    # Import and call the generation function directly (same directory)
-    from generate_benchmarks import main as generate_benchmarks_main
+    # Import and call the generation function directly (scripts directory)
+    from scripts.generate_benchmarks import main as generate_benchmarks_main
 
     print("\nGenerating benchmarks...")
 

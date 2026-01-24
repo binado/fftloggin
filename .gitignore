@@ -207,8 +207,10 @@ marimo/_lsp/
 __marimo__/
 .DS_Store
 
-# Fortran build artifacts
+# Fortran build artifacts and downloaded source
+# (source is downloaded on-demand from https://jila.colorado.edu/~ajsh/FFTLog/)
 benchmark/fftlogtest
+benchmark/*.f
 benchmark/*.o
 benchmark/*.mod
 
