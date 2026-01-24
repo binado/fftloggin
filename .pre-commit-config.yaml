@@ -30,12 +30,3 @@ repos:
     - pre-push
   repo: https://github.com/commitizen-tools/commitizen
   rev: v4.6.0
-- hooks:
-  - args:
-    - --explicit
-    - --name
-    - injections
-    files: ^code/injections/(pyproject\.toml|pixi\.lock|environment\.yml)$
-    id: pixi-sync-environment
-  repo: https://github.com/binado/pixi-sync-environment
-  rev: v0.1.3
