@@ -21,7 +21,7 @@ BENCHMARKS_EXIST = BENCHMARK_DIR.exists() and list(
 # Skip all benchmark tests if benchmarks don't exist
 pytestmark = pytest.mark.skipif(
     not BENCHMARKS_EXIST,
-    reason="Benchmark files not found. Run: python benchmark/generate_benchmarks.py",
+    reason="Benchmark files not found. Run: python scripts/generate_benchmarks.py",
 )
 
 

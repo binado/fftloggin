@@ -20,7 +20,8 @@ import urllib.request
 from pathlib import Path
 
 # Define paths
-BENCHMARK_DIR = Path(__file__).parent.parent / "benchmark"
+ROOT_DIR = Path(__file__).resolve().parent.parent
+BENCHMARK_DIR = ROOT_DIR / "benchmark"
 EXECUTABLE = BENCHMARK_DIR / "fftlogtest"
 
 # URL for the original FFTLog source
@@ -41,12 +42,14 @@ FFTLOGTEST_PATCHES = [
     # Fix typo in dlogr computation: use (n-1) instead of n
     ("dlogr=(logrmax-logrmin)/n", "dlogr=(logrmax-logrmin)/(n-1)"),
     # Use wider field width (30) to ensure 'E' is not dropped with 3-digit exponents
-    ("write (unit,'(3es25)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)",
-     "write (unit,'(3es30.16e3)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)"),
+    (
+        "write (unit,'(3es25)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)",
+        "write (unit,'(3es30.16e3)') k,a(i),k**(mu+1.d0)*exp(-k**2/2.d0)",
+    ),
 ]
 
 # Output directory
-OUTPUT_DIR = Path(__file__).parent / "benchmarks"
+OUTPUT_DIR = ROOT_DIR / "tests" / "benchmarks"
 
 # Define parameter ranges
 LOG10R_PAIRS = [(-1, 1), (-2, 2)]
@@ -129,7 +132,9 @@ def build_executable():
         # Validate that the FC environment variable points to an actual compiler
         fc_path = shutil.which(fc)
         if not fc_path:
-            print(f"ERROR: FC environment variable is set to '{fc}' but not found in PATH")
+            print(
+                f"ERROR: FC environment variable is set to '{fc}' but not found in PATH"
+            )
             return False
         fc = fc_path
     else:

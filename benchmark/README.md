@@ -4,7 +4,7 @@ This directory provides tooling to benchmark our FFTLog implementation against t
 
 ## How it works
 
-The Fortran source code is **not stored in this repository**. Instead, the build scripts automatically download the original FFTLog distribution from the official source when needed.
+The Fortran source code is **not stored in this repository**. Instead, the benchmark generation script automatically downloads the original FFTLog distribution from the official source when needed.
 
 ### Patches applied
 
@@ -32,26 +32,12 @@ You need a Fortran compiler installed:
 - **Ubuntu/Debian**: `sudo apt-get install gfortran`
 - **Fedora/RHEL**: `sudo dnf install gcc-gfortran`
 
-## Building the executable
-
-Run the build script:
-
-```bash
-./build.sh
-```
-
-This will:
-1. Download the FFTLog source from https://jila.colorado.edu/~ajsh/FFTLog/fftlog.tgz
-2. Extract the required Fortran files
-3. Apply the necessary patches
-4. Compile the `fftlogtest` executable
-
 ## Generating benchmark files
 
 Use the Python script to generate benchmark files for the test suite:
 
 ```bash
-python tests/generate_benchmarks.py
+python scripts/generate_benchmarks.py
 ```
 
 This script:
@@ -61,9 +47,8 @@ This script:
 
 ## Files
 
-After running the build script, this directory will contain:
+After running the generation script, this directory will contain:
 
-- `build.sh` - Build script (downloads source, applies patches, compiles)
 - `README.md` - This file
 - `fftlog.f` - Downloaded FFTLog Fortran source (not tracked in git)
 - `fftlogtest.f` - Downloaded test program with patches (not tracked in git)
