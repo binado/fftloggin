@@ -5,17 +5,22 @@ This module provides kernel functions that compute the Mellin transform
 of various integral kernels used in generalized FFTLog transforms.
 """
 
+from contextlib import contextmanager
+
 import numpy as np
 import numpy.typing as npt
 from scipy import special
 
+from .exceptions import ArgumentOutOfDomainError
 from .utils import safe_broadcast
 
 __all__ = (
+    "ArgumentOutOfDomainError",
     "Kernel",
     "BesselJKernel",
     "Derivative",
 )
+
 
 LOG_2 = np.log(2)
 SQRT_PI_OVER_2 = np.sqrt(np.pi / 2)
@@ -26,13 +31,13 @@ class Kernel:
     Base class for Mellin transform kernels.
 
     A kernel represents the Mellin transform of an integral kernel function.
-    Kernels have a strip of convergence in the complex plane where the
-    transform is well-defined.
+    Kernels have a domain (strip of convergence) in the complex plane where
+    the transform is well-defined.
 
     Parameters
     ----------
     check_bounds : bool, optional
-        If True, validate that input values are within the strip of convergence.
+        If True, validate that input values are within the domain.
         Default is True.
 
     Examples
@@ -44,8 +49,8 @@ class Kernel:
 
     Notes
     -----
-    The strip of convergence is a range in the complex plane where the Mellin
-    transform is well-defined and analytic.
+    The domain (strip of convergence) is a range in the complex plane where
+    the Mellin transform is well-defined and analytic.
 
     See Also
     --------
@@ -57,14 +62,15 @@ class Kernel:
         self.check_bounds = check_bounds
 
     @property
-    def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
         """
-        Strip of convergence (inf, sup) where the transform is defined.
+        Domain of convergence (inf, sup) where the transform is defined.
 
         Returns
         -------
         tuple[ArrayLike, ArrayLike]
-            Lower and upper bounds of the strip in the complex plane.
+            Lower and upper bounds of the domain (strip of convergence)
+            in the complex plane.
         """
         return (-np.inf, np.inf)
 
@@ -89,9 +95,22 @@ class Kernel:
         """
         raise NotImplementedError
 
-    def is_in_strip(self, s: npt.ArrayLike) -> bool:
-        inf, sup = self.strip
-        # Strip of convergence applies to the real part of s
+    def is_in_domain(self, s: npt.ArrayLike) -> bool:
+        """
+        Check if s is within the domain of convergence.
+
+        Parameters
+        ----------
+        s : array_like
+            Complex frequency variable.
+
+        Returns
+        -------
+        bool
+            True if all values are within the domain.
+        """
+        inf, sup = self.domain
+        # Domain applies to the real part of s
         s_real = np.real(s)
         # Reshape inf/sup to have trailing dimensions for proper broadcasting
         inf, _ = safe_broadcast(inf, s)
@@ -115,13 +134,13 @@ class Kernel:
 
         Raises
         ------
-        ValueError
-            If s is outside the strip of convergence and check_bounds is True.
+        ArgumentOutOfDomainError
+            If s is outside the domain of convergence and check_bounds is True.
         """
         if self.check_bounds:
-            if not self.is_in_strip(s):
-                raise ValueError(
-                    "Input array outside strip of definition of the transform"
+            if not self.is_in_domain(s):
+                raise ArgumentOutOfDomainError(
+                    s_values=s, kernel=self, context="when calling kernel directly"
                 )
 
         s = np.asarray(s)
@@ -164,6 +183,60 @@ class Kernel:
             return self
         return Derivative(self, order)
 
+    @contextmanager
+    def checking_enabled(self):
+        """
+        Context manager that temporarily enables bounds checking.
+
+        Within this context, the kernel's ``check_bounds`` attribute is set
+        to ``True``, and restored to its original value upon exit.
+
+        Yields
+        ------
+        Kernel
+            This kernel instance with bounds checking enabled.
+
+        Examples
+        --------
+        >>> kernel = BesselJKernel(mu=0.5, check_bounds=False)
+        >>> with kernel.checking_enabled():
+        ...     pass  # Will validate bounds when kernel is called
+        >>> # check_bounds is restored to False here
+        """
+        original = self.check_bounds
+        self.check_bounds = True
+        try:
+            yield self
+        finally:
+            self.check_bounds = original
+
+    @contextmanager
+    def checking_disabled(self):
+        """
+        Context manager that temporarily disables bounds checking.
+
+        Within this context, the kernel's ``check_bounds`` attribute is set
+        to ``False``, and restored to its original value upon exit.
+
+        Yields
+        ------
+        Kernel
+            This kernel instance with bounds checking disabled.
+
+        Examples
+        --------
+        >>> kernel = BesselJKernel(mu=0.5, check_bounds=True)
+        >>> with kernel.checking_disabled():
+        ...     pass  # Will skip bounds validation when kernel is called
+        >>> # check_bounds is restored to True here
+        """
+        original = self.check_bounds
+        self.check_bounds = False
+        try:
+            yield self
+        finally:
+            self.check_bounds = original
+
 
 class Derivative(Kernel):
     r"""
@@ -196,7 +269,7 @@ class Derivative(Kernel):
 
     Notes
     -----
-    The derivative kernel inherits the strip of convergence from the base
+    The derivative kernel inherits the domain of convergence from the base
     kernel, adjusted for the derivative order.
 
     See Also
@@ -214,9 +287,9 @@ class Derivative(Kernel):
 
         self.order = order
 
-    def is_in_strip(self, s: npt.ArrayLike) -> bool:
+    def is_in_domain(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
-        return self.transform.is_in_strip(s - self.order)
+        return self.transform.is_in_domain(s - self.order)
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
@@ -244,7 +317,7 @@ class BesselJKernel(Kernel):
     mu : array_like
         Order of the Bessel function. Can be scalar or array.
     check_bounds : bool, optional
-        If True, validate that input values are within the strip of convergence.
+        If True, validate that input values are within the domain.
         Default is True.
 
     Examples
@@ -260,9 +333,9 @@ class BesselJKernel(Kernel):
 
     Notes
     -----
-    The strip of convergence is :math:`(-\\mu, 1.5)` in the complex :math:`s`-plane.
-    The kernel uses log-gamma functions for numerical stability in the Mellin
-    transform computation.
+    The domain of convergence (strip) is :math:`(-\\mu, 1.5)` in the complex
+    :math:`s`-plane. The kernel uses log-gamma functions for numerical stability
+    in the Mellin transform computation.
 
     References
     ----------
@@ -279,8 +352,8 @@ class BesselJKernel(Kernel):
         self.mu = np.asarray(mu)
 
     @property
-    def strip(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        """Strip of convergence: (-mu, 1.5)."""
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        """Domain of convergence: (-mu, 1.5)."""
         return (-self.mu, 1.5 * np.ones_like(self.mu))
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
@@ -331,9 +404,9 @@ class SphericalBesselJKernel(BesselJKernel):
         mu = np.asarray(ell) + 0.5
         super().__init__(mu, check_bounds=check_bounds)
 
-    def is_in_strip(self, s: npt.ArrayLike) -> bool:
+    def is_in_domain(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
-        return super().is_in_strip(s - 0.5)
+        return super().is_in_domain(s - 0.5)
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)

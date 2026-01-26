@@ -1,3 +1,5 @@
+import warnings
+from enum import Enum
 from functools import cached_property
 
 import numpy as np
@@ -5,9 +7,44 @@ import numpy.typing as npt
 from scipy.fft import irfft, rfft
 
 from .grids import Grid
+from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .kernels import Kernel
 
 LN_2 = np.log(2)
+
+
+class DomainCheckMode(Enum):
+    """
+    Mode for domain validation in FFTLog.
+
+    Controls how FFTLog responds when the bias parameter places the
+    evaluation point outside the kernel's domain of convergence.
+
+    Attributes
+    ----------
+    RAISE : str
+        Raise a ValueError if domain validation fails.
+    WARN : str
+        Issue a DomainCheckWarning if domain validation fails.
+    SILENT : str
+        Skip domain validation entirely.
+
+    Examples
+    --------
+    >>> from fftloggin import FFTLog, DomainCheckMode
+    >>> from fftloggin.kernels import BesselJKernel
+    >>> fftlog = FFTLog(
+    ...     kernel=BesselJKernel(0),
+    ...     n=64,
+    ...     dlog=0.1,
+    ...     bias=0.0,
+    ...     check_domain=DomainCheckMode.RAISE
+    ... )
+    """
+
+    RAISE = "raise"
+    WARN = "warn"
+    SILENT = "silent"
 
 
 def _forward_hankel_transform(
@@ -146,8 +183,8 @@ def optimal_logcenter(
     """
     dlog = np.asarray(dlog)
     bias = np.asarray(bias)
-    s = 1j * np.pi / dlog + 1
-    arg = np.angle(kernel.forward(s + bias))
+    s = 1j * np.pi / dlog + 1 + bias
+    arg = np.angle(kernel.forward(s))
     return dlog * arg / np.pi
 
 
@@ -157,7 +194,7 @@ def compute_kernel_coefficients(
     kr: npt.ArrayLike,
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike = 0.0,
-):
+) -> npt.NDArray:
     """
     Compute FFT coefficients for FFTLog transform.
 
@@ -190,8 +227,8 @@ def compute_kernel_coefficients(
     ns = n // 2 + 1
     m = np.arange(0, ns)
     angle = 2 * np.pi * m * 1j / (n * dlog)
-    s = angle + 1
-    coeffs = kernel.forward(s + bias)
+    s = angle + 1 + bias
+    coeffs = kernel.forward(s)
     kr = np.asarray(kr)
     coeffs = coeffs / kr**angle
     # Handle Nyquist frequency for even n
@@ -226,6 +263,13 @@ class FFTLog:
     kr : array_like, optional
         The product k*r at the geometric center of the grid (default: 1.0).
         Can be scalar or array with shape (*batch_shape, 1) for batch transforms.
+    check_domain : DomainCheckMode or str, optional
+        How to handle domain validation at construction time (default: WARN).
+        Can be a DomainCheckMode enum value or string ('raise', 'warn', 'silent').
+        - RAISE: Raise ValueError if bias is outside kernel's domain of convergence.
+        - WARN: Issue DomainCheckWarning if bias is outside kernel's domain of
+          convergence.
+        - SILENT: Skip domain validation entirely.
 
     Attributes
     ----------
@@ -315,17 +359,12 @@ class FFTLog:
     >>> result = fftlog.forward(a)  # shape (2, 128)
 
     Important: Batched kernels can be combined with batched parameters.
-    Ensure batch shapes are compatible:
+    For batched kernels with different `mu` values:
 
-    >>> mu = np.array([0, 1, 2]).reshape(-1, 1)  # shape (3, 1)
-    >>> kr = np.array([0.5, 1.0]).reshape(-1, 1)  # shape (2, 1)
-    >>> # These shapes (3,1) and (2,1) are NOT compatible for broadcasting
-    >>> # You must manually broadcast to a compatible shape like (3, 2, 1):
-    >>> mu_broadcast = mu.reshape(3, 1, 1)  # shape (3, 1, 1)
-    >>> kr_broadcast = kr.reshape(1, 2, 1)  # shape (1, 2, 1)
-    >>> kernel = BesselJKernel(mu_broadcast.squeeze())  # Remove trailing for kernel
-    >>> fftlog = FFTLog(kernel=kernel, n=128, dlog=0.05, kr=kr_broadcast)
-    >>> # Result would have shape (3, 2, 128)
+    >>> mu_batch = np.array([0, 1, 2]).reshape(3, 1)  # shape (3, 1)
+    >>> kernel_batch = BesselJKernel(mu_batch)  # Batched kernel
+    >>> fftlog = FFTLog(kernel=kernel_batch, n=128, dlog=0.05, kr=0.5)
+    >>> result = fftlog.forward(a)  # Result shape (3, 128)
 
     See Also
     --------
@@ -346,6 +385,7 @@ class FFTLog:
         bias: npt.ArrayLike = 0.0,
         lowring: bool = True,
         kr: npt.ArrayLike = 1,
+        check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
     ) -> None:
         self._kernel = kernel
         self._n = n
@@ -353,6 +393,14 @@ class FFTLog:
         self._bias = bias
         self._lowring = lowring
         self._kr = kr
+        self._check_domain = (
+            DomainCheckMode(check_domain)
+            if isinstance(check_domain, str)
+            else check_domain
+        )
+
+        # Validate domain at construction time
+        self._validate_domain()
 
     def _cleanup(self) -> None:
         try:
@@ -363,6 +411,87 @@ class FFTLog:
             del self.kernel_coefficients
         except AttributeError:
             pass
+        try:
+            del self.optimal_logcenter
+        except AttributeError:
+            pass
+
+    def _validate_domain(self) -> None:
+        """Validate that bias is within the kernel's domain of convergence."""
+        if self._check_domain == DomainCheckMode.SILENT:
+            return
+
+        if self._check_domain == DomainCheckMode.RAISE:
+            self.check_domain(raise_exception=True)
+            return
+
+        if self._check_domain == DomainCheckMode.WARN:
+            try:
+                self.check_domain(raise_exception=True)
+            except ArgumentOutOfDomainError as e:
+                warnings.warn(str(e), DomainCheckWarning, stacklevel=3)
+
+    def check_domain(self, raise_exception: bool = False) -> bool:
+        """
+        Check if the current configuration is within the kernel's domain.
+
+        This is a lightweight check that uses kernel.is_in_domain() directly
+        rather than forcing recomputation of cached properties.
+
+        Parameters
+        ----------
+        raise_exception : bool, optional
+            If True, raise ArgumentOutOfDomainError when invalid. Default is False.
+
+        Returns
+        -------
+        bool
+            True if configuration is valid, False otherwise.
+
+        Raises
+        ------
+        ArgumentOutOfDomainError
+            If raise_exception is True and configuration is invalid.
+
+        Examples
+        --------
+        >>> from fftloggin import FFTLog, DomainCheckMode
+        >>> from fftloggin.kernels import BesselJKernel
+        >>> fftlog = FFTLog(
+        ...     kernel=BesselJKernel(0),
+        ...     n=64,
+        ...     dlog=0.1,
+        ...     bias=0.0,
+        ...     check_domain=DomainCheckMode.SILENT
+        ... )
+        >>> fftlog.check_domain()
+        True
+        >>> fftlog.bias = 1.0  # Outside domain for mu=0
+        >>> fftlog.check_domain()
+        False
+        """
+        s = 1 + np.asarray(self._bias)
+        is_valid = self._kernel.is_in_domain(s)
+
+        if not is_valid and raise_exception:
+            inf, sup = self._kernel.domain
+            # Format inf/sup for broadcasting with s
+            from .utils import safe_broadcast
+
+            inf, _ = safe_broadcast(inf, s)
+            sup, _ = safe_broadcast(sup, s)
+
+            # Create context message with helpful bias range
+            context_msg = (
+                f"FFTLog bias parameter: 1 + bias = {np.real(s)}. "
+                f"Valid bias range: ({inf - 1}, {sup - 1})"
+            )
+
+            raise ArgumentOutOfDomainError(
+                s_values=s, kernel=self._kernel, context=context_msg
+            )
+
+        return is_valid
 
     @property
     def kernel(self) -> Kernel:
@@ -372,6 +501,7 @@ class FFTLog:
     def kernel(self, other: Kernel):
         self._kernel = other
         self._cleanup()
+        self._validate_domain()
 
     @property
     def n(self) -> int:
@@ -399,6 +529,7 @@ class FFTLog:
     def bias(self, other: npt.ArrayLike):
         self._bias = other
         self._cleanup()
+        self._validate_domain()
 
     @property
     def lowring(self) -> bool:
@@ -439,6 +570,7 @@ class FFTLog:
         bias: npt.ArrayLike = 0.0,
         kr: npt.ArrayLike = 1.0,
         lowring: bool = True,
+        check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
     ) -> "FFTLog":
         """
         Create FFTLog instance from a log-spaced coordinate array.
@@ -455,6 +587,8 @@ class FFTLog:
             The product k*r at the geometric center of the grid. Default is 1.0.
         lowring : bool, optional
             Whether to snap kr to minimize ringing. Default is True.
+        check_domain : DomainCheckMode or str, optional
+            How to handle domain validation (default: WARN).
 
         Returns
         -------
@@ -475,7 +609,15 @@ class FFTLog:
         n = x.shape[-1]
         dlog = infer_dlog(x)
 
-        return cls(kernel, n, dlog, bias=bias, lowring=lowring, kr=kr)
+        return cls(
+            kernel,
+            n,
+            dlog,
+            bias=bias,
+            lowring=lowring,
+            kr=kr,
+            check_domain=check_domain,
+        )
 
     def create_grid(
         self,
@@ -533,16 +675,24 @@ class FFTLog:
             r_arr = get_other_array(k_arr, self.logc)
             return Grid(r_arr, k_arr)
 
+    @cached_property
     def optimal_logcenter(self) -> npt.NDArray:
         """
+        Compute optimal log-center parameter to minimize ringing.
+
         Implements Eq.(30) of https://jila.colorado.edu/~ajsh/FFTLog/fftlog.pdf
+
+        Returns
+        -------
+        ndarray
+            Optimal log-center parameter. Scalar or shape (*batch_shape, 1).
         """
         return optimal_logcenter(self.kernel, self.dlog, self.bias)
 
     def shift_logcenter(self, logc: npt.ArrayLike) -> npt.NDArray:
         logc = np.asarray(logc)
         dlog = np.asarray(self.dlog)
-        optimal = self.optimal_logcenter()
+        optimal = self.optimal_logcenter
         # Snap to nearest integer multiple of dlog from optimal
         # This matches Fortran's krgood: krgood = kr * exp((arg - round(arg)) * dlnr)
         shift = (logc - optimal) / dlog

@@ -8,28 +8,33 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin.kernels import BesselJKernel, Derivative, SphericalBesselJKernel
+from fftloggin.kernels import (
+    ArgumentOutOfDomainError,
+    BesselJKernel,
+    Derivative,
+    SphericalBesselJKernel,
+)
 
 
-def test_bessel_kernel_strip():
-    """Test that BesselJKernel has correct strip of convergence."""
+def test_bessel_kernel_domain():
+    """Test that BesselJKernel has correct domain of convergence."""
     mu = 0.5
     kernel = BesselJKernel(mu)
-    inf, sup = kernel.strip
+    inf, sup = kernel.domain
 
-    # Strip should be (-mu, 1.5)
+    # Domain should be (-mu, 1.5)
     assert_allclose(inf, -mu)
     assert_allclose(sup, 1.5)
 
 
-def test_spherical_bessel_kernel_strip():
-    """Test that SphericalBesselJKernel has correct strip of convergence."""
+def test_spherical_bessel_kernel_domain():
+    """Test that SphericalBesselJKernel has correct domain of convergence."""
     ell = 1
     kernel = SphericalBesselJKernel(ell)
 
-    # Strip should be (-mu, 1.5)
+    # Domain should be (-mu, 1.5)
     mu = ell + 0.5
-    inf, sup = kernel.strip
+    inf, sup = kernel.domain
     assert_allclose(inf, -mu)
     assert_allclose(sup, 1.5)
 
@@ -118,13 +123,13 @@ def test_bessel_kernel_bounds_checking(mu: float, s: complex | float, order: int
     if order > 0:
         kernel = kernel.derive(order)
 
-    is_in_strip = (sr - order >= -mu) & (sr - order <= 1.5)
+    is_in_domain = (sr - order >= -mu) & (sr - order <= 1.5)
 
-    # s outside strip should raise
+    # s outside domain should raise
     context = (
         nullcontext()
-        if is_in_strip
-        else pytest.raises(ValueError, match="Input array outside strip")
+        if is_in_domain
+        else pytest.raises(ArgumentOutOfDomainError, match="outside domain")
     )
     with context:
         kernel(s)
@@ -143,13 +148,13 @@ def test_spherical_bessel_kernel_bounds_checking(
 
     sr = s.real if isinstance(s, complex) else s
     mu = ell + 0.5
-    is_in_strip = (sr - order - 0.5 >= -mu) & (sr - order - 0.5 <= 1.5)
+    is_in_domain = (sr - order - 0.5 >= -mu) & (sr - order - 0.5 <= 1.5)
 
-    # s outside strip should raise
+    # s outside domain should raise
     context = (
         nullcontext()
-        if is_in_strip
-        else pytest.raises(ValueError, match="Input array outside strip")
+        if is_in_domain
+        else pytest.raises(ArgumentOutOfDomainError, match="outside domain")
     )
     with context:
         kernel(s)
@@ -160,7 +165,7 @@ def test_bessel_kernel_skips_bounds_checking():
     mu = 0.5
     kernel = BesselJKernel(mu, check_bounds=False)
 
-    # s outside strip should not raise
+    # s outside domain should not raise
     kernel(-mu - 1)  # Below lower bound
 
     kernel(2.0)  # Above upper bound
@@ -171,7 +176,7 @@ def test_spherical_bessel_kernel_skips_bounds_checking():
     ell = 1
     kernel = SphericalBesselJKernel(ell, check_bounds=False)
 
-    # s outside strip should not raise
+    # s outside domain should not raise
     mu = ell + 0.5
     kernel(-mu - 1)  # Below lower bound
     kernel(2.0)  # Above upper bound
