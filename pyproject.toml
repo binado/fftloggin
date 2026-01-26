@@ -72,6 +72,9 @@ tutorial = [
 addopts = ["--doctest-modules"]
 testpaths = ["tests", "src"]
 
+[tool.ty.src]
+include = ["src", "tests"]
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 tag_format = "$version"

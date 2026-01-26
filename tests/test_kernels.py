@@ -23,6 +23,8 @@ def test_bessel_kernel_domain():
     inf, sup = kernel.domain
 
     # Domain should be (-mu, 1.5)
+    inf = np.asarray(inf)
+    sup = np.asarray(sup)
     assert_allclose(inf, -mu)
     assert_allclose(sup, 1.5)
 
@@ -35,6 +37,8 @@ def test_spherical_bessel_kernel_domain():
     # Domain should be (-mu, 1.5)
     mu = ell + 0.5
     inf, sup = kernel.domain
+    inf = np.asarray(inf)
+    sup = np.asarray(sup)
     assert_allclose(inf, -mu)
     assert_allclose(sup, 1.5)
 
