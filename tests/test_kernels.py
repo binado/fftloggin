@@ -12,6 +12,7 @@ from fftloggin.kernels import (
     ArgumentOutOfDomainError,
     BesselJKernel,
     Derivative,
+    Kernel,
     SphericalBesselJKernel,
 )
 
@@ -100,6 +101,37 @@ def test_kernel_derive_method():
     d2_kernel = kernel.derive(2)
     assert isinstance(d2_kernel, Derivative)
     assert d2_kernel.order == 2
+
+
+def test_derivative_domain_shifts_bounds():
+    """Derivative domain should shift the base kernel domain by order."""
+    mu = 0.5
+    order = 2
+    kernel = BesselJKernel(mu)
+    d_kernel = kernel.derive(order)
+
+    inf, sup = d_kernel.domain
+    inf = np.asarray(inf)
+    sup = np.asarray(sup)
+    assert_allclose(inf, -mu + order)
+    assert_allclose(sup, 1.5 + order)
+
+
+def test_derivative_domain_preserves_none_and_inf():
+    """Derivative domain should preserve None/inf bounds."""
+
+    class DummyKernel(Kernel):
+        @property
+        def domain(self) -> tuple[None, float]:
+            return (None, np.inf)
+
+        def forward(self, s: np.ndarray) -> np.ndarray:
+            return np.asarray(s)
+
+    d_kernel = Derivative(DummyKernel(), order=3)
+    inf, sup = d_kernel.domain
+    assert inf is None
+    assert np.isposinf(sup)
 
 
 def test_derivative_invalid_order():
