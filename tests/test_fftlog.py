@@ -598,10 +598,10 @@ def test_combined_kernel_broadcasting_integration():
     # Expected shape: (2, 3, n)
     assert res.shape == (2, 3, n)
 
+
 def test_combined_kernel_broadcasting():
     """Test CombinedKernel broadcasting rules."""
     n = 16
-    dlog = 0.1
     ns = n // 2 + 1
     s = np.linspace(1, 2, ns)  # shape (ns,)
 
