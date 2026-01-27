@@ -5,6 +5,7 @@ This module provides kernel functions that compute the Mellin transform
 of various integral kernels used in generalized FFTLog transforms.
 """
 
+from collections.abc import Sequence
 from contextlib import contextmanager
 
 import numpy as np
@@ -430,8 +431,8 @@ class CombinedKernel(Kernel):
 
     Parameters
     ----------
-    kernels : list[Kernel]
-        List of kernel instances to combine.
+    kernels : Sequence[Kernel]
+        Sequence of kernel instances to combine.
     check_bounds : bool, optional
         If True, validate that input values are within the domain of all kernels.
         Default is True.
@@ -445,7 +446,7 @@ class CombinedKernel(Kernel):
     >>> # Transform uses both kernels, returning shape (2, n)
     """
 
-    def __init__(self, kernels: list[Kernel], check_bounds: bool = True) -> None:
+    def __init__(self, kernels: Sequence[Kernel], check_bounds: bool = True) -> None:
         super().__init__(check_bounds=check_bounds)
         # Validate that kernels is non-empty to avoid np.stack errors later.
         if not kernels:
