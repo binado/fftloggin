@@ -448,19 +448,6 @@ class CombinedKernel(Kernel):
 
     def __init__(self, kernels: Sequence[Kernel], check_bounds: bool = True) -> None:
         super().__init__(check_bounds=check_bounds)
-        # Validate that kernels is non-empty to avoid np.stack errors later.
-        if not kernels:
-            raise ValueError(
-                "CombinedKernel requires at least one Kernel instance; "
-                "received an empty sequence of kernels."
-            )
-        # Validate that all elements are Kernel instances for predictable behavior.
-        for i, k in enumerate(kernels):
-            if not isinstance(k, Kernel):
-                raise TypeError(
-                    f"All elements of 'kernels' must be Kernel instances; "
-                    f"found type {type(k)!r} at index {i}."
-                )
         self.kernels = kernels
 
     @property
@@ -475,6 +462,16 @@ class CombinedKernel(Kernel):
             inf, sup = k.domain
             infs.append(inf)
             sups.append(sup)
+
+        # Broadcast domains to common shape before stacking
+        try:
+            infs = np.broadcast_arrays(*infs)
+            sups = np.broadcast_arrays(*sups)
+        except ValueError as e:
+            raise ValueError(
+                "Kernel domains could not be broadcast to a common shape."
+            ) from e
+
         # Stack domains along axis 0
         return np.stack(infs, axis=0), np.stack(sups, axis=0)
 
@@ -495,6 +492,15 @@ class CombinedKernel(Kernel):
             for compatibility with FFTLog batch processing.
         """
         results = [k.forward(s) for k in self.kernels]
+
+        # Broadcast all results to a common shape
+        try:
+            results = np.broadcast_arrays(*results)
+        except ValueError as e:
+            raise ValueError(
+                "Kernel outputs could not be broadcast to a common shape."
+            ) from e
+
         res = np.stack(results, axis=0)
 
         # If s is scalar (ndim=0), FFTLog expects the kernel output to be
