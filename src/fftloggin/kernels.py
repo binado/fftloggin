@@ -447,6 +447,19 @@ class CombinedKernel(Kernel):
 
     def __init__(self, kernels: list[Kernel], check_bounds: bool = True) -> None:
         super().__init__(check_bounds=check_bounds)
+        # Validate that kernels is non-empty to avoid np.stack errors later.
+        if not kernels:
+            raise ValueError(
+                "CombinedKernel requires at least one Kernel instance; "
+                "received an empty sequence of kernels."
+            )
+        # Validate that all elements are Kernel instances for predictable behavior.
+        for i, k in enumerate(kernels):
+            if not isinstance(k, Kernel):
+                raise TypeError(
+                    f"All elements of 'kernels' must be Kernel instances; "
+                    f"found type {type(k)!r} at index {i}."
+                )
         self.kernels = kernels
 
     @property
