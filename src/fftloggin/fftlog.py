@@ -230,8 +230,8 @@ def compute_kernel_coefficients(
     angle = 2 * np.pi * m * 1j / (n * dlog)
     s = angle + 1 + bias
     coeffs = kernel.forward(s)
-    kr = np.asarray(kr)
-    coeffs = coeffs / kr**angle
+    logc = np.log(np.asarray(kr))
+    coeffs = coeffs * np.exp(-angle * logc)
     # Handle Nyquist frequency for even n
     if n % 2 == 0:
         coeffs[..., -1] = np.real(coeffs[..., -1])
@@ -395,6 +395,8 @@ class FFTLog:
         self._lowring = lowring
         self._kr = kr
         self._domain_check_mode = DomainCheckMode(check_domain)
+        self._scratch: dict[str, np.ndarray] = {}
+        self._i_minus_ic_cache: dict[np.dtype, np.ndarray] = {}
 
         # Validate domain at construction time
         self._validate_domain()
@@ -405,6 +407,53 @@ class FFTLog:
                 delattr(self, attr)
             except AttributeError:
                 pass
+        self._scratch.clear()
+        self._i_minus_ic_cache.clear()
+
+    def _get_scratch(
+        self, name: str, shape: tuple[int, ...], dtype: np.dtype
+    ) -> np.ndarray:
+        buf = self._scratch.get(name)
+        if buf is None or buf.shape != shape or buf.dtype != dtype:
+            buf = np.empty(shape, dtype=dtype)
+            self._scratch[name] = buf
+        return buf
+
+    def _get_i_minus_ic(self, dtype: np.dtype) -> np.ndarray:
+        dtype = np.dtype(dtype)
+        cached = self._i_minus_ic_cache.get(dtype)
+        if cached is None or cached.shape[-1] != self.n:
+            i = np.arange(self.n, dtype=dtype)
+            ic = (self.n - 1) / 2.0
+            cached = i - ic
+            self._i_minus_ic_cache[dtype] = cached
+        return cached
+
+    def _compute_bias_power_law(self, sign: int, dtype: np.dtype) -> np.ndarray:
+        bias = np.asarray(self.bias)
+        dlog = np.asarray(self.dlog)
+        base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype, np.float64)
+        i_minus_ic = self._get_i_minus_ic(base_dtype)
+        shape = np.broadcast_shapes(i_minus_ic.shape, bias.shape, dlog.shape)
+        buf = self._get_scratch("bias_power_law", shape, base_dtype)
+        np.multiply(i_minus_ic, dlog, out=buf)
+        if sign < 0:
+            np.negative(buf, out=buf)
+        np.multiply(buf, bias, out=buf)
+        np.exp(buf, out=buf)
+        return buf
+
+    def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> np.ndarray:
+        bias = np.asarray(self.bias)
+        logc = np.asarray(self.logc)
+        base_dtype = np.result_type(dtype, bias.dtype, logc.dtype, np.float64)
+        shape = np.broadcast_shapes(bias.shape, logc.shape)
+        buf = self._get_scratch("bias_logc", shape, base_dtype)
+        np.multiply(bias, logc, out=buf)
+        if sign < 0:
+            np.negative(buf, out=buf)
+        np.exp(buf, out=buf)
+        return buf
 
     def _validate_domain(self) -> None:
         """Validate that bias is within the kernel's domain of convergence."""
@@ -747,9 +796,25 @@ class FFTLog:
         if na != self.n:
             self.n = na
 
-        return _forward_hankel_transform(
-            a, self.kernel_coefficients, self.logc, self.dlog, self.bias, **kwargs
+        bias_power_law = self._compute_bias_power_law(sign=-1, dtype=a.dtype)
+        bias_logc = self._compute_bias_logc(sign=-1, dtype=a.dtype)
+        a_biased_shape = np.broadcast_shapes(a.shape, bias_power_law.shape)
+        a_biased = self._get_scratch(
+            "biased_input",
+            a_biased_shape,
+            np.result_type(a.dtype, bias_power_law.dtype),
         )
+        np.multiply(a, bias_power_law, out=a_biased)
+
+        a_biased_fftd = rfft(a_biased, **kwargs)
+        ak = irfft(a_biased_fftd * self.kernel_coefficients, na, **kwargs)
+        ak = np.flip(ak, axis=-1)  # type: ignore
+        out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
+        if ak.dtype != out_dtype:
+            ak = ak.astype(out_dtype, copy=False)
+        np.multiply(ak, bias_power_law, out=ak)
+        np.multiply(ak, bias_logc, out=ak)
+        return ak
 
     def inverse(
         self,
@@ -805,6 +870,29 @@ class FFTLog:
         if na != self.n:
             self.n = na
 
-        return _inverse_hankel_transform(
-            ak, self.kernel_coefficients, self.logc, self.dlog, self.bias, **kwargs
+        bias_power_law = self._compute_bias_power_law(sign=1, dtype=ak.dtype)
+        bias_logc = self._compute_bias_logc(sign=1, dtype=ak.dtype)
+        ak_biased_shape = np.broadcast_shapes(
+            ak.shape, bias_power_law.shape, bias_logc.shape
         )
+        ak_biased = self._get_scratch(
+            "biased_input",
+            ak_biased_shape,
+            np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype),
+        )
+        np.multiply(ak, bias_power_law, out=ak_biased)
+        np.multiply(ak_biased, bias_logc, out=ak_biased)
+
+        ak_biased_fftd = rfft(ak_biased, **kwargs)
+        coeffs = self.kernel_coefficients
+        coeffs_conj = self._get_scratch(
+            "kernel_coeffs_conj", coeffs.shape, coeffs.dtype
+        )
+        np.conjugate(coeffs, out=coeffs_conj)
+        a = irfft(ak_biased_fftd / coeffs_conj, na, **kwargs)
+        a = np.flip(a, axis=-1)  # type: ignore
+        out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
+        if a.dtype != out_dtype:
+            a = a.astype(out_dtype, copy=False)
+        np.multiply(a, bias_power_law, out=a)
+        return a
