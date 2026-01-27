@@ -288,16 +288,9 @@ class Derivative(Kernel):
         self.order = order
 
     @property
-    def domain(self) -> tuple[npt.ArrayLike | None, npt.ArrayLike | None]:
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
         inf, sup = self.transform.domain
-        return (self._shift_bound(inf), self._shift_bound(sup))
-
-    def _shift_bound(self, bound: npt.ArrayLike | None) -> npt.ArrayLike | None:
-        if bound is None:
-            return None
-        if np.isscalar(bound):
-            return bound + self.order
-        return np.asarray(bound) + self.order
+        return np.asarray(inf) + self.order, np.asarray(sup) + self.order
 
     def is_in_domain(self, s: npt.ArrayLike) -> bool:
         s = np.asarray(s)
