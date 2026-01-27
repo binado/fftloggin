@@ -448,9 +448,18 @@ class CombinedKernel(Kernel):
 
     def __init__(self, kernels: Sequence[Kernel], check_bounds: bool = True) -> None:
         super().__init__(check_bounds=check_bounds)
-        if len(kernels) == 0:
+
+        # Flatten nested CombinedKernels for a unified interface
+        flattened = []
+        for k in kernels:
+            if isinstance(k, CombinedKernel):
+                flattened.extend(k.kernels)
+            else:
+                flattened.append(k)
+
+        if len(flattened) == 0:
             raise ValueError("At least one kernel must be provided to CombinedKernel")
-        self.kernels = kernels
+        self.kernels = flattened
 
     @property
     def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:

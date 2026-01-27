@@ -264,3 +264,47 @@ class TestCombinedKernel:
         # Check bounds checking call
         with pytest.raises(ArgumentOutOfDomainError):
             kernel(-0.5)
+
+    def test_combined_kernel_flattens_nested(self):
+        """Test CombinedKernel flattens nested CombinedKernel instances."""
+        k1 = BesselJKernel(mu=0)
+        k2 = BesselJKernel(mu=1)
+        k3 = BesselJKernel(mu=2)
+
+        # Create nested CombinedKernel
+        inner = CombinedKernel([k1, k2])
+        outer = CombinedKernel([inner, k3])
+
+        # Should be flattened to 3 kernels, not 2
+        assert len(outer.kernels) == 3
+        assert outer.kernels[0] is k1
+        assert outer.kernels[1] is k2
+        assert outer.kernels[2] is k3
+
+        # Verify forward() produces same result as flat CombinedKernel
+        flat = CombinedKernel([k1, k2, k3])
+        s = np.array([0.5, 1.0, 1.5])
+
+        result_nested = outer.forward(s)
+        result_flat = flat.forward(s)
+
+        # Shape should be identical
+        assert result_nested.shape == result_flat.shape == (3, 3)
+        # Values should match (ignore NaN differences)
+        assert_allclose(np.nan_to_num(result_nested), np.nan_to_num(result_flat))
+
+    def test_combined_kernel_flattens_deeply_nested(self):
+        """Test CombinedKernel flattens arbitrary nesting depths."""
+        k1 = BesselJKernel(mu=0)
+        k2 = BesselJKernel(mu=1)
+        k3 = BesselJKernel(mu=2)
+        k4 = BesselJKernel(mu=3)
+
+        # Deep nesting: [[k1], [k2, [k3]], k4]
+        deep = CombinedKernel(
+            [CombinedKernel([k1]), CombinedKernel([k2, CombinedKernel([k3])]), k4]
+        )
+
+        # Should be flattened to 4 kernels
+        assert len(deep.kernels) == 4
+        assert all(isinstance(k, BesselJKernel) for k in deep.kernels)
