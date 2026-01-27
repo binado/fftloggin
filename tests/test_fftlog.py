@@ -633,9 +633,7 @@ def test_combined_kernel_broadcasting():
     # k1(s) -> (2, 1, ns).
     # k2(s) -> (3, 1, ns).
     # (2,...) vs (3,...) cannot broadcast.
-    with pytest.raises(
-        ValueError, match="Kernel outputs could not be broadcast to a common shape"
-    ):
+    with pytest.raises(ValueError, match="cannot be broadcast"):
         ck.forward(s)
 
     # 4. Different Dimensions

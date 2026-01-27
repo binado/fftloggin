@@ -457,22 +457,9 @@ class CombinedKernel(Kernel):
 
         Returns stacked domains of all sub-kernels.
         """
-        infs, sups = [], []
-        for k in self.kernels:
-            inf, sup = k.domain
-            infs.append(inf)
-            sups.append(sup)
-
-        # Broadcast domains to common shape before stacking
-        try:
-            infs = np.broadcast_arrays(*infs)
-            sups = np.broadcast_arrays(*sups)
-        except ValueError as e:
-            raise ValueError(
-                "Kernel domains could not be broadcast to a common shape."
-            ) from e
-
-        # Stack domains along axis 0
+        domains = [k.domain for k in self.kernels]
+        infs = np.broadcast_arrays(*[d[0] for d in domains])
+        sups = np.broadcast_arrays(*[d[1] for d in domains])
         return np.stack(infs, axis=0), np.stack(sups, axis=0)
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
@@ -491,22 +478,10 @@ class CombinedKernel(Kernel):
             the number of kernels. If s is scalar, returns shape (N, 1)
             for compatibility with FFTLog batch processing.
         """
-        results = [k.forward(s) for k in self.kernels]
-
-        # Broadcast all results to a common shape
-        try:
-            results = np.broadcast_arrays(*results)
-        except ValueError as e:
-            raise ValueError(
-                "Kernel outputs could not be broadcast to a common shape."
-            ) from e
-
+        results = np.broadcast_arrays(*[k.forward(s) for k in self.kernels])
         res = np.stack(results, axis=0)
 
-        # If s is scalar (ndim=0), FFTLog expects the kernel output to be
-        # broadcastable against the frequency array later.
-        # A shape of (N,) will not broadcast with (ns,).
-        # We need (N, 1).
+        # Scalar input needs shape (N, 1) for FFTLog broadcasting
         if np.ndim(s) == 0 and res.ndim == 1:
             res = res[..., np.newaxis]
 
