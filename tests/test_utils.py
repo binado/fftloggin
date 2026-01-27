@@ -69,7 +69,7 @@ class TestAppendDims:
         """Test append_dims with invalid where parameter."""
         a = np.array([1, 2, 3])
         with pytest.raises(ValueError, match="where must be 'left' or 'right'"):
-            append_dims(a, 2, where="invalid")
+            append_dims(a, 2, where="invalid")  # type: ignore[invalid-argument-type]
 
     def test_append_dims_array_like_input(self):
         """Test append_dims with array-like inputs (list, tuple)."""

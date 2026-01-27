@@ -10,6 +10,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal, assert_array_less
 from scipy.special import poch
 
+from fftloggin import DomainCheckMode
 from fftloggin.fftlog import FFTLog
 from fftloggin.kernels import BesselJKernel
 from fftloggin.utils import prepare_batch_params
@@ -125,6 +126,7 @@ def test_fftlog_with_positive_bias():
         bias=bias,
         kr=1.0,
         lowring=True,
+        check_domain=DomainCheckMode.SILENT,
     )
     ours = fftlog.forward(a)
 
@@ -548,5 +550,5 @@ class TestBatchedTransforms:
             kernel=BesselJKernel(mu), n=128, dlog=dlog, kr=1.0, lowring=False
         )
 
-        logc_opt = fftlog.optimal_logcenter()
+        logc_opt = fftlog.optimal_logcenter
         assert logc_opt.shape == (2, 1)
