@@ -31,7 +31,7 @@ class ArgumentOutOfDomainError(ValueError):
 
     Parameters
     ----------
-    s_values : array_like
+    s : array_like
         The actual s-values that violated the domain constraint.
     kernel : Kernel
         The kernel instance that defines the domain.
@@ -40,7 +40,7 @@ class ArgumentOutOfDomainError(ValueError):
 
     Attributes
     ----------
-    s_values : ndarray
+    s : ndarray
         The actual s-values that violated the domain constraint.
     kernel : Kernel
         The kernel instance that defines the domain.
@@ -55,17 +55,17 @@ class ArgumentOutOfDomainError(ValueError):
     >>> try:
     ...     kernel(2.0)  # Outside domain
     ... except ArgumentOutOfDomainError as e:
-    ...     print(f"Values {e.s_values} outside domain {e.domain}")  # doctest: +SKIP
+    ...     print(f"Values {e.s} outside domain {e.domain}")  # doctest: +SKIP
     Values [2.0] outside domain (0.0, 1.5)
     """
 
-    def __init__(self, s_values: npt.ArrayLike, kernel: "Kernel", context: str = ""):
-        self.s_values = np.asarray(s_values)
+    def __init__(self, s: npt.ArrayLike, kernel: "Kernel", context: str = ""):
+        self.s = np.asarray(s)
         self.kernel = kernel
         self.domain = kernel.domain
 
-        # Compute actual range from s_values (use real part for complex values)
-        s_real = np.real(self.s_values)
+        # Compute actual range from s (use real part for complex values)
+        s_real = np.real(self.s)
         s_min, s_max = float(np.min(s_real)), float(np.max(s_real))
         domain_min, domain_max = self.domain
 

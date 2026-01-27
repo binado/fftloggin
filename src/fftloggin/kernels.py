@@ -140,7 +140,7 @@ class Kernel:
         if self.check_bounds:
             if not self.is_in_domain(s):
                 raise ArgumentOutOfDomainError(
-                    s_values=s, kernel=self, context="when calling kernel directly"
+                    s=s, kernel=self, context="when calling kernel directly"
                 )
 
         s = np.asarray(s)

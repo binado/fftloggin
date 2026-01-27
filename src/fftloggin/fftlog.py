@@ -9,6 +9,7 @@ from scipy.fft import irfft, rfft
 from .grids import Grid
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .kernels import Kernel
+from .utils import safe_broadcast
 
 LN_2 = np.log(2)
 
@@ -393,7 +394,7 @@ class FFTLog:
         self._bias = bias
         self._lowring = lowring
         self._kr = kr
-        self._check_domain = DomainCheckMode(check_domain)
+        self._domain_check_mode = DomainCheckMode(check_domain)
 
         # Validate domain at construction time
         self._validate_domain()
@@ -407,14 +408,14 @@ class FFTLog:
 
     def _validate_domain(self) -> None:
         """Validate that bias is within the kernel's domain of convergence."""
-        if self._check_domain == DomainCheckMode.SILENT:
+        if self._domain_check_mode == DomainCheckMode.SILENT:
             return
 
-        if self._check_domain == DomainCheckMode.RAISE:
+        if self._domain_check_mode == DomainCheckMode.RAISE:
             self.check_domain(raise_exception=True)
             return
 
-        if self._check_domain == DomainCheckMode.WARN:
+        if self._domain_check_mode == DomainCheckMode.WARN:
             try:
                 self.check_domain(raise_exception=True)
             except ArgumentOutOfDomainError as e:
@@ -459,14 +460,12 @@ class FFTLog:
         >>> fftlog.check_domain()
         False
         """
-        s = 1 + np.asarray(self._bias)
-        is_valid = self._kernel.is_in_domain(s)
+        s = 1 + np.asarray(self.bias)
+        is_valid = self.kernel.is_in_domain(s)
 
         if not is_valid and raise_exception:
-            inf, sup = self._kernel.domain
+            inf, sup = self.kernel.domain
             # Format inf/sup for broadcasting with s
-            from .utils import safe_broadcast
-
             inf, _ = safe_broadcast(inf, s)
             sup, _ = safe_broadcast(sup, s)
 
@@ -476,9 +475,7 @@ class FFTLog:
                 f"Valid bias range: ({inf - 1}, {sup - 1})"
             )
 
-            raise ArgumentOutOfDomainError(
-                s_values=s, kernel=self._kernel, context=context_msg
-            )
+            raise ArgumentOutOfDomainError(s=s, kernel=self.kernel, context=context_msg)
 
         return is_valid
 
@@ -528,6 +525,15 @@ class FFTLog:
     def lowring(self, other: bool):
         self._lowring = other
         self._cleanup()
+
+    @property
+    def domain_check_mode(self) -> DomainCheckMode:
+        return self._domain_check_mode
+
+    @domain_check_mode.setter
+    def domain_check_mode(self, other: DomainCheckMode | str):
+        self._domain_check_mode = DomainCheckMode(other)
+        self._validate_domain()
 
     @cached_property
     def kr(self) -> npt.ArrayLike:

@@ -59,6 +59,8 @@ class TestKernelContextManagers:
         with pytest.raises(RuntimeError):
             with kernel.checking_enabled():
                 assert kernel.check_bounds is True
+                # Intentionally raise an exception to test that the context manager
+                # properly restores the original state in the __exit__ method
                 raise RuntimeError("Test exception")
 
         # Should still be restored
@@ -144,13 +146,13 @@ class TestFFTLogDomainCheckMode:
         kernel = BesselJKernel(mu=0)
 
         fftlog = FFTLog(kernel, n=64, dlog=0.1, bias=0.0, check_domain="silent")
-        assert fftlog._check_domain == DomainCheckMode.SILENT
+        assert fftlog.domain_check_mode == DomainCheckMode.SILENT
 
         fftlog = FFTLog(kernel, n=64, dlog=0.1, bias=0.0, check_domain="warn")
-        assert fftlog._check_domain == DomainCheckMode.WARN
+        assert fftlog.domain_check_mode == DomainCheckMode.WARN
 
         fftlog = FFTLog(kernel, n=64, dlog=0.1, bias=0.0, check_domain="raise")
-        assert fftlog._check_domain == DomainCheckMode.RAISE
+        assert fftlog.domain_check_mode == DomainCheckMode.RAISE
 
     def test_default_mode_is_warn(self):
         """Default check_domain mode should be WARN."""
@@ -254,7 +256,7 @@ class TestFFTLogFromArray:
             fftlog = FFTLog.from_array(
                 r, kernel, bias=0.0, check_domain=DomainCheckMode.SILENT
             )
-            assert fftlog._check_domain == DomainCheckMode.SILENT
+            assert fftlog.domain_check_mode == DomainCheckMode.SILENT
 
     def test_from_array_default_warns(self):
         """from_array() should warn by default for invalid bias."""
@@ -306,7 +308,7 @@ class TestArgumentOutOfDomainError:
     """Tests for ArgumentOutOfDomainError exception attributes."""
 
     def test_exception_stores_s_values(self):
-        """Exception should store the s_values that violated domain."""
+        """Exception should store the s values that violated domain."""
         kernel = BesselJKernel(mu=0)
         fftlog = FFTLog(
             kernel, n=64, dlog=0.1, bias=1.0, check_domain=DomainCheckMode.SILENT
@@ -315,8 +317,8 @@ class TestArgumentOutOfDomainError:
         try:
             fftlog.check_domain(raise_exception=True)
         except ArgumentOutOfDomainError as e:
-            assert hasattr(e, "s_values")
-            assert np.allclose(e.s_values, 2.0)  # s = 1 + bias = 2
+            assert hasattr(e, "s")
+            assert np.allclose(e.s, 2.0)  # s = 1 + bias = 2
         else:
             pytest.fail("Expected ArgumentOutOfDomainError")
 
