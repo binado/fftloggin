@@ -12,7 +12,7 @@ from scipy.special import poch
 
 from fftloggin import DomainCheckMode
 from fftloggin.fftlog import FFTLog
-from fftloggin.kernels import BesselJKernel
+from fftloggin.kernels import BesselJKernel, CombinedKernel
 from fftloggin.utils import prepare_batch_params
 
 
@@ -552,3 +552,26 @@ class TestBatchedTransforms:
 
         logc_opt = fftlog.optimal_logcenter
         assert logc_opt.shape == (2, 1)
+
+
+def test_combined_kernel_integration():
+    """Test using CombinedKernel in FFTLog."""
+    k1 = BesselJKernel(mu=0)
+    k2 = BesselJKernel(mu=2)
+    ck = CombinedKernel([k1, k2])
+
+    fftlog = FFTLog(ck, n=16, dlog=0.1)
+    a = np.ones(16)
+    res = fftlog.forward(a)
+
+    assert res.shape == (2, 16)
+
+    # Check individual results
+    fftlog1 = FFTLog(k1, n=16, dlog=0.1)
+    res1 = fftlog1.forward(a)
+
+    fftlog2 = FFTLog(k2, n=16, dlog=0.1)
+    res2 = fftlog2.forward(a)
+
+    assert_allclose(res[0], res1)
+    assert_allclose(res[1], res2)
