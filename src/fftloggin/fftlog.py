@@ -6,8 +6,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.fft import irfft, rfft
 
-from .grids import Grid
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
+from .grids import Grid
 from .kernels import Kernel
 from .utils import safe_broadcast
 
@@ -24,7 +24,7 @@ class DomainCheckMode(Enum):
     Attributes
     ----------
     RAISE : str
-        Raise a ValueError if domain validation fails.
+        Raise an ArgumentOutOfDomainError if domain validation fails.
     WARN : str
         Issue a DomainCheckWarning if domain validation fails.
     SILENT : str
