@@ -35,13 +35,12 @@ def test_spherical_bessel_kernel_domain():
     ell = 1
     kernel = SphericalBesselJKernel(ell)
 
-    # Domain should be (-mu, 1.5)
-    mu = ell + 0.5
+    # Domain should be (-ell, 2.0)
     inf, sup = kernel.domain
     inf = np.asarray(inf)
     sup = np.asarray(sup)
-    assert_allclose(inf, -mu)
-    assert_allclose(sup, 1.5)
+    assert_allclose(inf, -ell)
+    assert_allclose(sup, 2.0)
 
 
 @pytest.mark.parametrize(
@@ -183,8 +182,10 @@ def test_spherical_bessel_kernel_bounds_checking(
         kernel = kernel.derive(order)
 
     sr = s.real if isinstance(s, complex) else s
-    mu = ell + 0.5
-    is_in_domain = (sr - order - 0.5 >= -mu) & (sr - order - 0.5 <= 1.5)
+    inf, sup = kernel.domain
+    inf = np.asarray(inf)
+    sup = np.asarray(sup)
+    is_in_domain = (sr >= inf) & (sr <= sup)
 
     # s outside domain should raise
     context = (

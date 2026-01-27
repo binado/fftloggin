@@ -416,9 +416,13 @@ class SphericalBesselJKernel(BesselJKernel):
         mu = np.asarray(ell) + 0.5
         super().__init__(mu, check_bounds=check_bounds)
 
+    @property
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        inf, sup = super().domain
+        return (inf + 0.5, sup + 0.5)
+
     def is_in_domain(self, s: npt.ArrayLike) -> bool:
-        s = np.asarray(s)
-        return super().is_in_domain(s - 0.5)
+        return super().is_in_domain(s)
 
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
