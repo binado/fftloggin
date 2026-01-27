@@ -393,11 +393,7 @@ class FFTLog:
         self._bias = bias
         self._lowring = lowring
         self._kr = kr
-        self._check_domain = (
-            DomainCheckMode(check_domain)
-            if isinstance(check_domain, str)
-            else check_domain
-        )
+        self._check_domain = DomainCheckMode(check_domain)
 
         # Validate domain at construction time
         self._validate_domain()
