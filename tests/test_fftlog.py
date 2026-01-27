@@ -12,7 +12,7 @@ from scipy.special import poch
 
 from fftloggin import DomainCheckMode
 from fftloggin.fftlog import FFTLog
-from fftloggin.kernels import BesselJKernel
+from fftloggin.kernels import BesselJKernel, CombinedKernel
 from fftloggin.utils import prepare_batch_params
 
 
@@ -552,3 +552,97 @@ class TestBatchedTransforms:
 
         logc_opt = fftlog.optimal_logcenter
         assert logc_opt.shape == (2, 1)
+
+
+def test_combined_kernel_integration():
+    """Test using CombinedKernel in FFTLog."""
+    k1 = BesselJKernel(mu=0)
+    k2 = BesselJKernel(mu=2)
+    ck = CombinedKernel([k1, k2])
+
+    fftlog = FFTLog(ck, n=16, dlog=0.1)
+    a = np.ones(16)
+    res = fftlog.forward(a)
+
+    assert res.shape == (2, 16)
+
+    # Check individual results
+    fftlog1 = FFTLog(k1, n=16, dlog=0.1)
+    res1 = fftlog1.forward(a)
+
+    fftlog2 = FFTLog(k2, n=16, dlog=0.1)
+    res2 = fftlog2.forward(a)
+
+    assert_allclose(res[0], res1)
+    assert_allclose(res[1], res2)
+
+
+def test_combined_kernel_broadcasting_integration():
+    """Test CombinedKernel with batched sub-kernels in FFTLog context."""
+    n = 16
+    r = np.logspace(-4, 4, n)
+    dlog = np.log(r[1] / r[0])
+
+    # Case 1: scalar x array
+    # k1: Bessel with scalar mu
+    k1 = BesselJKernel(mu=0)
+    # k2: Bessel with array-valued mu (3 elements)
+    k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))
+
+    ck = CombinedKernel([k1, k2])
+
+    fftlog = FFTLog(ck, n=n, dlog=dlog)
+    a = np.ones(n)
+    res = fftlog.forward(a)
+
+    # Expected shape: (2, 3, n)
+    assert res.shape == (2, 3, n)
+
+
+def test_combined_kernel_broadcasting():
+    """Test CombinedKernel broadcasting rules."""
+    n = 16
+    ns = n // 2 + 1
+    s = np.linspace(1, 2, ns)  # shape (ns,)
+
+    # 1. Scalar x Array
+    k1 = BesselJKernel(mu=0)
+    k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))
+    ck = CombinedKernel([k1, k2])
+    res = ck.forward(s)
+    # k1(s) -> (ns,). k2(s) -> (3, ns).
+    # Broadcast -> k1 (3, ns), k2 (3, ns).
+    # Stack -> (2, 3, ns).
+    assert res.shape == (2, 3, ns)
+
+    # 2. Array x Array (broadcastable)
+    k1 = BesselJKernel(mu=np.array([[0]]))  # (1, 1)
+    k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))  # (3, 1)
+    ck = CombinedKernel([k1, k2])
+    res = ck.forward(s)
+    # k1(s) -> (1, ns) because safe_broadcast (1,1) + (ns,) -> (1,ns)
+    # k2(s) -> (3, ns) because safe_broadcast (3,1) + (ns,) -> (3,ns)
+    # Broadcast common shape -> (3, ns).
+    # Stack -> (2, 3, ns).
+    assert res.shape == (2, 3, ns)
+
+    # 3. Array x Array (not broadcastable)
+    k1 = BesselJKernel(mu=np.array([1, 2]).reshape(-1, 1))  # (2, 1)
+    k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))  # (3, 1)
+    ck = CombinedKernel([k1, k2])
+    # k1(s) -> (2, 1, ns).
+    # k2(s) -> (3, 1, ns).
+    # (2,...) vs (3,...) cannot broadcast.
+    with pytest.raises(ValueError, match="cannot be broadcast"):
+        ck.forward(s)
+
+    # 4. Different Dimensions
+    k1 = BesselJKernel(mu=np.array([1]).reshape(-1, 1, 1))  # (1, 1, 1)
+    k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))  # (3, 1)
+    ck = CombinedKernel([k1, k2])
+    res = ck.forward(s)
+    # k1(s) -> (1, 1, ns)
+    # k2(s) -> (3, ns)
+    # Broadcast (1,1,ns) and (3,ns) -> (1,3,ns)
+    # Stack -> (2, 1, 3, ns)
+    assert res.shape == (2, 1, 3, ns)

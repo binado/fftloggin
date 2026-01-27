@@ -5,6 +5,7 @@ This module provides kernel functions that compute the Mellin transform
 of various integral kernels used in generalized FFTLog transforms.
 """
 
+from collections.abc import Sequence
 from contextlib import contextmanager
 
 import numpy as np
@@ -19,6 +20,7 @@ __all__ = (
     "Kernel",
     "BesselJKernel",
     "Derivative",
+    "CombinedKernel",
 )
 
 
@@ -417,3 +419,92 @@ class SphericalBesselJKernel(BesselJKernel):
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
         return super().forward(s - 0.5) * SQRT_PI_OVER_2
+
+
+class CombinedKernel(Kernel):
+    """
+    Kernel that combines multiple kernels by stacking outputs along axis 0.
+
+    This enables mixing different kernel types, orders, and derivatives in a
+    single transform operation. The combined kernel behaves like a batched kernel,
+    where the batch dimension corresponds to the list of kernels.
+
+    Parameters
+    ----------
+    kernels : Sequence[Kernel]
+        Sequence of kernel instances to combine.
+    check_bounds : bool, optional
+        If True, validate that input values are within the domain of all kernels.
+        Default is True.
+
+    Examples
+    --------
+    >>> from fftloggin.kernels import BesselJKernel, CombinedKernel
+    >>> k1 = BesselJKernel(mu=0)
+    >>> k2 = BesselJKernel(mu=1)
+    >>> kernel = CombinedKernel([k1, k2])
+    >>> # Transform uses both kernels, returning shape (2, n)
+    """
+
+    def __init__(self, kernels: Sequence[Kernel], check_bounds: bool = True) -> None:
+        super().__init__(check_bounds=check_bounds)
+        self.kernels = kernels
+
+    @staticmethod
+    def _flatten_kernels(kernels: Sequence[Kernel]) -> list[Kernel]:
+        # Flatten nested CombinedKernels for a unified interface
+        flattened = []
+        for k in kernels:
+            if isinstance(k, CombinedKernel):
+                flattened.extend(k.kernels)
+            else:
+                flattened.append(k)
+
+        if len(flattened) == 0:
+            raise ValueError("At least one kernel must be provided to CombinedKernel")
+        return flattened
+
+    @property
+    def kernels(self) -> list[Kernel]:
+        return self._kernels
+
+    @kernels.setter
+    def kernels(self, kernels: Sequence[Kernel]) -> None:
+        self._kernels = self._flatten_kernels(kernels)
+
+    @property
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        """
+        Domain of convergence for the combined kernel.
+
+        Returns stacked domains of all sub-kernels.
+        """
+        domains = [k.domain for k in self.kernels]
+        infs = np.broadcast_arrays(*[d[0] for d in domains])
+        sups = np.broadcast_arrays(*[d[1] for d in domains])
+        return np.stack(infs, axis=0), np.stack(sups, axis=0)
+
+    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+        """
+        Compute the Mellin transform for all kernels and stack results.
+
+        Parameters
+        ----------
+        s : array_like
+            Complex frequency variable.
+
+        Returns
+        -------
+        ndarray
+            Stacked Mellin transforms. Shape will be (N, ...) where N is
+            the number of kernels. If s is scalar, returns shape (N, 1)
+            for compatibility with FFTLog batch processing.
+        """
+        results = np.broadcast_arrays(*[k.forward(s) for k in self.kernels])
+        res = np.stack(results, axis=0)
+
+        # Scalar input needs shape (N, 1) for FFTLog broadcasting
+        if np.ndim(s) == 0 and res.ndim == 1:
+            res = res[..., np.newaxis]
+
+        return res
