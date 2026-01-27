@@ -202,60 +202,65 @@ def test_spherical_bessel_kernel_skips_bounds_checking():
     kernel(2.0)  # Above upper bound
 
 
-def test_combined_kernel_forward():
-    """Test CombinedKernel stacks results correctly."""
-    k1 = BesselJKernel(mu=0)
-    k2 = BesselJKernel(mu=1)
-    kernel = CombinedKernel([k1, k2])
+class TestCombinedKernel:
+    def test_combined_kernel_raises_on_empty_list(self):
+        """Test CombinedKernel raises on empty kernel list."""
+        with pytest.raises(ValueError, match="At least one kernel"):
+            CombinedKernel([])
 
-    # Case 1: Scalar s
-    s = 1.0
-    res = kernel(s)
-    # Expected shape: (2, 1) due to FFTLog compatibility fix
-    assert res.shape == (2, 1)
+    def test_combined_kernel_forward(self):
+        """Test CombinedKernel stacks results correctly."""
+        k1 = BesselJKernel(mu=0)
+        k2 = BesselJKernel(mu=1)
+        kernel = CombinedKernel([k1, k2])
 
-    # Check values
-    val1 = k1(s)  # scalar
-    val2 = k2(s)  # scalar
-    assert_allclose(res[0, 0], val1)
-    assert_allclose(res[1, 0], val2)
+        # Case 1: Scalar s
+        s = 1.0
+        res = kernel(s)
+        # Expected shape: (2, 1) due to FFTLog compatibility fix
+        assert res.shape == (2, 1)
 
-    # Case 2: Array s
-    s_arr = np.array([0.5, 1.0, 1.4])
-    res_arr = kernel(s_arr)
-    # Expected shape: (2, 3)
-    assert res_arr.shape == (2, 3)
+        # Check values
+        val1 = k1(s)  # scalar
+        val2 = k2(s)  # scalar
+        assert_allclose(res[0, 0], val1)
+        assert_allclose(res[1, 0], val2)
 
-    val1_arr = k1(s_arr)  # shape (3,)
-    val2_arr = k2(s_arr)  # shape (3,)
-    assert_allclose(res_arr[0], val1_arr)
-    assert_allclose(res_arr[1], val2_arr)
+        # Case 2: Array s
+        s_arr = np.array([0.5, 1.0, 1.4])
+        res_arr = kernel(s_arr)
+        # Expected shape: (2, 3)
+        assert res_arr.shape == (2, 3)
 
+        val1_arr = k1(s_arr)  # shape (3,)
+        val2_arr = k2(s_arr)  # shape (3,)
+        assert_allclose(res_arr[0], val1_arr)
+        assert_allclose(res_arr[1], val2_arr)
 
-def test_combined_kernel_domain():
-    """Test CombinedKernel domain checking."""
-    # k1: (-0, 1.5)
-    k1 = BesselJKernel(mu=0)
-    # k2: (-1, 1.5)
-    k2 = BesselJKernel(mu=1)
+    def test_combined_kernel_domain(self):
+        """Test CombinedKernel domain checking."""
+        # k1: (-0, 1.5)
+        k1 = BesselJKernel(mu=0)
+        # k2: (-1, 1.5)
+        k2 = BesselJKernel(mu=1)
 
-    kernel = CombinedKernel([k1, k2])
+        kernel = CombinedKernel([k1, k2])
 
-    # Check domain property
-    inf, sup = kernel.domain
-    assert_allclose(inf, [0, -1])
-    assert_allclose(sup, [1.5, 1.5])
+        # Check domain property
+        inf, sup = kernel.domain
+        assert_allclose(inf, [0, -1])
+        assert_allclose(sup, [1.5, 1.5])
 
-    # Check is_in_domain
-    # s = 0.5 (in both)
-    assert kernel.is_in_domain(0.5)
+        # Check is_in_domain
+        # s = 0.5 (in both)
+        assert kernel.is_in_domain(0.5)
 
-    # s = -0.5 (in k2, not k1)
-    assert not kernel.is_in_domain(-0.5)
+        # s = -0.5 (in k2, not k1)
+        assert not kernel.is_in_domain(-0.5)
 
-    # s = 2.0 (out both)
-    assert not kernel.is_in_domain(2.0)
+        # s = 2.0 (out both)
+        assert not kernel.is_in_domain(2.0)
 
-    # Check bounds checking call
-    with pytest.raises(ArgumentOutOfDomainError):
-        kernel(-0.5)
+        # Check bounds checking call
+        with pytest.raises(ArgumentOutOfDomainError):
+            kernel(-0.5)

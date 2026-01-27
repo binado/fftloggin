@@ -448,6 +448,8 @@ class CombinedKernel(Kernel):
 
     def __init__(self, kernels: Sequence[Kernel], check_bounds: bool = True) -> None:
         super().__init__(check_bounds=check_bounds)
+        if len(kernels) == 0:
+            raise ValueError("At least one kernel must be provided to CombinedKernel")
         self.kernels = kernels
 
     @property
