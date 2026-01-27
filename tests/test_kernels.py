@@ -308,3 +308,24 @@ class TestCombinedKernel:
         # Should be flattened to 4 kernels
         assert len(deep.kernels) == 4
         assert all(isinstance(k, BesselJKernel) for k in deep.kernels)
+
+    def test_combined_kernel_setter_flattens(self):
+        """Test CombinedKernel.kernels setter flattens nested kernels."""
+        k1 = BesselJKernel(mu=0)
+        k2 = BesselJKernel(mu=1)
+        k3 = BesselJKernel(mu=2)
+
+        kernel = CombinedKernel([k1])
+        kernel.kernels = [CombinedKernel([k2]), k3]
+
+        assert len(kernel.kernels) == 2
+        assert kernel.kernels[0] is k2
+        assert kernel.kernels[1] is k3
+
+    def test_combined_kernel_setter_rejects_empty(self):
+        """Test CombinedKernel.kernels setter rejects empty kernel list."""
+        k1 = BesselJKernel(mu=0)
+        kernel = CombinedKernel([k1])
+
+        with pytest.raises(ValueError, match="At least one kernel"):
+            kernel.kernels = []
