@@ -399,18 +399,11 @@ class FFTLog:
         self._validate_domain()
 
     def _cleanup(self) -> None:
-        try:
-            del self.logc
-        except AttributeError:
-            pass
-        try:
-            del self.kernel_coefficients
-        except AttributeError:
-            pass
-        try:
-            del self.optimal_logcenter
-        except AttributeError:
-            pass
+        for attr in ("kr", "logc", "kernel_coefficients", "optimal_logcenter"):
+            try:
+                delattr(self, attr)
+            except AttributeError:
+                pass
 
     def _validate_domain(self) -> None:
         """Validate that bias is within the kernel's domain of convergence."""
