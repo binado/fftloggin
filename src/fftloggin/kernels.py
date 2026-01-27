@@ -421,9 +421,6 @@ class SphericalBesselJKernel(BesselJKernel):
         inf, sup = super().domain
         return (inf + 0.5, sup + 0.5)
 
-    def is_in_domain(self, s: npt.ArrayLike) -> bool:
-        return super().is_in_domain(s)
-
     def forward(self, s: npt.ArrayLike) -> np.ndarray:
         s = np.asarray(s)
         return super().forward(s - 0.5) * SQRT_PI_OVER_2
