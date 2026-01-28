@@ -12,6 +12,10 @@ from .utils import safe_broadcast
 
 LN_2 = np.log(2)
 
+Shape = tuple[int, ...]
+Shapes = tuple[Shape, ...]
+ShapeCache = dict[str, tuple[Shapes, Shape]]
+
 
 class DomainCheckMode(Enum):
     """
@@ -405,9 +409,7 @@ class FFTLog:
         self._domain_check_mode = DomainCheckMode(check_domain)
         self._scratch_cache: dict[str, np.ndarray] = {}
         self._i_minus_ic_cache: dict[np.dtype, np.ndarray] = {}
-        self._shape_cache: dict[
-            str, tuple[tuple[tuple[int, ...], ...], tuple[int, ...]]
-        ] = {}
+        self._shape_cache: ShapeCache = {}
         self._fft = backend or DEFAULT_FFT_BACKEND
 
         # Validate domain at construction time
@@ -429,18 +431,14 @@ class FFTLog:
         self._i_minus_ic_cache.clear()
         self._shape_cache.clear()
 
-    def _get_scratch(
-        self, name: str, shape: tuple[int, ...], dtype: np.dtype
-    ) -> np.ndarray:
+    def _get_scratch(self, name: str, shape: Shape, dtype: np.dtype) -> np.ndarray:
         buf = self._scratch_cache.get(name)
         if buf is None or buf.shape != shape or buf.dtype != dtype:
             buf = np.empty(shape, dtype=dtype)
             self._scratch_cache[name] = buf
         return buf
 
-    def _broadcast_shape(
-        self, cache_key: str, *shapes: tuple[int, ...]
-    ) -> tuple[int, ...]:
+    def _broadcast_shape(self, cache_key: str, *shapes: Shape) -> Shape:
         cached = self._shape_cache.get(cache_key)
         if cached is not None:
             cached_shapes, cached_shape = cached
