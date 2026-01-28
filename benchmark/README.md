@@ -6,6 +6,8 @@ This directory provides tooling to benchmark our FFTLog implementation against t
 
 The Fortran source code is **not stored in this repository**. Instead, the benchmark generation script automatically downloads the original FFTLog distribution from the official source when needed.
 
+To keep benchmark inputs reproducible, the download is verified against a pinned SHA256 checksum. If the upstream tarball changes, regenerate the checksum and update `FFTLOG_SHA256` in `scripts/generate_benchmarks.py`.
+
 ### Patches applied
 
 The following patches are applied to `fftlogtest.f` after download:

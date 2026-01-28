@@ -19,6 +19,7 @@ import tarfile
 import tempfile
 import urllib.error
 import urllib.request
+import hashlib
 from pathlib import Path
 
 # Define paths
@@ -28,6 +29,7 @@ EXECUTABLE = BENCHMARK_DIR / "fftlogtest"
 
 # URL for the original FFTLog source
 FFTLOG_URL = "https://jila.colorado.edu/~ajsh/FFTLog/fftlog.tgz"
+FFTLOG_SHA256 = "5548708c1c80c8d00ab87036c8c8fc419a40b981def0699ebb9f26d21ecac2e7"
 
 # Required Fortran source files from the archive
 REQUIRED_FILES = [
@@ -74,6 +76,14 @@ def download_fortran_source():
         with tempfile.NamedTemporaryFile(suffix=".tgz", delete=False) as tmp:
             tmp_path = Path(tmp.name)
             urllib.request.urlretrieve(FFTLOG_URL, tmp_path)
+
+        # Verify SHA256 checksum to ensure reproducible source
+        digest = hashlib.sha256(tmp_path.read_bytes()).hexdigest()
+        if digest != FFTLOG_SHA256:
+            print("ERROR: FFTLog source checksum mismatch")
+            print(f"  Expected: {FFTLOG_SHA256}")
+            print(f"  Actual:   {digest}")
+            return False
 
         # Extract required files
         with tarfile.open(tmp_path, "r:gz") as tar:
