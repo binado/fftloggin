@@ -54,6 +54,9 @@ dev = [
     "ruff>=0.12.11",
     { include-group = "test" },
 ]
+benchmark = [
+    "memray>=1.14.0",
+]
 test = [
     "pytest>=8.4.1",
 ]

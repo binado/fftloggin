@@ -216,3 +216,4 @@ benchmark/*.mod
 
 # Generated benchmark data
 tests/benchmarks/*.txt
+memray*
