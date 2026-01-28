@@ -82,7 +82,7 @@ def get_array_center(x: npt.ArrayLike):
 def get_other_array(
     x: npt.ArrayLike,
     logc: npt.ArrayLike,
-) -> np.ndarray:
+) -> npt.NDArray:
     """
     Compute the corresponding coordinate array given one coordinate array and logc.
 

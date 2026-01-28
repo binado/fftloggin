@@ -407,8 +407,8 @@ class FFTLog:
         self._lowring = lowring
         self._kr = kr
         self._domain_check_mode = DomainCheckMode(check_domain)
-        self._scratch_cache: dict[str, np.ndarray] = {}
-        self._i_minus_ic_cache: dict[np.dtype, np.ndarray] = {}
+        self._scratch_cache: dict[str, npt.NDArray] = {}
+        self._i_minus_ic_cache: dict[np.dtype, npt.NDArray] = {}
         self._shape_cache: ShapeCache = {}
         self._fft = backend or DEFAULT_FFT_BACKEND
 
@@ -431,7 +431,7 @@ class FFTLog:
         self._i_minus_ic_cache.clear()
         self._shape_cache.clear()
 
-    def _get_scratch(self, name: str, shape: Shape, dtype: np.dtype) -> np.ndarray:
+    def _get_scratch(self, name: str, shape: Shape, dtype: np.dtype) -> npt.NDArray:
         buf = self._scratch_cache.get(name)
         if buf is None or buf.shape != shape or buf.dtype != dtype:
             buf = np.empty(shape, dtype=dtype)
@@ -448,7 +448,7 @@ class FFTLog:
         self._shape_cache[cache_key] = (shapes, shape)
         return shape
 
-    def _get_i_minus_ic(self, dtype: np.dtype) -> np.ndarray:
+    def _get_i_minus_ic(self, dtype: np.dtype) -> npt.NDArray:
         dtype = np.dtype(dtype)
         cached = self._i_minus_ic_cache.get(dtype)
         if cached is None or cached.shape[-1] != self.n:
@@ -458,7 +458,7 @@ class FFTLog:
             self._i_minus_ic_cache[dtype] = cached
         return cached
 
-    def _compute_bias_power_law(self, sign: int, dtype: np.dtype) -> np.ndarray:
+    def _compute_bias_power_law(self, sign: int, dtype: np.dtype) -> npt.NDArray:
         bias = np.asarray(self.bias)
         dlog = np.asarray(self.dlog)
         base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype, np.float64)
@@ -474,7 +474,7 @@ class FFTLog:
         np.exp(buf, out=buf)
         return buf
 
-    def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> np.ndarray:
+    def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> npt.NDArray:
         bias = np.asarray(self.bias)
         logc = np.asarray(self.logc)
         base_dtype = np.result_type(dtype, bias.dtype, logc.dtype, np.float64)
@@ -785,7 +785,7 @@ class FFTLog:
         self,
         a: npt.ArrayLike,
         **kwargs,
-    ) -> np.ndarray:
+    ) -> npt.NDArray:
         """
         Perform forward Hankel transform: a(r) -> A(k).
 
@@ -871,7 +871,7 @@ class FFTLog:
         self,
         ak: npt.ArrayLike,
         **kwargs,
-    ) -> np.ndarray:
+    ) -> npt.NDArray:
         """
         Perform inverse Hankel transform: A(k) -> a(r).
 

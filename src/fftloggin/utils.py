@@ -8,7 +8,7 @@ import numpy.typing as npt
 
 def append_dims(
     a: npt.ArrayLike, ndim: int, where: Literal["left", "right"] = "right"
-) -> np.ndarray:
+) -> npt.NDArray:
     """
     Append singleton dimensions to an array.
 
@@ -57,7 +57,7 @@ def count_trailing_ones(shape: tuple) -> int:
 
 def outer_broadcast(
     left: npt.ArrayLike, right: npt.ArrayLike
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Reshape left and right for outer-product style broadcasting.
 
@@ -108,7 +108,7 @@ def outer_broadcast(
 
 def safe_broadcast(
     left: npt.ArrayLike, right: npt.ArrayLike
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Safely broadcast two arrays, using outer_broadcast if needed.
 

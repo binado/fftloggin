@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 
 from fftloggin import FFTLog, NumPyFFTBackend, SciPyFFTBackend
 from fftloggin.kernels import BesselJKernel
@@ -22,7 +23,7 @@ class BenchResult:
     std_ms: float
 
 
-def _f(r: np.ndarray, mu: np.ndarray | float) -> np.ndarray:
+def _f(r: npt.NDArray, mu: npt.NDArray | float) -> npt.NDArray:
     return r ** (mu + 1) * np.exp(-(r**2) / 2)
 
 
