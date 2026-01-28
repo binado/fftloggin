@@ -432,6 +432,23 @@ class FFTLog:
         self._shape_cache.clear()
 
     def _get_scratch(self, name: str, shape: Shape, dtype: np.dtype) -> npt.NDArray:
+        """
+        Return a cached scratch buffer, resizing if shape or dtype changed.
+
+        Parameters
+        ----------
+        name : str
+            Cache key for the buffer.
+        shape : Shape
+            Desired buffer shape.
+        dtype : np.dtype
+            Desired buffer dtype.
+
+        Returns
+        -------
+        NDArray
+            Scratch buffer with the requested shape and dtype.
+        """
         buf = self._scratch_cache.get(name)
         if buf is None or buf.shape != shape or buf.dtype != dtype:
             buf = np.empty(shape, dtype=dtype)
@@ -439,6 +456,21 @@ class FFTLog:
         return buf
 
     def _broadcast_shape(self, cache_key: str, *shapes: Shape) -> Shape:
+        """
+        Compute and cache a broadcasted shape for a set of input shapes.
+
+        Parameters
+        ----------
+        cache_key : str
+            Cache key for the shape tuple.
+        *shapes : Shape
+            Input shapes to broadcast.
+
+        Returns
+        -------
+        Shape
+            Broadcasted output shape.
+        """
         cached = self._shape_cache.get(cache_key)
         if cached is not None:
             cached_shapes, cached_shape = cached
@@ -449,6 +481,19 @@ class FFTLog:
         return shape
 
     def _get_i_minus_ic(self, dtype: np.dtype) -> npt.NDArray:
+        """
+        Return cached array of i - ic for the current grid size.
+
+        Parameters
+        ----------
+        dtype : np.dtype
+            Desired dtype for the cached array.
+
+        Returns
+        -------
+        NDArray
+            Array of indices shifted by the grid center.
+        """
         dtype = np.dtype(dtype)
         cached = self._i_minus_ic_cache.get(dtype)
         if cached is None or cached.shape[-1] != self.n:
@@ -459,6 +504,21 @@ class FFTLog:
         return cached
 
     def _compute_bias_power_law(self, sign: int, dtype: np.dtype) -> npt.NDArray:
+        """
+        Compute exp(sign * bias * dlog * (i - ic)) using cached buffers.
+
+        Parameters
+        ----------
+        sign : int
+            Sign to apply to the exponent (+1 or -1).
+        dtype : np.dtype
+            Preferred dtype for computation.
+
+        Returns
+        -------
+        NDArray
+            Broadcasted bias power-law factor.
+        """
         bias = np.asarray(self.bias)
         dlog = np.asarray(self.dlog)
         base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype, np.float64)
@@ -475,6 +535,21 @@ class FFTLog:
         return buf
 
     def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> npt.NDArray:
+        """
+        Compute exp(sign * bias * logc) using cached buffers.
+
+        Parameters
+        ----------
+        sign : int
+            Sign to apply to the exponent (+1 or -1).
+        dtype : np.dtype
+            Preferred dtype for computation.
+
+        Returns
+        -------
+        NDArray
+            Broadcasted bias logc factor.
+        """
         bias = np.asarray(self.bias)
         logc = np.asarray(self.logc)
         base_dtype = np.result_type(dtype, bias.dtype, logc.dtype, np.float64)
