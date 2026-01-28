@@ -4,9 +4,9 @@ from functools import cached_property
 
 import numpy as np
 import numpy.typing as npt
-from scipy.fft import irfft, rfft
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
+from .fft_backend import DEFAULT_FFT_BACKEND, FFTBackend
 from .grids import Grid
 from .kernels import Kernel
 from .utils import safe_broadcast
@@ -54,6 +54,7 @@ def _forward_hankel_transform(
     logc: npt.ArrayLike,
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike,
+    fft_backend: FFTBackend = DEFAULT_FFT_BACKEND,
     **kwargs,
 ):
     """
@@ -71,8 +72,10 @@ def _forward_hankel_transform(
         Logarithmic spacing. Scalar or shape (*batch_shape, 1).
     bias : array_like
         Power-law bias. Scalar or shape (*batch_shape, 1).
+    fft_backend : FFTBackend, optional
+        FFT backend implementation used for transforms (default: SciPy FFT).
     **kwargs
-        Additional arguments for scipy.fft.rfft.
+        Additional arguments passed to the FFT backend.
 
     Returns
     -------
@@ -92,11 +95,11 @@ def _forward_hankel_transform(
     a_biased = a * bias_power_law
 
     # Step 2: FFT
-    a_biased_fftd = rfft(a_biased, **kwargs)
+    a_biased_fftd = fft_backend.rfft(a_biased, **kwargs)
 
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
-    ak_biased = irfft(a_biased_fftd * u, na, **kwargs)
+    ak_biased = fft_backend.irfft(a_biased_fftd * u, n=na, **kwargs)
     ak_biased = np.flip(ak_biased, axis=-1)  # type: ignore
 
     # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
@@ -110,6 +113,7 @@ def _inverse_hankel_transform(
     logc: npt.ArrayLike,
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike,
+    fft_backend: FFTBackend = DEFAULT_FFT_BACKEND,
     **kwargs,
 ):
     """
@@ -127,8 +131,10 @@ def _inverse_hankel_transform(
         Logarithmic spacing. Scalar or shape (*batch_shape, 1).
     bias : array_like
         Power-law bias. Scalar or shape (*batch_shape, 1).
+    fft_backend : FFTBackend, optional
+        FFT backend implementation used for transforms (default: SciPy FFT).
     **kwargs
-        Additional arguments for scipy.fft.rfft.
+        Additional arguments passed to the FFT backend.
 
     Returns
     -------
@@ -147,11 +153,11 @@ def _inverse_hankel_transform(
     ak_biased = ak * bias_power_law * np.exp(bias * logc)
 
     # Step 2: FFT
-    ak_biased_fftd = rfft(ak_biased, **kwargs)
+    ak_biased_fftd = fft_backend.rfft(ak_biased, **kwargs)
 
     # Step 3: divide by coefficients
     # coeffs may be batched, while a is not
-    a_biased = irfft(ak_biased_fftd / np.conjugate(u), na, **kwargs)
+    a_biased = fft_backend.irfft(ak_biased_fftd / np.conjugate(u), n=na, **kwargs)
     a_biased = np.flip(a_biased, axis=-1)  # type: ignore
 
     # Step 4: unbias ak by (r_n / r_0)^{q}
@@ -271,6 +277,8 @@ class FFTLog:
         - WARN: Issue DomainCheckWarning if bias is outside kernel's domain of
           convergence.
         - SILENT: Skip domain validation entirely.
+    backend : FFTBackend, optional
+        FFT backend implementation used for transforms (default: SciPy FFT).
 
     Attributes
     ----------
@@ -387,6 +395,7 @@ class FFTLog:
         lowring: bool = True,
         kr: npt.ArrayLike = 1,
         check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
+        backend: FFTBackend | None = None,
     ) -> None:
         self._kernel = kernel
         self._n = n
@@ -397,18 +406,29 @@ class FFTLog:
         self._domain_check_mode = DomainCheckMode(check_domain)
         self._scratch: dict[str, np.ndarray] = {}
         self._i_minus_ic_cache: dict[np.dtype, np.ndarray] = {}
+        self._shape_cache: dict[
+            str, tuple[tuple[tuple[int, ...], ...], tuple[int, ...]]
+        ] = {}
+        self._fft = backend or DEFAULT_FFT_BACKEND
 
         # Validate domain at construction time
         self._validate_domain()
 
     def _cleanup(self) -> None:
-        for attr in ("kr", "logc", "kernel_coefficients", "optimal_logcenter"):
+        for attr in (
+            "kr",
+            "logc",
+            "kernel_coefficients",
+            "kernel_coefficients_conj",
+            "optimal_logcenter",
+        ):
             try:
                 delattr(self, attr)
             except AttributeError:
                 pass
         self._scratch.clear()
         self._i_minus_ic_cache.clear()
+        self._shape_cache.clear()
 
     def _get_scratch(
         self, name: str, shape: tuple[int, ...], dtype: np.dtype
@@ -418,6 +438,18 @@ class FFTLog:
             buf = np.empty(shape, dtype=dtype)
             self._scratch[name] = buf
         return buf
+
+    def _broadcast_shape(
+        self, cache_key: str, *shapes: tuple[int, ...]
+    ) -> tuple[int, ...]:
+        cached = self._shape_cache.get(cache_key)
+        if cached is not None:
+            cached_shapes, cached_shape = cached
+            if cached_shapes == shapes:
+                return cached_shape
+        shape = np.broadcast_shapes(*shapes)
+        self._shape_cache[cache_key] = (shapes, shape)
+        return shape
 
     def _get_i_minus_ic(self, dtype: np.dtype) -> np.ndarray:
         dtype = np.dtype(dtype)
@@ -434,7 +466,9 @@ class FFTLog:
         dlog = np.asarray(self.dlog)
         base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype, np.float64)
         i_minus_ic = self._get_i_minus_ic(base_dtype)
-        shape = np.broadcast_shapes(i_minus_ic.shape, bias.shape, dlog.shape)
+        shape = self._broadcast_shape(
+            "bias_power_law", i_minus_ic.shape, bias.shape, dlog.shape
+        )
         buf = self._get_scratch("bias_power_law", shape, base_dtype)
         np.multiply(i_minus_ic, dlog, out=buf)
         if sign < 0:
@@ -447,7 +481,7 @@ class FFTLog:
         bias = np.asarray(self.bias)
         logc = np.asarray(self.logc)
         base_dtype = np.result_type(dtype, bias.dtype, logc.dtype, np.float64)
-        shape = np.broadcast_shapes(bias.shape, logc.shape)
+        shape = self._broadcast_shape("bias_logc", bias.shape, logc.shape)
         buf = self._get_scratch("bias_logc", shape, base_dtype)
         np.multiply(bias, logc, out=buf)
         if sign < 0:
@@ -600,6 +634,10 @@ class FFTLog:
     def kernel_coefficients(self) -> npt.NDArray:
         return self._compute_kernel_coefficients()
 
+    @cached_property
+    def kernel_coefficients_conj(self) -> npt.NDArray:
+        return np.conjugate(self.kernel_coefficients)
+
     def _compute_kernel_coefficients(self) -> npt.NDArray:
         """Compute FFT coefficients using instance parameters."""
         return compute_kernel_coefficients(
@@ -615,6 +653,7 @@ class FFTLog:
         kr: npt.ArrayLike = 1.0,
         lowring: bool = True,
         check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
+        backend: FFTBackend | None = None,
     ) -> "FFTLog":
         """
         Create FFTLog instance from a log-spaced coordinate array.
@@ -633,6 +672,8 @@ class FFTLog:
             Whether to snap kr to minimize ringing. Default is True.
         check_domain : DomainCheckMode or str, optional
             How to handle domain validation (default: WARN).
+        backend : FFTBackend, optional
+            FFT backend implementation used for transforms (default: SciPy FFT).
 
         Returns
         -------
@@ -661,6 +702,7 @@ class FFTLog:
             lowring=lowring,
             kr=kr,
             check_domain=check_domain,
+            backend=backend,
         )
 
     def create_grid(
@@ -760,7 +802,7 @@ class FFTLog:
             Real input array to be transformed. Must be sampled on a
             logarithmically-spaced grid with spacing dlog.
         **kwargs
-            Additional keyword arguments passed to scipy.fft.rfft.
+            Additional keyword arguments passed to the FFT backend.
 
         Returns
         -------
@@ -798,7 +840,9 @@ class FFTLog:
 
         bias_power_law = self._compute_bias_power_law(sign=-1, dtype=a.dtype)
         bias_logc = self._compute_bias_logc(sign=-1, dtype=a.dtype)
-        a_biased_shape = np.broadcast_shapes(a.shape, bias_power_law.shape)
+        a_biased_shape = self._broadcast_shape(
+            "a_biased", a.shape, bias_power_law.shape
+        )
         a_biased = self._get_scratch(
             "biased_input",
             a_biased_shape,
@@ -806,8 +850,18 @@ class FFTLog:
         )
         np.multiply(a, bias_power_law, out=a_biased)
 
-        a_biased_fftd = rfft(a_biased, **kwargs)
-        ak = irfft(a_biased_fftd * self.kernel_coefficients, na, **kwargs)
+        a_biased_fftd = self._fft.rfft(a_biased, **kwargs)
+        coeffs = self.kernel_coefficients
+        prod_shape = self._broadcast_shape(
+            "fftd_times_coeffs", a_biased_fftd.shape, coeffs.shape
+        )
+        prod = self._get_scratch(
+            "fftd_times_coeffs",
+            prod_shape,
+            np.result_type(a_biased_fftd.dtype, coeffs.dtype),
+        )
+        np.multiply(a_biased_fftd, coeffs, out=prod)
+        ak = self._fft.irfft(prod, n=na, **kwargs)
         ak = np.flip(ak, axis=-1)  # type: ignore
         out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
         if ak.dtype != out_dtype:
@@ -834,7 +888,7 @@ class FFTLog:
             Real input array to be inverse transformed. Must be sampled on a
             logarithmically-spaced grid with spacing dlog.
         **kwargs
-            Additional keyword arguments passed to scipy.fft.rfft.
+            Additional keyword arguments passed to the FFT backend.
 
         Returns
         -------
@@ -872,8 +926,8 @@ class FFTLog:
 
         bias_power_law = self._compute_bias_power_law(sign=1, dtype=ak.dtype)
         bias_logc = self._compute_bias_logc(sign=1, dtype=ak.dtype)
-        ak_biased_shape = np.broadcast_shapes(
-            ak.shape, bias_power_law.shape, bias_logc.shape
+        ak_biased_shape = self._broadcast_shape(
+            "ak_biased", ak.shape, bias_power_law.shape, bias_logc.shape
         )
         ak_biased = self._get_scratch(
             "biased_input",
@@ -883,13 +937,18 @@ class FFTLog:
         np.multiply(ak, bias_power_law, out=ak_biased)
         np.multiply(ak_biased, bias_logc, out=ak_biased)
 
-        ak_biased_fftd = rfft(ak_biased, **kwargs)
-        coeffs = self.kernel_coefficients
-        coeffs_conj = self._get_scratch(
-            "kernel_coeffs_conj", coeffs.shape, coeffs.dtype
+        ak_biased_fftd = self._fft.rfft(ak_biased, **kwargs)
+        coeffs_conj = self.kernel_coefficients_conj
+        div_shape = self._broadcast_shape(
+            "fftd_div_coeffs", ak_biased_fftd.shape, coeffs_conj.shape
         )
-        np.conjugate(coeffs, out=coeffs_conj)
-        a = irfft(ak_biased_fftd / coeffs_conj, na, **kwargs)
+        div = self._get_scratch(
+            "fftd_div_coeffs",
+            div_shape,
+            np.result_type(ak_biased_fftd.dtype, coeffs_conj.dtype),
+        )
+        np.divide(ak_biased_fftd, coeffs_conj, out=div)
+        a = self._fft.irfft(div, n=na, **kwargs)
         a = np.flip(a, axis=-1)  # type: ignore
         out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
         if a.dtype != out_dtype:
