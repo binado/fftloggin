@@ -1,8 +1,6 @@
 import warnings
 from enum import Enum
 from functools import cached_property
-from typing import Protocol
-
 import numpy as np
 import numpy.typing as npt
 
@@ -166,124 +164,6 @@ def _inverse_hankel_transform(
     return a
 
 
-class ExecutionStrategy(Protocol):
-    """Protocol for FFTLog execution strategies."""
-
-    def forward(self, fftlog: "FFTLog", a: np.ndarray, **kwargs) -> np.ndarray: ...
-
-    def inverse(self, fftlog: "FFTLog", ak: np.ndarray, **kwargs) -> np.ndarray: ...
-
-
-class SimpleStrategy:
-    """Readable FFTLog execution path using the reference implementation."""
-
-    def forward(self, fftlog: "FFTLog", a: np.ndarray, **kwargs) -> np.ndarray:
-        na = a.shape[-1]
-        if na != fftlog.n:
-            fftlog.n = na
-        return _forward_hankel_transform(
-            a,
-            fftlog.kernel_coefficients,
-            fftlog.logc,
-            fftlog.dlog,
-            fftlog.bias,
-            fft_backend=fftlog._fft,
-            **kwargs,
-        )
-
-    def inverse(self, fftlog: "FFTLog", ak: np.ndarray, **kwargs) -> np.ndarray:
-        na = ak.shape[-1]
-        if na != fftlog.n:
-            fftlog.n = na
-        return _inverse_hankel_transform(
-            ak,
-            fftlog.kernel_coefficients,
-            fftlog.logc,
-            fftlog.dlog,
-            fftlog.bias,
-            fft_backend=fftlog._fft,
-            **kwargs,
-        )
-
-
-class OptimizedStrategy:
-    """Optimized FFTLog execution path using scratch buffers and caching."""
-
-    def forward(self, fftlog: "FFTLog", a: np.ndarray, **kwargs) -> np.ndarray:
-        na = a.shape[-1]
-        if na != fftlog.n:
-            fftlog.n = na
-
-        bias_power_law = fftlog._compute_bias_power_law(sign=-1, dtype=a.dtype)
-        bias_logc = fftlog._compute_bias_logc(sign=-1, dtype=a.dtype)
-        a_biased_shape = fftlog._broadcast_shape(
-            "a_biased", a.shape, bias_power_law.shape
-        )
-        a_biased = fftlog._get_scratch(
-            "biased_input",
-            a_biased_shape,
-            np.result_type(a.dtype, bias_power_law.dtype),
-        )
-        np.multiply(a, bias_power_law, out=a_biased)
-
-        a_biased_fftd = fftlog._fft.rfft(a_biased, **kwargs)
-        coeffs = fftlog.kernel_coefficients
-        prod_shape = fftlog._broadcast_shape(
-            "fftd_times_coeffs", a_biased_fftd.shape, coeffs.shape
-        )
-        prod = fftlog._get_scratch(
-            "fftd_times_coeffs",
-            prod_shape,
-            np.result_type(a_biased_fftd.dtype, coeffs.dtype),
-        )
-        np.multiply(a_biased_fftd, coeffs, out=prod)
-        ak = fftlog._fft.irfft(prod, n=na, **kwargs)
-        ak = np.flip(ak, axis=-1)  # type: ignore
-        out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
-        if ak.dtype != out_dtype:
-            ak = ak.astype(out_dtype, copy=False)
-        np.multiply(ak, bias_power_law, out=ak)
-        np.multiply(ak, bias_logc, out=ak)
-        return ak
-
-    def inverse(self, fftlog: "FFTLog", ak: np.ndarray, **kwargs) -> np.ndarray:
-        na = ak.shape[-1]
-        if na != fftlog.n:
-            fftlog.n = na
-
-        bias_power_law = fftlog._compute_bias_power_law(sign=1, dtype=ak.dtype)
-        bias_logc = fftlog._compute_bias_logc(sign=1, dtype=ak.dtype)
-        ak_biased_shape = fftlog._broadcast_shape(
-            "ak_biased", ak.shape, bias_power_law.shape, bias_logc.shape
-        )
-        ak_biased = fftlog._get_scratch(
-            "biased_input",
-            ak_biased_shape,
-            np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype),
-        )
-        np.multiply(ak, bias_power_law, out=ak_biased)
-        np.multiply(ak_biased, bias_logc, out=ak_biased)
-
-        ak_biased_fftd = fftlog._fft.rfft(ak_biased, **kwargs)
-        coeffs_conj = fftlog.kernel_coefficients_conj
-        div_shape = fftlog._broadcast_shape(
-            "fftd_div_coeffs", ak_biased_fftd.shape, coeffs_conj.shape
-        )
-        div = fftlog._get_scratch(
-            "fftd_div_coeffs",
-            div_shape,
-            np.result_type(ak_biased_fftd.dtype, coeffs_conj.dtype),
-        )
-        np.divide(ak_biased_fftd, coeffs_conj, out=div)
-        a = fftlog._fft.irfft(div, n=na, **kwargs)
-        a = np.flip(a, axis=-1)  # type: ignore
-        out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
-        if a.dtype != out_dtype:
-            a = a.astype(out_dtype, copy=False)
-        np.multiply(a, bias_power_law, out=a)
-        return a
-
-
 def optimal_logcenter(
     kernel: Kernel, dlog: npt.ArrayLike, bias: npt.ArrayLike = 0.0
 ) -> npt.NDArray:
@@ -398,8 +278,6 @@ class FFTLog:
         - SILENT: Skip domain validation entirely.
     backend : FFTBackend, optional
         FFT backend implementation used for transforms (default: SciPy FFT).
-    strategy : ExecutionStrategy, optional
-        Execution strategy used for forward/inverse transforms (default: optimized).
 
     Attributes
     ----------
@@ -517,7 +395,6 @@ class FFTLog:
         kr: npt.ArrayLike = 1,
         check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
         backend: FFTBackend | None = None,
-        strategy: ExecutionStrategy | None = None,
     ) -> None:
         self._kernel = kernel
         self._n = n
@@ -526,13 +403,12 @@ class FFTLog:
         self._lowring = lowring
         self._kr = kr
         self._domain_check_mode = DomainCheckMode(check_domain)
-        self._scratch: dict[str, np.ndarray] = {}
+        self._scratch_cache: dict[str, np.ndarray] = {}
         self._i_minus_ic_cache: dict[np.dtype, np.ndarray] = {}
         self._shape_cache: dict[
             str, tuple[tuple[tuple[int, ...], ...], tuple[int, ...]]
         ] = {}
         self._fft = backend or DEFAULT_FFT_BACKEND
-        self._strategy = strategy or OptimizedStrategy()
 
         # Validate domain at construction time
         self._validate_domain()
@@ -549,17 +425,17 @@ class FFTLog:
                 delattr(self, attr)
             except AttributeError:
                 pass
-        self._scratch.clear()
+        self._scratch_cache.clear()
         self._i_minus_ic_cache.clear()
         self._shape_cache.clear()
 
     def _get_scratch(
         self, name: str, shape: tuple[int, ...], dtype: np.dtype
     ) -> np.ndarray:
-        buf = self._scratch.get(name)
+        buf = self._scratch_cache.get(name)
         if buf is None or buf.shape != shape or buf.dtype != dtype:
             buf = np.empty(shape, dtype=dtype)
-            self._scratch[name] = buf
+            self._scratch_cache[name] = buf
         return buf
 
     def _broadcast_shape(
@@ -777,7 +653,6 @@ class FFTLog:
         lowring: bool = True,
         check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
         backend: FFTBackend | None = None,
-        strategy: ExecutionStrategy | None = None,
     ) -> "FFTLog":
         """
         Create FFTLog instance from a log-spaced coordinate array.
@@ -798,8 +673,6 @@ class FFTLog:
             How to handle domain validation (default: WARN).
         backend : FFTBackend, optional
             FFT backend implementation used for transforms (default: SciPy FFT).
-        strategy : ExecutionStrategy, optional
-            Execution strategy used for forward/inverse transforms.
 
         Returns
         -------
@@ -829,7 +702,6 @@ class FFTLog:
             kr=kr,
             check_domain=check_domain,
             backend=backend,
-            strategy=strategy,
         )
 
     def create_grid(
@@ -960,7 +832,42 @@ class FFTLog:
         inverse : Inverse Hankel transform
         Grid.forward : Recommended high-level interface with coordinate management
         """
-        return self._strategy.forward(self, np.asarray(a), **kwargs)
+        a = np.asarray(a)
+        na = a.shape[-1]
+        if na != self.n:
+            self.n = na
+
+        bias_power_law = self._compute_bias_power_law(sign=-1, dtype=a.dtype)
+        bias_logc = self._compute_bias_logc(sign=-1, dtype=a.dtype)
+        a_biased_shape = self._broadcast_shape(
+            "a_biased", a.shape, bias_power_law.shape
+        )
+        a_biased = self._get_scratch(
+            "biased_input",
+            a_biased_shape,
+            np.result_type(a.dtype, bias_power_law.dtype),
+        )
+        np.multiply(a, bias_power_law, out=a_biased)
+
+        a_biased_fftd = self._fft.rfft(a_biased, **kwargs)
+        coeffs = self.kernel_coefficients
+        prod_shape = self._broadcast_shape(
+            "fftd_times_coeffs", a_biased_fftd.shape, coeffs.shape
+        )
+        prod = self._get_scratch(
+            "fftd_times_coeffs",
+            prod_shape,
+            np.result_type(a_biased_fftd.dtype, coeffs.dtype),
+        )
+        np.multiply(a_biased_fftd, coeffs, out=prod)
+        ak = self._fft.irfft(prod, n=na, **kwargs)
+        ak = np.flip(ak, axis=-1)  # type: ignore
+        out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
+        if ak.dtype != out_dtype:
+            ak = ak.astype(out_dtype, copy=False)
+        np.multiply(ak, bias_power_law, out=ak)
+        np.multiply(ak, bias_logc, out=ak)
+        return ak
 
     def inverse(
         self,
@@ -1011,4 +918,39 @@ class FFTLog:
         forward : Forward Hankel transform
         Grid.inverse : Recommended high-level interface with coordinate management
         """
-        return self._strategy.inverse(self, np.asarray(ak), **kwargs)
+        ak = np.asarray(ak)
+        na = ak.shape[-1]
+        if na != self.n:
+            self.n = na
+
+        bias_power_law = self._compute_bias_power_law(sign=1, dtype=ak.dtype)
+        bias_logc = self._compute_bias_logc(sign=1, dtype=ak.dtype)
+        ak_biased_shape = self._broadcast_shape(
+            "ak_biased", ak.shape, bias_power_law.shape, bias_logc.shape
+        )
+        ak_biased = self._get_scratch(
+            "biased_input",
+            ak_biased_shape,
+            np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype),
+        )
+        np.multiply(ak, bias_power_law, out=ak_biased)
+        np.multiply(ak_biased, bias_logc, out=ak_biased)
+
+        ak_biased_fftd = self._fft.rfft(ak_biased, **kwargs)
+        coeffs_conj = self.kernel_coefficients_conj
+        div_shape = self._broadcast_shape(
+            "fftd_div_coeffs", ak_biased_fftd.shape, coeffs_conj.shape
+        )
+        div = self._get_scratch(
+            "fftd_div_coeffs",
+            div_shape,
+            np.result_type(ak_biased_fftd.dtype, coeffs_conj.dtype),
+        )
+        np.divide(ak_biased_fftd, coeffs_conj, out=div)
+        a = self._fft.irfft(div, n=na, **kwargs)
+        a = np.flip(a, axis=-1)  # type: ignore
+        out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
+        if a.dtype != out_dtype:
+            a = a.astype(out_dtype, copy=False)
+        np.multiply(a, bias_power_law, out=a)
+        return a
