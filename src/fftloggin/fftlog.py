@@ -248,6 +248,49 @@ def compute_kernel_coefficients(
     return coeffs
 
 
+def biased_power_law(
+    bias: npt.ArrayLike,
+    dlog: npt.ArrayLike,
+    n: int,
+    sign: int,
+    dtype: np.dtype,
+) -> npt.NDArray:
+    """
+    Compute exp(sign * bias * dlog * (i - ic)).
+
+    Parameters
+    ----------
+    bias : array_like
+        Power-law bias. Scalar or shape (*batch_shape, 1).
+    dlog : array_like
+        Logarithmic spacing. Scalar or shape (*batch_shape, 1).
+    n : int
+        Number of sampling points.
+    sign : int
+        Sign to apply to the exponent (+1 or -1).
+    dtype : np.dtype
+        Preferred dtype for computation.
+
+    Returns
+    -------
+    NDArray
+        Broadcasted bias power-law factor.
+    """
+    bias = np.asarray(bias)
+    dlog = np.asarray(dlog)
+    base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype)
+    ic = (n - 1) / 2.0
+    i_minus_ic = np.arange(n, dtype=base_dtype) - ic
+    shape = np.broadcast_shapes(i_minus_ic.shape, bias.shape, dlog.shape)
+    buf = np.empty(shape, dtype=base_dtype)
+    np.multiply(i_minus_ic, dlog, out=buf)
+    if sign < 0:
+        np.negative(buf, out=buf)
+    np.multiply(buf, bias, out=buf)
+    np.exp(buf, out=buf)
+    return buf
+
+
 class FFTLog:
     """
     Pure FFTLog transform algorithm for fast Hankel transforms.
@@ -503,36 +546,6 @@ class FFTLog:
             self._i_minus_ic_cache[dtype] = cached
         return cached
 
-    def _compute_bias_power_law(self, sign: int, dtype: np.dtype) -> npt.NDArray:
-        """
-        Compute exp(sign * bias * dlog * (i - ic)) using cached buffers.
-
-        Parameters
-        ----------
-        sign : int
-            Sign to apply to the exponent (+1 or -1).
-        dtype : np.dtype
-            Preferred dtype for computation.
-
-        Returns
-        -------
-        NDArray
-            Broadcasted bias power-law factor.
-        """
-        bias = np.asarray(self.bias)
-        dlog = np.asarray(self.dlog)
-        base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype, np.float64)
-        i_minus_ic = self._get_i_minus_ic(base_dtype)
-        shape = self._broadcast_shape(
-            "bias_power_law", i_minus_ic.shape, bias.shape, dlog.shape
-        )
-        buf = self._get_scratch("bias_power_law", shape, base_dtype)
-        np.multiply(i_minus_ic, dlog, out=buf)
-        if sign < 0:
-            np.negative(buf, out=buf)
-        np.multiply(buf, bias, out=buf)
-        np.exp(buf, out=buf)
-        return buf
 
     def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> npt.NDArray:
         """
@@ -910,7 +923,9 @@ class FFTLog:
         if na != self.n:
             self.n = na
 
-        bias_power_law = self._compute_bias_power_law(sign=-1, dtype=a.dtype)
+        bias_power_law = biased_power_law(
+            self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
+        )
         bias_logc = self._compute_bias_logc(sign=-1, dtype=a.dtype)
         a_biased_shape = self._broadcast_shape(
             "a_biased", a.shape, bias_power_law.shape
@@ -996,7 +1011,9 @@ class FFTLog:
         if na != self.n:
             self.n = na
 
-        bias_power_law = self._compute_bias_power_law(sign=1, dtype=ak.dtype)
+        bias_power_law = biased_power_law(
+            self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype
+        )
         bias_logc = self._compute_bias_logc(sign=1, dtype=ak.dtype)
         ak_biased_shape = self._broadcast_shape(
             "ak_biased", ak.shape, bias_power_law.shape, bias_logc.shape
