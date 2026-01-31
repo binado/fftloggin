@@ -102,6 +102,39 @@ def _run_benchmarks(args: argparse.Namespace) -> None:
     else:
         backend = SciPyFFTBackend()
 
+    if args.a_shape is not None:
+        if args.batch != "none":
+            raise ValueError("--a-shape requires --batch none.")
+        if len(args.n) != 1:
+            raise ValueError("--a-shape requires exactly one --n value.")
+        n = args.n[0]
+        if args.a_shape[-1] != n:
+            raise ValueError(
+                f"--a-shape last dimension must match n={n}, got {args.a_shape[-1]}."
+            )
+        fftlog, _, _ = _make_case(n, "none", dtype, backend)
+        rng = np.random.default_rng(0)
+        a = rng.standard_normal(args.a_shape).astype(dtype, copy=False)
+        label = f"batch=custom shape={args.a_shape}"
+        results = []
+
+        if args.mode in ("forward", "both"):
+            results.append(
+                _timeit("forward", lambda: fftlog.forward(a), args.repeats, args.warmup)
+            )
+
+        if args.mode in ("inverse", "both"):
+            ak = fftlog.forward(a)
+            results.append(
+                _timeit(
+                    "inverse", lambda: fftlog.inverse(ak), args.repeats, args.warmup
+                )
+            )
+
+        title = f"n={n} ({label}, dtype={dtype}, backend={args.backend})"
+        _print_results(title, results)
+        return
+
     for n in args.n:
         fftlog, a, label = _make_case(n, args.batch, dtype, backend)
         results = []
@@ -133,6 +166,12 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument(
         "--mode", choices=["forward", "inverse", "both"], default="both"
+    )
+    parser.add_argument(
+        "--a-shape",
+        type=lambda s: tuple(int(v) for v in s.split(",")),
+        default=None,
+        help="Override input array shape (comma-separated, last dim must match n).",
     )
     parser.add_argument(
         "--memray",

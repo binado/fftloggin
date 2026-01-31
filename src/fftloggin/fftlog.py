@@ -1,6 +1,7 @@
 import warnings
 from enum import Enum
 from functools import cached_property
+
 import numpy as np
 import numpy.typing as npt
 
@@ -8,13 +9,9 @@ from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .fft_backend import DEFAULT_FFT_BACKEND, FFTBackend
 from .grids import Grid
 from .kernels import Kernel
-from .utils import safe_broadcast
+from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadcast
 
 LN_2 = np.log(2)
-
-Shape = tuple[int, ...]
-Shapes = tuple[Shape, ...]
-ShapeCache = dict[str, tuple[Shapes, Shape]]
 
 
 class DomainCheckMode(Enum):
@@ -236,7 +233,7 @@ def compute_kernel_coefficients(
     # Length of real Fourier transform
     ns = n // 2 + 1
     m = np.arange(0, ns)
-    angle = 2 * np.pi * m * 1j / (n * dlog)
+    angle = (2 * np.pi * 1j / n) * m / dlog
     s = angle + 1 + bias
     coeffs = kernel.forward(s)
     logc = np.log(np.asarray(kr))
@@ -450,9 +447,6 @@ class FFTLog:
         self._lowring = lowring
         self._kr = kr
         self._domain_check_mode = DomainCheckMode(check_domain)
-        self._scratch_cache: dict[str, npt.NDArray] = {}
-        self._i_minus_ic_cache: dict[np.dtype, npt.NDArray] = {}
-        self._shape_cache: ShapeCache = {}
         self._fft = backend or DEFAULT_FFT_BACKEND
 
         # Validate domain at construction time
@@ -470,86 +464,30 @@ class FFTLog:
                 delattr(self, attr)
             except AttributeError:
                 pass
-        self._scratch_cache.clear()
-        self._i_minus_ic_cache.clear()
-        self._shape_cache.clear()
 
-    def _get_scratch(self, name: str, shape: Shape, dtype: np.dtype) -> npt.NDArray:
-        """
-        Return a cached scratch buffer, resizing if shape or dtype changed.
-
-        Parameters
-        ----------
-        name : str
-            Cache key for the buffer.
-        shape : Shape
-            Desired buffer shape.
-        dtype : np.dtype
-            Desired buffer dtype.
-
-        Returns
-        -------
-        NDArray
-            Scratch buffer with the requested shape and dtype.
-        """
-        buf = self._scratch_cache.get(name)
-        if buf is None or buf.shape != shape or buf.dtype != dtype:
-            buf = np.empty(shape, dtype=dtype)
-            self._scratch_cache[name] = buf
-        return buf
-
-    def _broadcast_shape(self, cache_key: str, *shapes: Shape) -> Shape:
-        """
-        Compute and cache a broadcasted shape for a set of input shapes.
-
-        Parameters
-        ----------
-        cache_key : str
-            Cache key for the shape tuple.
-        *shapes : Shape
-            Input shapes to broadcast.
-
-        Returns
-        -------
-        Shape
-            Broadcasted output shape.
-        """
-        cached = self._shape_cache.get(cache_key)
-        if cached is not None:
-            cached_shapes, cached_shape = cached
-            if cached_shapes == shapes:
-                return cached_shape
-        shape = np.broadcast_shapes(*shapes)
-        self._shape_cache[cache_key] = (shapes, shape)
-        return shape
-
-    def _get_i_minus_ic(self, dtype: np.dtype) -> npt.NDArray:
-        """
-        Return cached array of i - ic for the current grid size.
-
-        Parameters
-        ----------
-        dtype : np.dtype
-            Desired dtype for the cached array.
-
-        Returns
-        -------
-        NDArray
-            Array of indices shifted by the grid center.
-        """
-        dtype = np.dtype(dtype)
-        cached = self._i_minus_ic_cache.get(dtype)
-        if cached is None or cached.shape[-1] != self.n:
-            i = np.arange(self.n, dtype=dtype)
-            ic = (self.n - 1) / 2.0
-            cached = i - ic
-            self._i_minus_ic_cache[dtype] = cached
-        return cached
-
+    def _validate_out(
+        self,
+        out: npt.NDArray | None,
+        source: npt.NDArray,
+        shape: tuple[int, ...] | None = None,
+        dtype: np.dtype | None = None,
+    ) -> None:
+        if out is None:
+            return
+        if not isinstance(out, np.ndarray):
+            raise TypeError("out must be a numpy.ndarray.")
+        if not out.flags.writeable:
+            raise ValueError("out must be writeable.")
+        if np.may_share_memory(out, source):
+            raise ValueError("out must not share memory with input array.")
+        if shape is not None and out.shape != shape:
+            raise ValueError(f"out has shape {out.shape}, expected {shape}.")
+        if dtype is not None and not np.can_cast(dtype, out.dtype, casting="same_kind"):
+            raise TypeError(f"out dtype {out.dtype} cannot safely represent {dtype}.")
 
     def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> npt.NDArray:
         """
-        Compute exp(sign * bias * logc) using cached buffers.
+        Compute exp(sign * bias * logc).
 
         Parameters
         ----------
@@ -565,9 +503,9 @@ class FFTLog:
         """
         bias = np.asarray(self.bias)
         logc = np.asarray(self.logc)
-        base_dtype = np.result_type(dtype, bias.dtype, logc.dtype, np.float64)
-        shape = self._broadcast_shape("bias_logc", bias.shape, logc.shape)
-        buf = self._get_scratch("bias_logc", shape, base_dtype)
+        base_dtype = np.result_type(dtype, bias.dtype, logc.dtype)
+        shape = np.broadcast_shapes(bias.shape, logc.shape)
+        buf = np.empty(shape, dtype=base_dtype)
         np.multiply(bias, logc, out=buf)
         if sign < 0:
             np.negative(buf, out=buf)
@@ -872,6 +810,7 @@ class FFTLog:
     def forward(
         self,
         a: npt.ArrayLike,
+        out: npt.NDArray | None = None,
         **kwargs,
     ) -> npt.NDArray:
         """
@@ -886,6 +825,10 @@ class FFTLog:
         a : array_like
             Real input array to be transformed. Must be sampled on a
             logarithmically-spaced grid with spacing dlog.
+        out : ndarray, optional
+            Optional output array to write the result into. Must match the
+            broadcasted output shape and be writable. If provided, it must not
+            share memory with ``a``.
         **kwargs
             Additional keyword arguments passed to the FFT backend.
 
@@ -919,6 +862,7 @@ class FFTLog:
         Grid.forward : Recommended high-level interface with coordinate management
         """
         a = np.asarray(a)
+        self._validate_out(out, a)
         na = a.shape[-1]
         if na != self.n:
             self.n = na
@@ -927,39 +871,34 @@ class FFTLog:
             self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
         )
         bias_logc = self._compute_bias_logc(sign=-1, dtype=a.dtype)
-        a_biased_shape = self._broadcast_shape(
-            "a_biased", a.shape, bias_power_law.shape
-        )
-        a_biased = self._get_scratch(
-            "biased_input",
-            a_biased_shape,
-            np.result_type(a.dtype, bias_power_law.dtype),
-        )
+        a_biased = allocate_broadcasted_array(a, bias_power_law)
         np.multiply(a, bias_power_law, out=a_biased)
 
         a_biased_fftd = self._fft.rfft(a_biased, **kwargs)
         coeffs = self.kernel_coefficients
-        prod_shape = self._broadcast_shape(
-            "fftd_times_coeffs", a_biased_fftd.shape, coeffs.shape
-        )
-        prod = self._get_scratch(
-            "fftd_times_coeffs",
-            prod_shape,
-            np.result_type(a_biased_fftd.dtype, coeffs.dtype),
-        )
-        np.multiply(a_biased_fftd, coeffs, out=prod)
-        ak = self._fft.irfft(prod, n=na, **kwargs)
+        if in_place_compatible(a_biased_fftd, coeffs):
+            np.multiply(a_biased_fftd, coeffs, out=a_biased_fftd)
+            ak = self._fft.irfft(a_biased_fftd, n=na, **kwargs)
+        else:
+            prod = allocate_broadcasted_array(a_biased_fftd, coeffs)
+            np.multiply(a_biased_fftd, coeffs, out=prod)
+            ak = self._fft.irfft(prod, n=na, **kwargs)
         ak = np.flip(ak, axis=-1)  # type: ignore
         out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
         if ak.dtype != out_dtype:
             ak = ak.astype(out_dtype, copy=False)
         np.multiply(ak, bias_power_law, out=ak)
         np.multiply(ak, bias_logc, out=ak)
+        if out is not None:
+            self._validate_out(out, a, shape=ak.shape, dtype=ak.dtype)
+            np.copyto(out, ak, casting="same_kind")
+            return out
         return ak
 
     def inverse(
         self,
         ak: npt.ArrayLike,
+        out: npt.NDArray | None = None,
         **kwargs,
     ) -> npt.NDArray:
         """
@@ -974,6 +913,10 @@ class FFTLog:
         ak : array_like
             Real input array to be inverse transformed. Must be sampled on a
             logarithmically-spaced grid with spacing dlog.
+        out : ndarray, optional
+            Optional output array to write the result into. Must match the
+            broadcasted output shape and be writable. If provided, it must not
+            share memory with ``ak``.
         **kwargs
             Additional keyword arguments passed to the FFT backend.
 
@@ -1007,6 +950,7 @@ class FFTLog:
         Grid.inverse : Recommended high-level interface with coordinate management
         """
         ak = np.asarray(ak)
+        self._validate_out(out, ak)
         na = ak.shape[-1]
         if na != self.n:
             self.n = na
@@ -1015,32 +959,26 @@ class FFTLog:
             self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype
         )
         bias_logc = self._compute_bias_logc(sign=1, dtype=ak.dtype)
-        ak_biased_shape = self._broadcast_shape(
-            "ak_biased", ak.shape, bias_power_law.shape, bias_logc.shape
-        )
-        ak_biased = self._get_scratch(
-            "biased_input",
-            ak_biased_shape,
-            np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype),
-        )
+        ak_biased = allocate_broadcasted_array(ak, bias_power_law, bias_logc)
         np.multiply(ak, bias_power_law, out=ak_biased)
         np.multiply(ak_biased, bias_logc, out=ak_biased)
 
         ak_biased_fftd = self._fft.rfft(ak_biased, **kwargs)
         coeffs_conj = self.kernel_coefficients_conj
-        div_shape = self._broadcast_shape(
-            "fftd_div_coeffs", ak_biased_fftd.shape, coeffs_conj.shape
-        )
-        div = self._get_scratch(
-            "fftd_div_coeffs",
-            div_shape,
-            np.result_type(ak_biased_fftd.dtype, coeffs_conj.dtype),
-        )
-        np.divide(ak_biased_fftd, coeffs_conj, out=div)
-        a = self._fft.irfft(div, n=na, **kwargs)
+        if in_place_compatible(ak_biased_fftd, coeffs_conj):
+            np.divide(ak_biased_fftd, coeffs_conj, out=ak_biased_fftd)
+            a = self._fft.irfft(ak_biased_fftd, n=na, **kwargs)
+        else:
+            div = allocate_broadcasted_array(ak_biased_fftd, coeffs_conj)
+            np.divide(ak_biased_fftd, coeffs_conj, out=div)
+            a = self._fft.irfft(div, n=na, **kwargs)
         a = np.flip(a, axis=-1)  # type: ignore
         out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
         if a.dtype != out_dtype:
             a = a.astype(out_dtype, copy=False)
         np.multiply(a, bias_power_law, out=a)
+        if out is not None:
+            self._validate_out(out, ak, shape=a.shape, dtype=a.dtype)
+            np.copyto(out, a, casting="same_kind")
+            return out
         return a
