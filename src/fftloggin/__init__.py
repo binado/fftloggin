@@ -1,6 +1,12 @@
 from . import kernels
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
-from .fft_backend import FFTBackend, NumPyFFTBackend, SciPyFFTBackend
+from .fft_backend import (
+    FFTBackend,
+    FFTWorkspace,
+    NumPyFFTBackend,
+    PyFFTWBackend,
+    SciPyFFTBackend,
+)
 from .fftlog import DomainCheckMode, FFTLog
 from .grids import Grid
 from .kernels import BesselJKernel, Derivative, Kernel
@@ -11,12 +17,14 @@ __all__ = (
     "DomainCheckWarning",
     "DomainCheckMode",
     "FFTBackend",
+    "FFTWorkspace",
     "FFTLog",
     "Grid",
     "Kernel",
     "BesselJKernel",
     "Derivative",
     "NumPyFFTBackend",
+    "PyFFTWBackend",
     "prepare_batch_params",
     "SciPyFFTBackend",
     "kernels",

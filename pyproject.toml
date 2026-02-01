@@ -57,6 +57,9 @@ dev = [
 benchmark = [
     "memray>=1.14.0",
 ]
+fftw = [
+    "pyfftw>=0.13.1",
+]
 test = [
     "pytest>=8.4.1",
 ]

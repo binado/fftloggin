@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
-from .fft_backend import DEFAULT_FFT_BACKEND, FFTBackend
+from .fft_backend import DEFAULT_FFT_BACKEND, FFTBackend, FFTWorkspace
 from .grids import Grid
 from .kernels import Kernel
 from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadcast
@@ -55,6 +55,7 @@ def _forward_hankel_transform(
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike,
     fft_backend: FFTBackend = DEFAULT_FFT_BACKEND,
+    workspace: FFTWorkspace | None = None,
     **kwargs,
 ):
     """
@@ -95,11 +96,13 @@ def _forward_hankel_transform(
     a_biased = a * bias_power_law
 
     # Step 2: FFT
-    a_biased_fftd = fft_backend.rfft(a_biased, **kwargs)
+    a_biased_fftd = fft_backend.rfft(a_biased, workspace=workspace, **kwargs)
 
     # Step 3: multiply by coefficients
     # coeffs may be batched, while a is not
-    ak_biased = fft_backend.irfft(a_biased_fftd * u, n=na, **kwargs)
+    ak_biased = fft_backend.irfft(
+        a_biased_fftd * u, n=na, workspace=workspace, **kwargs
+    )
     ak_biased = np.flip(ak_biased, axis=-1)  # type: ignore
 
     # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
@@ -114,6 +117,7 @@ def _inverse_hankel_transform(
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike,
     fft_backend: FFTBackend = DEFAULT_FFT_BACKEND,
+    workspace: FFTWorkspace | None = None,
     **kwargs,
 ):
     """
@@ -153,11 +157,13 @@ def _inverse_hankel_transform(
     ak_biased = ak * bias_power_law * np.exp(bias * logc)
 
     # Step 2: FFT
-    ak_biased_fftd = fft_backend.rfft(ak_biased, **kwargs)
+    ak_biased_fftd = fft_backend.rfft(ak_biased, workspace=workspace, **kwargs)
 
     # Step 3: divide by coefficients
     # coeffs may be batched, while a is not
-    a_biased = fft_backend.irfft(ak_biased_fftd / np.conjugate(u), n=na, **kwargs)
+    a_biased = fft_backend.irfft(
+        ak_biased_fftd / np.conjugate(u), n=na, workspace=workspace, **kwargs
+    )
     a_biased = np.flip(a_biased, axis=-1)  # type: ignore
 
     # Step 4: unbias ak by (r_n / r_0)^{q}
@@ -821,6 +827,7 @@ class FFTLog:
         self,
         a: npt.ArrayLike,
         out: npt.NDArray | None = None,
+        workspace: FFTWorkspace | None = None,
         **kwargs,
     ) -> npt.NDArray:
         """
@@ -839,6 +846,9 @@ class FFTLog:
             Optional output array to write the result into. Must match the
             broadcasted output shape and be writable. If provided, it must not
             share memory with ``a``.
+        workspace : FFTWorkspace, optional
+            Optional workspace for reusing FFT plans and buffers in backends
+            that support it (e.g., PyFFTW). Ignored by other backends.
         **kwargs
             Additional keyword arguments passed to the FFT backend.
 
@@ -884,15 +894,15 @@ class FFTLog:
         a_biased = allocate_broadcasted_array(a, bias_power_law)
         np.multiply(a, bias_power_law, out=a_biased)
 
-        a_biased_fftd = self._fft.rfft(a_biased, **kwargs)
+        a_biased_fftd = self._fft.rfft(a_biased, workspace=workspace, **kwargs)
         coeffs = self.kernel_coefficients
         if in_place_compatible(a_biased_fftd, coeffs):
             np.multiply(a_biased_fftd, coeffs, out=a_biased_fftd)
-            ak = self._fft.irfft(a_biased_fftd, n=na, **kwargs)
+            ak = self._fft.irfft(a_biased_fftd, n=na, workspace=workspace, **kwargs)
         else:
             prod = allocate_broadcasted_array(a_biased_fftd, coeffs)
             np.multiply(a_biased_fftd, coeffs, out=prod)
-            ak = self._fft.irfft(prod, n=na, **kwargs)
+            ak = self._fft.irfft(prod, n=na, workspace=workspace, **kwargs)
         ak = np.flip(ak, axis=-1)  # type: ignore
         out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
         if ak.dtype != out_dtype:
@@ -909,6 +919,7 @@ class FFTLog:
         self,
         ak: npt.ArrayLike,
         out: npt.NDArray | None = None,
+        workspace: FFTWorkspace | None = None,
         **kwargs,
     ) -> npt.NDArray:
         """
@@ -927,6 +938,9 @@ class FFTLog:
             Optional output array to write the result into. Must match the
             broadcasted output shape and be writable. If provided, it must not
             share memory with ``ak``.
+        workspace : FFTWorkspace, optional
+            Optional workspace for reusing FFT plans and buffers in backends
+            that support it (e.g., PyFFTW). Ignored by other backends.
         **kwargs
             Additional keyword arguments passed to the FFT backend.
 
@@ -973,15 +987,15 @@ class FFTLog:
         np.multiply(ak, bias_power_law, out=ak_biased)
         np.multiply(ak_biased, bias_logc, out=ak_biased)
 
-        ak_biased_fftd = self._fft.rfft(ak_biased, **kwargs)
+        ak_biased_fftd = self._fft.rfft(ak_biased, workspace=workspace, **kwargs)
         coeffs_conj = self.kernel_coefficients_conj
         if in_place_compatible(ak_biased_fftd, coeffs_conj):
             np.divide(ak_biased_fftd, coeffs_conj, out=ak_biased_fftd)
-            a = self._fft.irfft(ak_biased_fftd, n=na, **kwargs)
+            a = self._fft.irfft(ak_biased_fftd, n=na, workspace=workspace, **kwargs)
         else:
             div = allocate_broadcasted_array(ak_biased_fftd, coeffs_conj)
             np.divide(ak_biased_fftd, coeffs_conj, out=div)
-            a = self._fft.irfft(div, n=na, **kwargs)
+            a = self._fft.irfft(div, n=na, workspace=workspace, **kwargs)
         a = np.flip(a, axis=-1)  # type: ignore
         out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
         if a.dtype != out_dtype:

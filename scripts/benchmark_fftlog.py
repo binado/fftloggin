@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from fftloggin import FFTLog, NumPyFFTBackend, SciPyFFTBackend
+from fftloggin import FFTLog, NumPyFFTBackend, PyFFTWBackend, SciPyFFTBackend
 from fftloggin.kernels import BesselJKernel
 
 
@@ -99,6 +99,8 @@ def _run_benchmarks(args: argparse.Namespace) -> None:
     dtype = np.dtype(args.dtype)
     if args.backend == "numpy":
         backend = NumPyFFTBackend()
+    elif args.backend == "pyfftw":
+        backend = PyFFTWBackend()
     else:
         backend = SciPyFFTBackend()
 
@@ -161,7 +163,9 @@ def main() -> None:
     parser.add_argument("--n", type=int, nargs="+", default=[256, 1024, 4096])
     parser.add_argument("--batch", choices=["none", "params", "kernel"], default="none")
     parser.add_argument("--dtype", choices=["float64", "float32"], default="float64")
-    parser.add_argument("--backend", choices=["scipy", "numpy"], default="scipy")
+    parser.add_argument(
+        "--backend", choices=["scipy", "numpy", "pyfftw"], default="scipy"
+    )
     parser.add_argument("--repeats", type=int, default=20)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument(
