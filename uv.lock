@@ -323,7 +323,7 @@ dev = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "ruff", specifier = ">=0.12.11" },
 ]
-fftw = [{ name = "pyfftw", specifier = ">=0.13.1" }]
+fftw = [{ name = "pyfftw", specifier = ">0.14.0" }]
 test = [{ name = "pytest", specifier = ">=8.4.1" }]
 tutorial = [
     { name = "camb", specifier = ">=1.6.4" },

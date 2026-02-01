@@ -333,7 +333,8 @@ class PyFFTWBackend:
         return _copy_to_out(out, outbuf)
 
 
+DEFAULT_FFT_BACKEND_FACTORY: type[FFTBackend]
 if _HAVE_PYFFTW:
-    DEFAULT_FFT_BACKEND = PyFFTWBackend()
+    DEFAULT_FFT_BACKEND_FACTORY = PyFFTWBackend
 else:
-    DEFAULT_FFT_BACKEND = SciPyFFTBackend()
+    DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend

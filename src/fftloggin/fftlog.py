@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
-from .fft_backend import DEFAULT_FFT_BACKEND, FFTBackend, FFTWorkspace
+from .fft_backend import DEFAULT_FFT_BACKEND_FACTORY, FFTBackend, FFTWorkspace
 from .grids import Grid
 from .kernels import Kernel
 from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadcast
@@ -54,7 +54,7 @@ def _forward_hankel_transform(
     logc: npt.ArrayLike,
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike,
-    fft_backend: FFTBackend = DEFAULT_FFT_BACKEND,
+    fft_backend: FFTBackend | None = None,
     workspace: FFTWorkspace | None = None,
     **kwargs,
 ):
@@ -74,7 +74,8 @@ def _forward_hankel_transform(
     bias : array_like
         Power-law bias. Scalar or shape (*batch_shape, 1).
     fft_backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: SciPy FFT).
+        FFT backend implementation used for transforms (default: PyFFTW if
+        available, otherwise SciPy FFT).
     **kwargs
         Additional arguments passed to the FFT backend.
 
@@ -84,6 +85,7 @@ def _forward_hankel_transform(
         Transformed array with shape (n,) for scalar params or (*batch_shape, n)
         for batched params.
     """
+    fft_backend = fft_backend or DEFAULT_FFT_BACKEND_FACTORY()
     a = np.asarray(a)
     u = np.asarray(u)
     logc = np.asarray(logc)
@@ -116,7 +118,7 @@ def _inverse_hankel_transform(
     logc: npt.ArrayLike,
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike,
-    fft_backend: FFTBackend = DEFAULT_FFT_BACKEND,
+    fft_backend: FFTBackend | None = None,
     workspace: FFTWorkspace | None = None,
     **kwargs,
 ):
@@ -136,7 +138,8 @@ def _inverse_hankel_transform(
     bias : array_like
         Power-law bias. Scalar or shape (*batch_shape, 1).
     fft_backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: SciPy FFT).
+        FFT backend implementation used for transforms (default: PyFFTW if
+        available, otherwise SciPy FFT).
     **kwargs
         Additional arguments passed to the FFT backend.
 
@@ -146,6 +149,7 @@ def _inverse_hankel_transform(
         Inverse transformed array with shape (n,) for scalar params or
         (*batch_shape, n) for batched params.
     """
+    fft_backend = fft_backend or DEFAULT_FFT_BACKEND_FACTORY()
     ak = np.asarray(ak)
     u = np.asarray(u)
     logc = np.asarray(logc)
@@ -364,7 +368,8 @@ class FFTLog:
           convergence.
         - SILENT: Skip domain validation entirely.
     backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: SciPy FFT).
+        FFT backend implementation used for transforms (default: PyFFTW if
+        available, otherwise SciPy FFT).
 
     Attributes
     ----------
@@ -490,7 +495,7 @@ class FFTLog:
         self._lowring = lowring
         self._kr = kr
         self._domain_check_mode = DomainCheckMode(check_domain)
-        self._fft = backend or DEFAULT_FFT_BACKEND
+        self._fft = backend or DEFAULT_FFT_BACKEND_FACTORY()
 
         # Validate domain at construction time
         self._validate_domain()
@@ -712,7 +717,8 @@ class FFTLog:
         check_domain : DomainCheckMode or str, optional
             How to handle domain validation (default: WARN).
         backend : FFTBackend, optional
-            FFT backend implementation used for transforms (default: SciPy FFT).
+            FFT backend implementation used for transforms (default: PyFFTW if
+            available, otherwise SciPy FFT).
 
         Returns
         -------
