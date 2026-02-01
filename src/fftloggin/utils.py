@@ -6,7 +6,9 @@ import numpy as np
 import numpy.typing as npt
 
 
-def allocate_broadcasted_array(*arrs: npt.NDArray, dtype: npt.DTypeLike | None = None):
+def allocate_broadcasted_array(
+    *arrs: npt.NDArray, dtype: npt.DTypeLike | None = None
+) -> npt.NDArray:
     if dtype is None:
         dtype = np.result_type(*arrs)
     else:
