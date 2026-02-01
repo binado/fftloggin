@@ -288,6 +288,43 @@ def biased_power_law(
     return buf
 
 
+def biased_logc(
+    bias: npt.ArrayLike,
+    logc: npt.ArrayLike,
+    sign: int,
+    dtype: np.dtype,
+) -> npt.NDArray:
+    """
+    Compute exp(sign * bias * logc).
+
+    Parameters
+    ----------
+    bias : array_like
+        Power-law bias. Scalar or shape (*batch_shape, 1).
+    logc : array_like
+        Log-center parameter. Scalar or shape (*batch_shape, 1).
+    sign : int
+        Sign to apply to the exponent (+1 or -1).
+    dtype : np.dtype
+        Preferred dtype for computation.
+
+    Returns
+    -------
+    NDArray
+        Broadcasted bias logc factor.
+    """
+    bias = np.asarray(bias)
+    logc = np.asarray(logc)
+    base_dtype = np.result_type(dtype, bias.dtype, logc.dtype)
+    shape = np.broadcast_shapes(bias.shape, logc.shape)
+    buf = np.empty(shape, dtype=base_dtype)
+    np.multiply(bias, logc, out=buf)
+    if sign < 0:
+        np.negative(buf, out=buf)
+    np.exp(buf, out=buf)
+    return buf
+
+
 class FFTLog:
     """
     Pure FFTLog transform algorithm for fast Hankel transforms.
@@ -484,33 +521,6 @@ class FFTLog:
             raise ValueError(f"out has shape {out.shape}, expected {shape}.")
         if dtype is not None and not np.can_cast(dtype, out.dtype, casting="same_kind"):
             raise TypeError(f"out dtype {out.dtype} cannot safely represent {dtype}.")
-
-    def _compute_bias_logc(self, sign: int, dtype: np.dtype) -> npt.NDArray:
-        """
-        Compute exp(sign * bias * logc).
-
-        Parameters
-        ----------
-        sign : int
-            Sign to apply to the exponent (+1 or -1).
-        dtype : np.dtype
-            Preferred dtype for computation.
-
-        Returns
-        -------
-        NDArray
-            Broadcasted bias logc factor.
-        """
-        bias = np.asarray(self.bias)
-        logc = np.asarray(self.logc)
-        base_dtype = np.result_type(dtype, bias.dtype, logc.dtype)
-        shape = np.broadcast_shapes(bias.shape, logc.shape)
-        buf = np.empty(shape, dtype=base_dtype)
-        np.multiply(bias, logc, out=buf)
-        if sign < 0:
-            np.negative(buf, out=buf)
-        np.exp(buf, out=buf)
-        return buf
 
     def _validate_domain(self) -> None:
         """Validate that bias is within the kernel's domain of convergence."""
@@ -870,7 +880,7 @@ class FFTLog:
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
         )
-        bias_logc = self._compute_bias_logc(sign=-1, dtype=a.dtype)
+        bias_logc = biased_logc(self.bias, self.logc, sign=-1, dtype=a.dtype)
         a_biased = allocate_broadcasted_array(a, bias_power_law)
         np.multiply(a, bias_power_law, out=a_biased)
 
@@ -958,7 +968,7 @@ class FFTLog:
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype
         )
-        bias_logc = self._compute_bias_logc(sign=1, dtype=ak.dtype)
+        bias_logc = biased_logc(self.bias, self.logc, sign=1, dtype=ak.dtype)
         ak_biased = allocate_broadcasted_array(ak, bias_power_law, bias_logc)
         np.multiply(ak, bias_power_law, out=ak_biased)
         np.multiply(ak_biased, bias_logc, out=ak_biased)
