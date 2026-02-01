@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -184,23 +184,27 @@ class PyFFTWBackend:
     def _get_buffers(
         self,
         workspace: FFTWorkspace,
-        direction: str,
-        in_shape: tuple[int, ...],
-        out_shape: tuple[int, ...],
+        direction: Literal["forward", "backward"],
+        real_shape: tuple[int, ...],
+        complex_shape: tuple[int, ...],
         real_dtype: np.dtype,
     ) -> tuple[npt.NDArray, npt.NDArray]:
-        key = (direction, in_shape, out_shape, real_dtype)
+        key = (direction, real_shape, complex_shape, real_dtype)
         cached = workspace.buffers.get(key)
         if cached is not None:
             return cached
         if pyfftw is None:  # pragma: no cover - safety check
             raise RuntimeError("pyfftw is not available.")
-        if direction == "rfft":
-            inbuf = pyfftw.empty_aligned(in_shape, dtype=real_dtype)
-            outbuf = pyfftw.empty_aligned(out_shape, dtype=_complex_dtype(real_dtype))
+        if direction == "forward":
+            inbuf = pyfftw.empty_aligned(real_shape, dtype=real_dtype)
+            outbuf = pyfftw.empty_aligned(
+                complex_shape, dtype=_complex_dtype(real_dtype)
+            )
         else:
-            inbuf = pyfftw.empty_aligned(out_shape, dtype=_complex_dtype(real_dtype))
-            outbuf = pyfftw.empty_aligned(in_shape, dtype=real_dtype)
+            inbuf = pyfftw.empty_aligned(
+                complex_shape, dtype=_complex_dtype(real_dtype)
+            )
+            outbuf = pyfftw.empty_aligned(real_shape, dtype=real_dtype)
         workspace.buffers[key] = (inbuf, outbuf)
         return inbuf, outbuf
 
@@ -261,7 +265,13 @@ class PyFFTWBackend:
         out_shape = batch_shape + (n_out // 2 + 1,)
 
         ws = self._get_workspace(workspace)
-        inbuf, outbuf = self._get_buffers(ws, "rfft", in_shape, out_shape, real_dtype)
+        inbuf, outbuf = self._get_buffers(
+            ws,
+            "forward",
+            real_shape=in_shape,
+            complex_shape=out_shape,
+            real_dtype=real_dtype,
+        )
         inbuf[...] = 0
         if n_in >= n_out:
             inbuf[...] = x_arr[..., :n_out]
@@ -304,7 +314,13 @@ class PyFFTWBackend:
         out_shape = batch_shape + (n_out,)
 
         ws = self._get_workspace(workspace)
-        inbuf, outbuf = self._get_buffers(ws, "irfft", out_shape, in_shape, real_dtype)
+        inbuf, outbuf = self._get_buffers(
+            ws,
+            "backward",
+            real_shape=out_shape,
+            complex_shape=in_shape,
+            real_dtype=real_dtype,
+        )
         inbuf[...] = 0
         if n_in >= expected_ns:
             inbuf[...] = x_arr[..., :expected_ns]
