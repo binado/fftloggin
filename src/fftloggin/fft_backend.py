@@ -13,13 +13,11 @@ from scipy.fft import irfft as scipy_irfft
 from scipy.fft import rfft as scipy_rfft
 
 try:
-    import inspect
     import pyfftw
 
     _HAVE_PYFFTW = True
 except Exception:  # pragma: no cover - depends on optional pyfftw install
     pyfftw = None  # type: ignore[assignment]
-    inspect = None  # type: ignore[assignment]
     _HAVE_PYFFTW = False
 
 
@@ -145,13 +143,7 @@ class PyFFTWBackend:
                 "pyfftw is required for PyFFTWBackend. Install with `pip install pyfftw`."
             )
         self._workspace = FFTWorkspace()
-        self._fftw_kwargs: dict[str, object] = {}
-        if inspect is not None and pyfftw is not None:
-            try:
-                if "normalise_idft" in inspect.signature(pyfftw.FFTW).parameters:
-                    self._fftw_kwargs["normalise_idft"] = True
-            except (TypeError, ValueError):
-                pass
+        self._fftw_kwargs: dict[str, object] = {"normalise_idft": True}
 
     def _get_workspace(self, workspace: FFTWorkspace | None) -> FFTWorkspace:
         return workspace or self._workspace
