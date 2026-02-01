@@ -911,14 +911,16 @@ class FFTLog:
             ak = self._fft.irfft(prod, n=na, workspace=workspace, **kwargs)
         ak = np.flip(ak, axis=-1)  # type: ignore
         out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
+        if out is not None:
+            self._validate_out(out, a, shape=ak.shape, dtype=out_dtype)
+            # Write directly to out, avoiding extra copy
+            np.multiply(ak, bias_power_law, out=out, casting="same_kind")
+            np.multiply(out, bias_logc, out=out)
+            return out
         if ak.dtype != out_dtype:
             ak = ak.astype(out_dtype, copy=False)
         np.multiply(ak, bias_power_law, out=ak)
         np.multiply(ak, bias_logc, out=ak)
-        if out is not None:
-            self._validate_out(out, a, shape=ak.shape, dtype=ak.dtype)
-            np.copyto(out, ak, casting="same_kind")
-            return out
         return ak
 
     def inverse(
@@ -1004,11 +1006,12 @@ class FFTLog:
             a = self._fft.irfft(div, n=na, workspace=workspace, **kwargs)
         a = np.flip(a, axis=-1)  # type: ignore
         out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
+        if out is not None:
+            self._validate_out(out, ak, shape=a.shape, dtype=out_dtype)
+            # Write directly to out, avoiding extra copy
+            np.multiply(a, bias_power_law, out=out, casting="same_kind")
+            return out
         if a.dtype != out_dtype:
             a = a.astype(out_dtype, copy=False)
         np.multiply(a, bias_power_law, out=a)
-        if out is not None:
-            self._validate_out(out, ak, shape=a.shape, dtype=a.dtype)
-            np.copyto(out, a, casting="same_kind")
-            return out
         return a
