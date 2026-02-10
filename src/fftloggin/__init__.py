@@ -1,6 +1,6 @@
 from . import kernels
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
-from .fft_backend import (
+from .fft import (
     FFTBackend,
     FFTWorkspace,
     NumPyFFTBackend,

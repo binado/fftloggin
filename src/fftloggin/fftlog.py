@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
-from .fft_backend import DEFAULT_FFT_BACKEND_FACTORY, FFTBackend, FFTWorkspace
+from .fft import DEFAULT_FFT_BACKEND_FACTORY, FFTBackend, FFTWorkspace
 from .grids import Grid
 from .kernels import Kernel
 from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadcast
@@ -900,15 +900,21 @@ class FFTLog:
         a_biased = allocate_broadcasted_array(a, bias_power_law)
         np.multiply(a, bias_power_law, out=a_biased)
 
-        a_biased_fftd = self._fft.rfft(a_biased, workspace=workspace, **kwargs)
+        a_biased_fftd = self._fft.rfft(
+            a_biased, workspace=workspace, overwrite_x=True, **kwargs
+        )
         coeffs = self.kernel_coefficients
         if in_place_compatible(a_biased_fftd, coeffs):
             np.multiply(a_biased_fftd, coeffs, out=a_biased_fftd)
-            ak = self._fft.irfft(a_biased_fftd, n=na, workspace=workspace, **kwargs)
+            ak = self._fft.irfft(
+                a_biased_fftd, n=na, workspace=workspace, overwrite_x=True, **kwargs
+            )
         else:
             prod = allocate_broadcasted_array(a_biased_fftd, coeffs)
             np.multiply(a_biased_fftd, coeffs, out=prod)
-            ak = self._fft.irfft(prod, n=na, workspace=workspace, **kwargs)
+            ak = self._fft.irfft(
+                prod, n=na, workspace=workspace, overwrite_x=True, **kwargs
+            )
         ak = np.flip(ak, axis=-1)  # type: ignore
         out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
         if out is not None:
@@ -995,15 +1001,21 @@ class FFTLog:
         np.multiply(ak, bias_power_law, out=ak_biased)
         np.multiply(ak_biased, bias_logc, out=ak_biased)
 
-        ak_biased_fftd = self._fft.rfft(ak_biased, workspace=workspace, **kwargs)
+        ak_biased_fftd = self._fft.rfft(
+            ak_biased, workspace=workspace, overwrite_x=True, **kwargs
+        )
         coeffs_conj = self.kernel_coefficients_conj
         if in_place_compatible(ak_biased_fftd, coeffs_conj):
             np.divide(ak_biased_fftd, coeffs_conj, out=ak_biased_fftd)
-            a = self._fft.irfft(ak_biased_fftd, n=na, workspace=workspace, **kwargs)
+            a = self._fft.irfft(
+                ak_biased_fftd, n=na, workspace=workspace, overwrite_x=True, **kwargs
+            )
         else:
             div = allocate_broadcasted_array(ak_biased_fftd, coeffs_conj)
             np.divide(ak_biased_fftd, coeffs_conj, out=div)
-            a = self._fft.irfft(div, n=na, workspace=workspace, **kwargs)
+            a = self._fft.irfft(
+                div, n=na, workspace=workspace, overwrite_x=True, **kwargs
+            )
         a = np.flip(a, axis=-1)  # type: ignore
         out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
         if out is not None:

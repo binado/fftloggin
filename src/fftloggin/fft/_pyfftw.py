@@ -1,149 +1,27 @@
-"""FFT backend protocol and implementations."""
+"""PyFFTW FFT backend."""
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
+import pyfftw
 
-from numpy.fft import irfft as numpy_irfft
-from numpy.fft import rfft as numpy_rfft
-from scipy.fft import irfft as scipy_irfft
-from scipy.fft import rfft as scipy_rfft
-
-try:
-    import pyfftw
-
-    _HAVE_PYFFTW = True
-except Exception:  # pragma: no cover - depends on optional pyfftw install
-    pyfftw = None  # type: ignore[assignment]
-    _HAVE_PYFFTW = False
-
-
-def _copy_to_out(out: npt.NDArray, result: npt.NDArray) -> npt.NDArray:
-    if out.shape != result.shape:
-        raise ValueError(f"out has shape {out.shape}, expected {result.shape}.")
-    np.copyto(out, result, casting="same_kind")
-    return out
-
-
-def _complex_dtype(real_dtype: npt.DTypeLike) -> np.dtype:
-    return np.dtype(np.result_type(real_dtype, np.complex64))
-
-
-def _real_dtype_from_complex(complex_dtype: npt.DTypeLike) -> np.dtype:
-    return np.empty((), dtype=complex_dtype).real.dtype
-
-
-class FFTWorkspace:
-    """Cache for FFT plans and aligned buffers."""
-
-    def __init__(self) -> None:
-        self.buffers: dict[tuple, tuple[npt.NDArray, npt.NDArray]] = {}
-        self.plans: dict[tuple, object] = {}
-
-    def clear(self) -> None:
-        self.buffers.clear()
-        self.plans.clear()
-
-
-class FFTBackend(Protocol):
-    """Protocol for FFT backends used by FFTLog."""
-
-    def rfft(
-        self,
-        x: npt.ArrayLike,
-        n: int | None = None,
-        out: npt.NDArray | None = None,
-        workspace: FFTWorkspace | None = None,
-        **kwargs,
-    ) -> npt.NDArray: ...
-
-    def irfft(
-        self,
-        x: npt.ArrayLike,
-        n: int | None = None,
-        out: npt.NDArray | None = None,
-        workspace: FFTWorkspace | None = None,
-        **kwargs,
-    ) -> npt.NDArray: ...
-
-
-class SciPyFFTBackend:
-    """FFT backend that delegates to scipy.fft."""
-
-    def rfft(
-        self,
-        x: npt.ArrayLike,
-        n: int | None = None,
-        out: npt.NDArray | None = None,
-        workspace: FFTWorkspace | None = None,
-        **kwargs,
-    ) -> npt.NDArray:
-        _ = workspace
-        result = scipy_rfft(x, n=n, **kwargs)
-        if out is None:
-            return result
-        return _copy_to_out(out, result)
-
-    def irfft(
-        self,
-        x: npt.ArrayLike,
-        n: int | None = None,
-        out: npt.NDArray | None = None,
-        workspace: FFTWorkspace | None = None,
-        **kwargs,
-    ) -> npt.NDArray:
-        _ = workspace
-        result = scipy_irfft(x, n=n, **kwargs)
-        if out is None:
-            return result
-        return _copy_to_out(out, result)
-
-
-class NumPyFFTBackend:
-    """FFT backend that delegates to numpy.fft."""
-
-    def rfft(
-        self,
-        x: npt.ArrayLike,
-        n: int | None = None,
-        out: npt.NDArray | None = None,
-        workspace: FFTWorkspace | None = None,
-        **kwargs,
-    ) -> npt.NDArray:
-        _ = workspace
-        result = numpy_rfft(x, n=n, **kwargs)
-        if out is None:
-            return result
-        return _copy_to_out(out, result)
-
-    def irfft(
-        self,
-        x: npt.ArrayLike,
-        n: int | None = None,
-        out: npt.NDArray | None = None,
-        workspace: FFTWorkspace | None = None,
-        **kwargs,
-    ) -> npt.NDArray:
-        _ = workspace
-        result = numpy_irfft(x, n=n, **kwargs)
-        if out is None:
-            return result
-        return _copy_to_out(out, result)
+from ._protocol import (
+    FFTWorkspace,
+    _complex_dtype,
+    _copy_to_out,
+    _real_dtype_from_complex,
+)
 
 
 class PyFFTWBackend:
     """FFT backend that delegates to pyFFTW with plan and buffer reuse."""
 
     def __init__(self) -> None:
-        if not _HAVE_PYFFTW:  # pragma: no cover - depends on optional pyfftw install
-            raise ImportError(
-                "pyfftw is required for PyFFTWBackend. Install with `pip install pyfftw`."
-            )
         self._workspace = FFTWorkspace()
-        self._fftw_kwargs: dict[str, object] = {"normalise_idft": True}
+        self._fftw_kwargs: dict[str, Any] = {"normalise_idft": True}
 
     def _get_workspace(self, workspace: FFTWorkspace | None) -> FFTWorkspace:
         return workspace or self._workspace
@@ -152,7 +30,7 @@ class PyFFTWBackend:
         threads = kwargs.pop("threads", None)
         if threads is None and "workers" in kwargs:
             threads = kwargs.pop("workers")
-        if threads is None and pyfftw is not None:
+        if threads is None:
             threads = getattr(pyfftw.config, "NUM_THREADS", 1)
         return int(threads or 1)
 
@@ -193,8 +71,6 @@ class PyFFTWBackend:
         cached = workspace.buffers.get(key)
         if cached is not None:
             return cached
-        if pyfftw is None:  # pragma: no cover - safety check
-            raise RuntimeError("pyfftw is not available.")
         if direction == "forward":
             inbuf = pyfftw.empty_aligned(real_shape, dtype=real_dtype)
             outbuf = pyfftw.empty_aligned(
@@ -211,19 +87,17 @@ class PyFFTWBackend:
     def _get_plan(
         self,
         workspace: FFTWorkspace,
-        direction: str,
+        direction: Literal["forward", "backward"],
         inbuf: npt.NDArray,
         outbuf: npt.NDArray,
         threads: int,
         flags: tuple,
-    ) -> object:
+    ) -> pyfftw.FFTW:
         plan_key = (direction, inbuf.shape, outbuf.shape, inbuf.dtype, threads, flags)
         cached = workspace.plans.get(plan_key)
         if cached is not None:
             return cached
-        if pyfftw is None:  # pragma: no cover - safety check
-            raise RuntimeError("pyfftw is not available.")
-        fftw_direction = "FFTW_FORWARD" if direction == "rfft" else "FFTW_BACKWARD"
+        fftw_direction = "FFTW_FORWARD" if direction == "forward" else "FFTW_BACKWARD"
         plan = pyfftw.FFTW(
             inbuf,
             outbuf,
@@ -242,10 +116,10 @@ class PyFFTWBackend:
         n: int | None = None,
         out: npt.NDArray | None = None,
         workspace: FFTWorkspace | None = None,
+        overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
-        if pyfftw is None:  # pragma: no cover - depends on optional pyfftw install
-            raise RuntimeError("pyfftw is not available.")
+        _ = overwrite_x
         threads = self._get_threads(kwargs)
         flags = self._get_flags(kwargs)
         self._validate_kwargs(kwargs)
@@ -277,7 +151,7 @@ class PyFFTWBackend:
             inbuf[...] = x_arr[..., :n_out]
         else:
             inbuf[..., :n_in] = x_arr
-        plan = self._get_plan(ws, "rfft", inbuf, outbuf, threads, flags)
+        plan = self._get_plan(ws, "forward", inbuf, outbuf, threads, flags)
         plan()
         if out is None:
             return np.array(outbuf, copy=True)
@@ -289,10 +163,10 @@ class PyFFTWBackend:
         n: int | None = None,
         out: npt.NDArray | None = None,
         workspace: FFTWorkspace | None = None,
+        overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
-        if pyfftw is None:  # pragma: no cover - depends on optional pyfftw install
-            raise RuntimeError("pyfftw is not available.")
+        _ = overwrite_x
         threads = self._get_threads(kwargs)
         flags = self._get_flags(kwargs)
         self._validate_kwargs(kwargs)
@@ -326,15 +200,8 @@ class PyFFTWBackend:
             inbuf[...] = x_arr[..., :expected_ns]
         else:
             inbuf[..., :n_in] = x_arr
-        plan = self._get_plan(ws, "irfft", inbuf, outbuf, threads, flags)
+        plan = self._get_plan(ws, "backward", inbuf, outbuf, threads, flags)
         plan()
         if out is None:
             return np.array(outbuf, copy=True)
         return _copy_to_out(out, outbuf)
-
-
-DEFAULT_FFT_BACKEND_FACTORY: type[FFTBackend]
-if _HAVE_PYFFTW:
-    DEFAULT_FFT_BACKEND_FACTORY = PyFFTWBackend
-else:
-    DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend
