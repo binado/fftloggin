@@ -296,6 +296,7 @@ benchmark = [
 ]
 dev = [
     { name = "pre-commit" },
+    { name = "pyfftw" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -303,6 +304,7 @@ fftw = [
     { name = "pyfftw" },
 ]
 test = [
+    { name = "pyfftw" },
     { name = "pytest" },
 ]
 tutorial = [
@@ -322,11 +324,15 @@ requires-dist = [
 benchmark = [{ name = "memray", specifier = ">=1.14.0" }]
 dev = [
     { name = "pre-commit", specifier = ">=4.3.0" },
+    { name = "pyfftw", specifier = ">0.14.0" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "ruff", specifier = ">=0.12.11" },
 ]
 fftw = [{ name = "pyfftw", specifier = ">0.14.0" }]
-test = [{ name = "pytest", specifier = ">=8.4.1" }]
+test = [
+    { name = "pyfftw", specifier = ">0.14.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+]
 tutorial = [
     { name = "camb", specifier = ">=1.6.4" },
     { name = "ipykernel", specifier = ">=6.30.1" },
@@ -961,14 +967,14 @@ wheels = [
 
 [[package]]
 name = "numpy-typing-compat"
-version = "20251206.2.3"
+version = "20251206.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/77/83/dd90774d6685664cbe5525645a50c4e6c7454207aee552918790e879137f/numpy_typing_compat-20251206.2.3.tar.gz", hash = "sha256:18e00e0f4f2040fe98574890248848c7c6831a975562794da186cf4f3c90b935", size = 5009, upload-time = "2025-12-06T20:02:04.177Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/5f/29fd5f29b0a5d96e2def96ecba3112fc330ecd16e8c97c2b332563c5e201/numpy_typing_compat-20251206.2.4.tar.gz", hash = "sha256:59882d23aaff054a2536da80564012cdce33487657be4d79c5925bb8705fcabc", size = 5011, upload-time = "2025-12-06T20:02:04.942Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/48/6f/dde8e2a79a3b6cbc31bc1037c1a1dbc07c90d52d946851bd7cba67e730a8/numpy_typing_compat-20251206.2.3-py3-none-any.whl", hash = "sha256:bfa2e4c4945413e84552cbd34a6d368c88a06a54a896e77ced760521b08f0f61", size = 6300, upload-time = "2025-12-06T20:01:56.664Z" },
+    { url = "https://files.pythonhosted.org/packages/63/7c/5c2892e6bc0628a2ccf4e938e1e2db22794657ccb374672d66e20d73839e/numpy_typing_compat-20251206.2.4-py3-none-any.whl", hash = "sha256:a82e723bd20efaa4cf2886709d4264c144f1f2b609bda83d1545113b7e47a5b5", size = 6300, upload-time = "2025-12-06T20:01:57.578Z" },
 ]
 
 [[package]]
