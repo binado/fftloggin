@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import numpy.typing as npt
-from scipy.fft import irfft as scipy_irfft
-from scipy.fft import rfft as scipy_rfft
+from scipy.fft import irfft, rfft
 
 from ._protocol import FFTWorkspace, _copy_to_out
 
@@ -22,7 +21,7 @@ class SciPyFFTBackend:
         **kwargs,
     ) -> npt.NDArray:
         _ = workspace
-        result = scipy_rfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
+        result = rfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
         if out is None:
             return result
         return _copy_to_out(out, result)
@@ -37,7 +36,7 @@ class SciPyFFTBackend:
         **kwargs,
     ) -> npt.NDArray:
         _ = workspace
-        result = scipy_irfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
+        result = irfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
         if out is None:
             return result
         return _copy_to_out(out, result)

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import numpy.typing as npt
-from numpy.fft import irfft as numpy_irfft
-from numpy.fft import rfft as numpy_rfft
+from numpy.fft import irfft, rfft
 
 from ._protocol import FFTWorkspace
 
@@ -22,7 +21,7 @@ class NumPyFFTBackend:
         **kwargs,
     ) -> npt.NDArray:
         _ = workspace, overwrite_x
-        return numpy_rfft(x, n=n, out=out, **kwargs)
+        return rfft(x, n=n, out=out, **kwargs)
 
     def irfft(
         self,
@@ -34,4 +33,4 @@ class NumPyFFTBackend:
         **kwargs,
     ) -> npt.NDArray:
         _ = workspace, overwrite_x
-        return numpy_irfft(x, n=n, out=out, **kwargs)
+        return irfft(x, n=n, out=out, **kwargs)
