@@ -42,7 +42,7 @@ class PyFFTWBackend:
                 return flags
             return (flags,)
         if planner_effort is None:
-            planner_effort = "FFTW_MEASURE"
+            planner_effort = "FFTW_ESTIMATE"
         if isinstance(planner_effort, tuple):
             return planner_effort
         return (planner_effort,)
