@@ -63,6 +63,7 @@ fftw = [
 ]
 test = [
     "pytest>=8.4.1",
+    { include-group = "fftw" },
 ]
 tutorial = [
     "camb>=1.6.4",
