@@ -21,10 +21,9 @@ except ImportError:  # pragma: no cover - depends on optional pyfftw install
     _HAVE_PYFFTW = False
 
 DEFAULT_FFT_BACKEND_FACTORY: type[FFTBackend]
-if _HAVE_PYFFTW:
-    DEFAULT_FFT_BACKEND_FACTORY = PyFFTWBackend
-else:
-    DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend
+# Use SciPy as the default backend for stable cross-platform behavior.
+# PyFFTW remains available as an explicit opt-in backend.
+DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend
 
 __all__ = [
     "FFTBackend",
