@@ -76,7 +76,7 @@ class Kernel:
         """
         return (-np.inf, np.inf)
 
-    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform at s.
 
@@ -120,7 +120,7 @@ class Kernel:
         in_bounds = (s_real >= inf) & (s_real <= sup)
         return bool(np.all(in_bounds))
 
-    def __call__(self, s: npt.ArrayLike) -> np.ndarray:
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform at s with optional bounds checking.
 
@@ -298,7 +298,7 @@ class Derivative(Kernel):
         s = np.asarray(s)
         return self.transform.is_in_domain(s - self.order)
 
-    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
         s = np.asarray(s)
         sign = 1 - 2 * (self.order % 2)
         return (
@@ -363,7 +363,7 @@ class BesselJKernel(Kernel):
         """Domain of convergence: (-mu, 1.5)."""
         return (-self.mu, 1.5 * np.ones_like(self.mu))
 
-    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform.
 
@@ -416,7 +416,7 @@ class SphericalBesselJKernel(BesselJKernel):
         inf, sup = super().domain
         return (np.asarray(inf) + 0.5, np.asarray(sup) + 0.5)
 
-    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
         s = np.asarray(s)
         return super().forward(s - 0.5) * SQRT_PI_OVER_2
 
@@ -484,7 +484,7 @@ class CombinedKernel(Kernel):
         sups = np.broadcast_arrays(*[d[1] for d in domains])
         return np.stack(infs, axis=0), np.stack(sups, axis=0)
 
-    def forward(self, s: npt.ArrayLike) -> np.ndarray:
+    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform for all kernels and stack results.
 

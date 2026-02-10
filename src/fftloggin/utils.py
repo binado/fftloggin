@@ -6,9 +6,32 @@ import numpy as np
 import numpy.typing as npt
 
 
+def allocate_broadcasted_array(
+    *arrs: npt.NDArray, dtype: npt.DTypeLike | None = None
+) -> npt.NDArray:
+    if dtype is None:
+        dtype = np.result_type(*arrs)
+    else:
+        dtype = np.dtype(dtype)
+    out_shape = np.broadcast_shapes(*(arr.shape for arr in arrs))
+    return np.empty(out_shape, dtype=dtype)
+
+
+def in_place_compatible(
+    target: npt.NDArray, *others: npt.NDArray, casting: str = "same_kind"
+) -> bool:
+    if not others:
+        return True
+    shape = np.broadcast_shapes(target.shape, *(arr.shape for arr in others))
+    if shape != target.shape:
+        return False
+    result_dtype = np.result_type(target.dtype, *(arr.dtype for arr in others))
+    return np.can_cast(result_dtype, target.dtype, casting=casting)
+
+
 def append_dims(
     a: npt.ArrayLike, ndim: int, where: Literal["left", "right"] = "right"
-) -> np.ndarray:
+) -> npt.NDArray:
     """
     Append singleton dimensions to an array.
 
@@ -57,7 +80,7 @@ def count_trailing_ones(shape: tuple) -> int:
 
 def outer_broadcast(
     left: npt.ArrayLike, right: npt.ArrayLike
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Reshape left and right for outer-product style broadcasting.
 
@@ -108,7 +131,7 @@ def outer_broadcast(
 
 def safe_broadcast(
     left: npt.ArrayLike, right: npt.ArrayLike
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Safely broadcast two arrays, using outer_broadcast if needed.
 

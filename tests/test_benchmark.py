@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from fftloggin import FFTLog
+from fftloggin import FFTLog, NumPyFFTBackend, SciPyFFTBackend
 from fftloggin.kernels import BesselJKernel
 
 # Check if benchmarks exist
@@ -64,10 +64,26 @@ def get_benchmark_files() -> list[Path]:
     return sorted(BENCHMARK_DIR.glob("benchmark_*.txt"))
 
 
+def get_fft_backends():
+    """Get all available FFT backend instances."""
+    backends = [
+        pytest.param(SciPyFFTBackend(), id="scipy"),
+        pytest.param(NumPyFFTBackend(), id="numpy"),
+    ]
+    try:
+        from fftloggin import PyFFTWBackend
+
+        backends.append(pytest.param(PyFFTWBackend(), id="pyfftw"))
+    except ImportError:
+        pass
+    return backends
+
+
 @pytest.mark.benchmark
 @pytest.mark.parametrize("rtol", [1e-5])
 @pytest.mark.parametrize("benchmark_file", get_benchmark_files(), ids=lambda f: f.name)
-def test_benchmark(benchmark_file: Path, rtol: float):
+@pytest.mark.parametrize("fft_backend", get_fft_backends())
+def test_benchmark(benchmark_file: Path, rtol: float, fft_backend):
     """
     Test FFTLog against a single benchmark file.
 
@@ -106,7 +122,15 @@ def test_benchmark(benchmark_file: Path, rtol: float):
     kernel = BesselJKernel(mu)
     dlog = (log10rmax - log10rmin) / (n - 1) * np.log(10)
 
-    fftlog = FFTLog(kernel=kernel, n=n, dlog=dlog, bias=q, kr=kr, lowring=lowring)
+    fftlog = FFTLog(
+        kernel=kernel,
+        n=n,
+        dlog=dlog,
+        bias=q,
+        kr=kr,
+        lowring=lowring,
+        backend=fft_backend,
+    )
 
     # Create grid
     grid = fftlog.create_grid(r=r)

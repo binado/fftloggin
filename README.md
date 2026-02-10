@@ -12,6 +12,22 @@ uv pip install fftloggin
 pip install fftloggin
 ```
 
+### Optional PyFFTW backend
+
+If you want FFTW-based plans and buffer reuse, install the optional dependency
+and use the PyFFTW backend.
+
+```bash
+uv pip install "fftloggin[fftw]"
+```
+
+```python
+from fftloggin import FFTLog, PyFFTWBackend
+from fftloggin.kernels import BesselJKernel
+
+fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, backend=PyFFTWBackend())
+```
+
 ## Development
 
 ### Setup

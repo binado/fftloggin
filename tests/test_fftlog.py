@@ -219,6 +219,21 @@ def test_fftlog_with_vectorized_kernel():
     assert out.shape == (3, n)
 
 
+def test_fftlog_accepts_overwrite_x_kwarg():
+    r = np.logspace(-3, 3, 64, dtype=np.float64)
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0.7), lowring=False)
+    rng = np.random.default_rng(0)
+    a = rng.normal(size=r.shape).astype(np.float64)
+
+    expected_forward = fftlog.forward(a)
+    got_forward = fftlog.forward(a, overwrite_x=False)
+    assert_allclose(got_forward, expected_forward, rtol=1e-12, atol=1e-12)
+
+    expected_inverse = fftlog.inverse(expected_forward)
+    got_inverse = fftlog.inverse(expected_forward, overwrite_x=False)
+    assert_allclose(got_inverse, expected_inverse, rtol=1e-12, atol=1e-12)
+
+
 @pytest.mark.parametrize("kr", [1.0, np.exp(1.0), np.exp(-1.0)])
 @pytest.mark.parametrize("bias", [0.1, -0.1])
 @pytest.mark.parametrize("n", [64, 63])
