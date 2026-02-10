@@ -74,8 +74,7 @@ def _forward_hankel_transform(
     bias : array_like
         Power-law bias. Scalar or shape (*batch_shape, 1).
     fft_backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: PyFFTW if
-        available, otherwise SciPy FFT).
+        FFT backend implementation used for transforms (default: SciPy FFT).
     **kwargs
         Additional arguments passed to the FFT backend.
 
@@ -138,8 +137,7 @@ def _inverse_hankel_transform(
     bias : array_like
         Power-law bias. Scalar or shape (*batch_shape, 1).
     fft_backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: PyFFTW if
-        available, otherwise SciPy FFT).
+        FFT backend implementation used for transforms (default: SciPy FFT).
     **kwargs
         Additional arguments passed to the FFT backend.
 
@@ -368,8 +366,7 @@ class FFTLog:
           convergence.
         - SILENT: Skip domain validation entirely.
     backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: PyFFTW if
-        available, otherwise SciPy FFT).
+        FFT backend implementation used for transforms (default: SciPy FFT).
 
     Attributes
     ----------
@@ -717,8 +714,7 @@ class FFTLog:
         check_domain : DomainCheckMode or str, optional
             How to handle domain validation (default: WARN).
         backend : FFTBackend, optional
-            FFT backend implementation used for transforms (default: PyFFTW if
-            available, otherwise SciPy FFT).
+            FFT backend implementation used for transforms (default: SciPy FFT).
 
         Returns
         -------
