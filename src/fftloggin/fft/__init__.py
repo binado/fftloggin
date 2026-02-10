@@ -12,24 +12,29 @@ from ._protocol import (
 )
 from ._scipy import SciPyFFTBackend
 
-try:
-    from ._pyfftw import PyFFTWBackend
-
-    _HAVE_PYFFTW = True
-except ImportError:  # pragma: no cover - depends on optional pyfftw install
-    PyFFTWBackend = None  # type: ignore[assignment,misc]
-    _HAVE_PYFFTW = False
-
 DEFAULT_FFT_BACKEND_FACTORY: type[FFTBackend]
 # Use SciPy as the default backend for stable cross-platform behavior.
 # PyFFTW remains available as an explicit opt-in backend.
 DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend
 
+
+def __getattr__(name: str):
+    if name == "PyFFTWBackend":
+        try:
+            from ._pyfftw import PyFFTWBackend
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise AttributeError(
+                "PyFFTWBackend requires optional dependency 'pyfftw'. "
+                'Install with `uv pip install "fftloggin[fftw]"`.'
+            ) from exc
+        return PyFFTWBackend
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "FFTBackend",
     "FFTWorkspace",
     "NumPyFFTBackend",
-    "PyFFTWBackend",
     "SciPyFFTBackend",
     "DEFAULT_FFT_BACKEND_FACTORY",
     "_complex_dtype",

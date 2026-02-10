@@ -8,7 +8,6 @@ from fftloggin import (
     FFTLog,
     FFTWorkspace,
     NumPyFFTBackend,
-    PyFFTWBackend,
     SciPyFFTBackend,
 )
 from fftloggin.kernels import BesselJKernel
@@ -81,5 +80,7 @@ def test_workspace_is_accepted_by_backends():
 def test_pyfftw_backend_defaults_when_available():
     pyfftw = pytest.importorskip("pyfftw")
     _ = pyfftw
+    from fftloggin import PyFFTWBackend
+
     backend = PyFFTWBackend()
     assert isinstance(backend, PyFFTWBackend)

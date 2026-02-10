@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from fftloggin import FFTLog, NumPyFFTBackend, PyFFTWBackend, SciPyFFTBackend
+from fftloggin import FFTLog, NumPyFFTBackend, SciPyFFTBackend
 from fftloggin.kernels import BesselJKernel
 
 
@@ -100,6 +100,13 @@ def _run_benchmarks(args: argparse.Namespace) -> None:
     if args.backend == "numpy":
         backend = NumPyFFTBackend()
     elif args.backend == "pyfftw":
+        try:
+            from fftloggin import PyFFTWBackend
+        except ImportError as exc:
+            raise SystemExit(
+                "pyfftw backend requested but optional dependency is missing. "
+                'Install with `uv pip install "fftloggin[fftw]"`.'
+            ) from exc
         backend = PyFFTWBackend()
     else:
         backend = SciPyFFTBackend()

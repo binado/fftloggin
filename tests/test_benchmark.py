@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from fftloggin import FFTLog, NumPyFFTBackend, PyFFTWBackend, SciPyFFTBackend
+from fftloggin import FFTLog, NumPyFFTBackend, SciPyFFTBackend
 from fftloggin.kernels import BesselJKernel
 
 # Check if benchmarks exist
@@ -71,8 +71,10 @@ def get_fft_backends():
         pytest.param(NumPyFFTBackend(), id="numpy"),
     ]
     try:
+        from fftloggin import PyFFTWBackend
+
         backends.append(pytest.param(PyFFTWBackend(), id="pyfftw"))
-    except Exception:
+    except ImportError:
         pass
     return backends
 
