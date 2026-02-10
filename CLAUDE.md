@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`fftloggin` is a high-performance vectorized FFTLog implementation for fast Hankel transforms in pure Python with optional numexpr acceleration. FFTLog implements the fast Hankel transform algorithm from Hamilton (2000) for efficient computation of integral transforms commonly used in cosmology and astrophysics.
+`fftloggin` is a high-performance vectorized FFTLog implementation for fast Hankel transforms in pure Python. FFTLog implements the fast Hankel transform algorithm from Hamilton (2000) for efficient computation of integral transforms commonly used in cosmology and astrophysics.
 
 ## Development Commands
 
@@ -12,14 +12,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Run all tests
 uv run pytest
-
-# Run tests with numexpr support (requires numexpr to be installed)
-uv run pytest tests/
-
-# Run specific test file
-uv run pytest tests/test_fftlog.py
-uv run pytest tests/test_fftlog_class.py
-uv run pytest tests/test_kernels.py
 
 # Run tests with verbose output
 uv run pytest -v
@@ -32,9 +24,6 @@ uv sync
 
 # Install with development dependencies (includes pytest, ruff, pre-commit)
 uv sync --group dev
-
-# Install with numexpr acceleration (optional)
-uv sync --group numexpr
 
 # Install with tutorial dependencies (CAMB, matplotlib, jupyter)
 uv sync --group tutorial
