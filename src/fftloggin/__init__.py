@@ -19,7 +19,7 @@ def __getattr__(name: str):
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise AttributeError(
                 "PyFFTWBackend requires optional dependency 'pyfftw'. "
-                'Install with `uv pip install "fftloggin[fftw]"`.'
+                "Install with `uv sync --all-groups`."
             ) from exc
         return PyFFTWBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
