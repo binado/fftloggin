@@ -1,15 +1,15 @@
-"""SciPy FFT backend."""
+"""NumPy FFT backend."""
 
 from __future__ import annotations
 
 import numpy.typing as npt
-from scipy.fft import irfft, rfft
+from numpy.fft import irfft, rfft
 
-from ._protocol import FFTWorkspace, _copy_to_out
+from .protocol import FFTWorkspace
 
 
-class SciPyFFTBackend:
-    """FFT backend that delegates to scipy.fft."""
+class NumPyFFTBackend:
+    """FFT backend that delegates to numpy.fft."""
 
     def rfft(
         self,
@@ -20,11 +20,8 @@ class SciPyFFTBackend:
         overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
-        _ = workspace
-        result = rfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
-        if out is None:
-            return result
-        return _copy_to_out(out, result)
+        _ = workspace, overwrite_x
+        return rfft(x, n=n, out=out, **kwargs)
 
     def irfft(
         self,
@@ -35,8 +32,5 @@ class SciPyFFTBackend:
         overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
-        _ = workspace
-        result = irfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
-        if out is None:
-            return result
-        return _copy_to_out(out, result)
+        _ = workspace, overwrite_x
+        return irfft(x, n=n, out=out, **kwargs)

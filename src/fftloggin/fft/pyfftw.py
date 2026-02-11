@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import pyfftw
 
-from ._protocol import (
+from .protocol import (
     FFTWorkspace,
     _complex_dtype,
     _copy_to_out,

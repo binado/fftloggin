@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from ._numpy import NumPyFFTBackend
-from ._protocol import (
+from .numpy import NumPyFFTBackend
+from .protocol import (
     FFTBackend,
     FFTWorkspace,
     _complex_dtype,
     _copy_to_out,
     _real_dtype_from_complex,
 )
-from ._scipy import SciPyFFTBackend
+from .scipy import SciPyFFTBackend
 
 DEFAULT_FFT_BACKEND_FACTORY: type[FFTBackend]
 # Use SciPy as the default backend for stable cross-platform behavior.
@@ -21,7 +21,7 @@ DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend
 def __getattr__(name: str):
     if name == "PyFFTWBackend":
         try:
-            from ._pyfftw import PyFFTWBackend
+            from .pyfftw import PyFFTWBackend
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise AttributeError(
                 "PyFFTWBackend requires optional dependency 'pyfftw'. "
