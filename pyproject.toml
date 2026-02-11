@@ -1,6 +1,6 @@
 [project]
 name = "fftloggin"
-version = "0.2.1"
+version = "0.3.0"
 description = "High-performance vectorized FFTLog implementation for fast Hankel transforms in pure Python"
 readme = "README.md"
 license = { text = "MIT" }
