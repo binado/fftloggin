@@ -669,7 +669,7 @@ def test_forward_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="64.*does not match.*128|128.*64"):
+    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
         fftlog.forward(wrong_size)
 
 
@@ -679,5 +679,5 @@ def test_inverse_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="64.*does not match.*128|128.*64"):
+    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
         fftlog.inverse(wrong_size)
