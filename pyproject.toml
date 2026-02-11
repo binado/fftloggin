@@ -59,10 +59,14 @@ benchmark = [
 fftw = [
     "pyfftw>0.14.0",
 ]
+jax = [
+    "jax>=0.6.0",
+]
 test = [
     "array-api-strict>=2.3.1",
     "pytest>=8.4.1",
     { include-group = "fftw" },
+    { include-group = "jax" },
 ]
 tutorial = [
     "camb>=1.6.4",

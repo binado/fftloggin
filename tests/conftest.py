@@ -1,5 +1,6 @@
 """Pytest configuration for fftloggin tests."""
 
+import numpy as np
 import pytest
 
 
@@ -56,3 +57,26 @@ def generate_benchmarks_fixture(request):
     except SystemExit as e:
         if e.code != 0:
             pytest.exit(f"Benchmark generation failed with exit code {e.code}")
+
+
+def _get_xp_params():
+    params = [pytest.param(np, id="numpy")]
+    try:
+        import jax
+        import jax.numpy as jnp
+
+        jax.config.update("jax_enable_x64", True)
+        params.append(pytest.param(jnp, id="jax"))
+    except ImportError:
+        params.append(
+            pytest.param(
+                None, id="jax", marks=pytest.mark.skip(reason="JAX not installed")
+            )
+        )
+    return params
+
+
+@pytest.fixture(params=_get_xp_params())
+def xp(request):
+    """Array namespace fixture parametrized over numpy and jax.numpy."""
+    return request.param

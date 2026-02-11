@@ -21,7 +21,7 @@ def f(r, mu):
     return r ** (mu + 1) * np.exp(-(r**2) / 2)
 
 
-def test_fftlog_agrees_with_fortran():
+def test_fftlog_agrees_with_fortran(xp):
     """
     Check that FFTLog numerically agrees with the output from Fortran FFTLog.
     This test is adapted from scipy's test suite, see
@@ -32,14 +32,14 @@ def test_fftlog_agrees_with_fortran():
     kr = 1.0  # product k*r at the geometric center of the grid
     bias = 0.0
 
-    a = np.asarray(f(r, mu))
+    a = xp.asarray(f(r, mu))
 
     # Test 1: compute as given
     fftlog = FFTLog.from_array(
         r, kernel=BesselJKernel(mu), bias=bias, kr=kr, lowring=False
     )
     fftlog.create_grid(r=r)
-    ours = fftlog.forward(a)
+    ours = np.asarray(fftlog.forward(a))
 
     theirs = [
         -0.1159922613593045e-02,
@@ -63,7 +63,7 @@ def test_fftlog_agrees_with_fortran():
     assert_allclose(ours, theirs)
 
 
-def test_fftlog_with_optimal_kr():
+def test_fftlog_with_optimal_kr(xp):
     """
     Test fftlog with optimal kr (lowring=True).
     This test is adapted from scipy's test suite, see
@@ -73,14 +73,14 @@ def test_fftlog_with_optimal_kr():
     mu = 0.3
     bias = 0.0
 
-    a = np.asarray(f(r, mu))
+    a = xp.asarray(f(r, mu))
 
     # Create grid with optimal kr
     fftlog = FFTLog.from_array(
         r, kernel=BesselJKernel(mu), bias=bias, kr=1.0, lowring=True
     )
     fftlog.create_grid(r=r)
-    ours = fftlog.forward(a)
+    ours = np.asarray(fftlog.forward(a))
 
     theirs = [
         +0.4353768523152057e-04,
@@ -104,7 +104,7 @@ def test_fftlog_with_optimal_kr():
     assert_allclose(ours, theirs)
 
 
-def test_fftlog_with_positive_bias():
+def test_fftlog_with_positive_bias(xp):
     """
     Test fftlog with positive bias.
     This test is adapted from scipy's test suite, see
@@ -114,7 +114,7 @@ def test_fftlog_with_positive_bias():
     mu = 0.3
     bias = 0.8
 
-    a = np.asarray(f(r, mu))
+    a = xp.asarray(f(r, mu))
 
     # This value for the bias lies outside the strip of definition
     # of the kernel, but we skip the bound checking here for
@@ -128,7 +128,7 @@ def test_fftlog_with_positive_bias():
         lowring=True,
         check_domain=DomainCheckMode.SILENT,
     )
-    ours = fftlog.forward(a)
+    ours = np.asarray(fftlog.forward(a))
 
     theirs = [
         -7.3436673558316850e00,
@@ -152,7 +152,7 @@ def test_fftlog_with_positive_bias():
     assert_allclose(ours, theirs)
 
 
-def test_fftlog_with_negative_bias():
+def test_fftlog_with_negative_bias(xp):
     """
     Test Grid with negative bias.
 
@@ -163,12 +163,12 @@ def test_fftlog_with_negative_bias():
     mu = 0.3
     bias = -0.8
 
-    a = np.asarray(f(r, mu))
+    a = xp.asarray(f(r, mu))
 
     fftlog = FFTLog.from_array(
         r, kernel=BesselJKernel(mu), bias=bias, kr=1.0, lowring=True
     )
-    ours = fftlog.forward(a)
+    ours = np.asarray(fftlog.forward(a))
 
     theirs = [
         +0.8985777068568745e-05,
@@ -192,45 +192,47 @@ def test_fftlog_with_negative_bias():
     assert_allclose(ours, theirs)
 
 
-def test_fftlog_with_vectorized_kernel():
+def test_fftlog_with_vectorized_kernel(xp):
     """Test Grid with vectorized kernel (multiple mu values)."""
     n = 16
     r = np.logspace(-4, 4, n)
 
     # Test scalar mu
     mu = 0.3
-    a = f(r, mu)
+    a = xp.asarray(f(r, mu))
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=1.0, lowring=False)
     out = fftlog.forward(a)
     assert out.shape == r.shape
 
     # Test 1d mu (single batch element)
     mu = np.array([0.3])
-    a = f(r, mu)
+    a = xp.asarray(f(r, mu))
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=1.0, lowring=False)
     out = fftlog.forward(a)
     assert out.shape == (n,)
 
     # Test 1d mu (multiple batch elements)
     mu = np.linspace(0.1, 0.3, 3).reshape(-1, 1)
-    a = f(r, mu)
+    a = xp.asarray(f(r, mu))
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=1.0, lowring=False)
     out = fftlog.forward(a)
     assert out.shape == (3, n)
 
 
-def test_fftlog_accepts_overwrite_x_kwarg():
+def test_fftlog_accepts_overwrite_x_kwarg(xp):
     r = np.logspace(-3, 3, 64, dtype=np.float64)
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0.7), lowring=False)
     rng = np.random.default_rng(0)
-    a = rng.normal(size=r.shape).astype(np.float64)
+    a = xp.asarray(rng.normal(size=r.shape).astype(np.float64))
 
-    expected_forward = fftlog.forward(a)
-    got_forward = fftlog.forward(a, overwrite_x=False)
+    expected_forward = np.asarray(fftlog.forward(a))
+    got_forward = np.asarray(fftlog.forward(a, overwrite_x=False))
     assert_allclose(got_forward, expected_forward, rtol=1e-12, atol=1e-12)
 
-    expected_inverse = fftlog.inverse(expected_forward)
-    got_inverse = fftlog.inverse(expected_forward, overwrite_x=False)
+    expected_inverse = np.asarray(fftlog.inverse(xp.asarray(expected_forward)))
+    got_inverse = np.asarray(
+        fftlog.inverse(xp.asarray(expected_forward), overwrite_x=False)
+    )
     assert_allclose(got_inverse, expected_inverse, rtol=1e-12, atol=1e-12)
 
 
@@ -240,6 +242,7 @@ def test_fftlog_accepts_overwrite_x_kwarg():
 @pytest.mark.parametrize("order", [0, 1, 2])
 @pytest.mark.parametrize("lowring", [False])
 def test_fftlog_identity(
+    xp,
     n: int,
     bias: float,
     kr: float,
@@ -249,7 +252,7 @@ def test_fftlog_identity(
     """Test that inverse is the inverse of forward for various kernels and derivatives."""
     rng = np.random.RandomState(3491349965)
 
-    a = np.asarray(rng.standard_normal(n))
+    a = xp.asarray(rng.standard_normal(n))
     dlog = 0.1
 
     # Create grid for forward transform
@@ -268,13 +271,13 @@ def test_fftlog_identity(
     A = fftlog.forward(a)
 
     # Create grid for inverse transform with same FFTLog
-    a_reconstructed = fftlog.inverse(A)
+    a_reconstructed = np.asarray(fftlog.inverse(A))
 
-    assert_allclose(a_reconstructed, a, rtol=1.5e-7)
+    assert_allclose(a_reconstructed, np.asarray(a), rtol=1.5e-7)
 
 
 @pytest.mark.parametrize("n", [64, 63])
-def test_fftlog_exact(n):
+def test_fftlog_exact(xp, n):
     """
     Test exact transform for power law functions.
     This test is adapted from scipy's test suite, see
@@ -291,13 +294,13 @@ def test_fftlog_exact(n):
     gamma = rng.uniform(-1 - mu, 1 / 2)
 
     r = np.logspace(-2, 2, n)
-    a = np.asarray(r**gamma)
+    a = xp.asarray(r**gamma)
 
     fftlog = FFTLog.from_array(
         r, kernel=BesselJKernel(mu), bias=gamma, kr=1.0, lowring=True
     )
     grid = fftlog.create_grid(r=r)
-    A = fftlog.forward(a)
+    A = np.asarray(fftlog.forward(a))
 
     k = grid.k
 
@@ -307,14 +310,20 @@ def test_fftlog_exact(n):
     assert_allclose(A, At)
 
 
-def test_array_like():
+def test_array_like(xp):
     """Test that array-like inputs work."""
-    x = [[[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]]
+    x = xp.asarray(
+        [
+            [[1.0, 1.0], [1.0, 1.0]],
+            [[1.0, 1.0], [1.0, 1.0]],
+            [[1.0, 1.0], [1.0, 1.0]],
+        ]
+    )
     r = np.array([1.0, 2.0])
 
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(2.0))
-    result1 = fftlog.forward(x)
-    result2 = fftlog.forward(np.asarray(x))
+    result1 = np.asarray(fftlog.forward(x))
+    result2 = np.asarray(fftlog.forward(np.asarray(x)))
 
     assert_allclose(result1, result2)
 
@@ -351,10 +360,10 @@ def test_gh_21661(n):
 class TestBatchedTransforms:
     """Tests for batched transforms with array parameters."""
 
-    def test_batched_kr_only(self):
+    def test_batched_kr_only(self, xp):
         """Test batching with array kr, scalar dlog and bias."""
         r = np.logspace(-2, 2, 128)
-        a = f(r, 0.3)
+        a = xp.asarray(f(r, 0.3))
         mu = 0.3
 
         # Batch over 3 different kr values
@@ -413,10 +422,10 @@ class TestBatchedTransforms:
         assert fftlog.dlog.shape == dlog.shape
         assert_array_equal(fftlog.dlog, dlog)
 
-    def test_batched_bias_only(self):
+    def test_batched_bias_only(self, xp):
         """Test batching with array bias, scalar dlog and kr."""
         r = np.logspace(-2, 2, 128)
-        a = f(r, 0.3)
+        a = xp.asarray(f(r, 0.3))
         mu = 0.3
 
         # Batch over 2 different bias values
@@ -443,10 +452,10 @@ class TestBatchedTransforms:
         assert isinstance(fftlog.kr, np.ndarray)
         assert fftlog.kr.shape == bias.shape
 
-    def test_all_params_batched_compatible_shapes(self):
+    def test_all_params_batched_compatible_shapes(self, xp):
         """Test batching with all three parameters having compatible shapes."""
         r = np.logspace(-2, 2, 128)
-        a = f(r, 0.3)
+        a = xp.asarray(f(r, 0.3))
         mu = 0.3
 
         # All have shape (2, 1) - compatible
@@ -480,10 +489,10 @@ class TestBatchedTransforms:
         assert bias.shape == ()
         assert kr.shape == (3, 1)
 
-    def test_batched_round_trip(self):
+    def test_batched_round_trip(self, xp):
         """Test forward and inverse transforms with batched parameters."""
         r = np.logspace(-2, 2, 128)
-        a = f(r, 0.3)
+        a = xp.asarray(f(r, 0.3))
         mu = 0.3
 
         kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)
@@ -494,18 +503,18 @@ class TestBatchedTransforms:
         assert A.shape == (3, 128)
 
         # Inverse transform - passing full batch
-        a_reconstructed = fftlog.inverse(A)
+        a_reconstructed = np.asarray(fftlog.inverse(A))
         assert a_reconstructed.shape == (3, 128)
 
         # Each batch should approximately reconstruct original
         # Round-trip should be accurate to machine precision
         for i in range(3):
-            assert_allclose(a_reconstructed[i], a, rtol=1e-7, atol=1e-15)
+            assert_allclose(a_reconstructed[i], np.asarray(a), rtol=1e-7, atol=1e-15)
 
-    def test_batched_backward_compat_scalar(self):
+    def test_batched_backward_compat_scalar(self, xp):
         """Test that scalar parameters still work (backward compatibility)."""
         r = np.logspace(-2, 2, 128)
-        a = f(r, 0.3)
+        a = xp.asarray(f(r, 0.3))
         mu = 0.3
 
         # All scalars - should work as before
@@ -516,10 +525,10 @@ class TestBatchedTransforms:
         result = fftlog.forward(a)
         assert result.shape == (128,)  # No batch dimension
 
-    def test_batched_vs_loop_consistency(self):
+    def test_batched_vs_loop_consistency(self, xp):
         """Test that batched transforms match individual transforms in a loop."""
         r = np.logspace(-2, 2, 128)
-        a = f(r, 0.3)
+        a = xp.asarray(f(r, 0.3))
         mu = 0.3
 
         kr_values = [0.5, 1.0, 2.0]
@@ -529,7 +538,7 @@ class TestBatchedTransforms:
         fftlog_batch = FFTLog.from_array(
             r, kernel=BesselJKernel(mu), kr=kr_batch, lowring=False
         )
-        result_batch = fftlog_batch.forward(a)
+        result_batch = np.asarray(fftlog_batch.forward(a))
 
         # Individual transforms in a loop
         results_loop = []
@@ -537,7 +546,7 @@ class TestBatchedTransforms:
             fftlog_single = FFTLog.from_array(
                 r, kernel=BesselJKernel(mu), kr=kr_val, lowring=False
             )
-            result_single = fftlog_single.forward(a)
+            result_single = np.asarray(fftlog_single.forward(a))
             results_loop.append(result_single)
         results_loop = np.array(results_loop)
 
@@ -669,7 +678,10 @@ def test_forward_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
+    with pytest.raises(
+        ValueError,
+        match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)",
+    ):
         fftlog.forward(wrong_size)
 
 
@@ -679,5 +691,8 @@ def test_inverse_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
+    with pytest.raises(
+        ValueError,
+        match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)",
+    ):
         fftlog.inverse(wrong_size)
