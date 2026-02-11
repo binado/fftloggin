@@ -12,6 +12,27 @@ wheels = [
 ]
 
 [[package]]
+name = "array-api-compat"
+version = "1.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/68/36/f799b36d7025a92a23819f9f06541babdb84b6fd0bd4253f8be2eca348a4/array_api_compat-1.13.0.tar.gz", hash = "sha256:8b83a56aa8b9477472fee37f7731968dd213e20c198a05ac49caeff9b03f48a6", size = 103065, upload-time = "2025-12-28T11:26:57.734Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/5d/493b1b5528ab5072feae30821ff3a07b7a0474213d548efb1fdf135f85c1/array_api_compat-1.13.0-py3-none-any.whl", hash = "sha256:c15026a0ddec42815383f07da285472e1b1ff2e632eb7afbcfe9b08fcbad9bf1", size = 58585, upload-time = "2025-12-28T11:26:56.081Z" },
+]
+
+[[package]]
+name = "array-api-strict"
+version = "2.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d2/1e/65ba6f1b16c56642a23bd895dc771540e85558fc0ecc2758a212b5176325/array_api_strict-2.4.1.tar.gz", hash = "sha256:6c77dca1cb8c9627084ab687e9b27207b91fca3553f2072bf2d6074f0a1c3b4c", size = 84946, upload-time = "2025-07-27T07:51:24.021Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/7b/81bef4348db9705d829c58b9e563c78eddca24438f1ce1108d709e6eed55/array_api_strict-2.4.1-py3-none-any.whl", hash = "sha256:22198ceb47cd3d9c0534c50650d265848d0da6ff71707171215e6678ce811ca5", size = 73933, upload-time = "2025-07-27T07:51:22.487Z" },
+]
+
+[[package]]
 name = "asttokens"
 version = "3.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -285,6 +306,7 @@ name = "fftloggin"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "array-api-compat" },
     { name = "numpy" },
     { name = "scipy" },
 ]
@@ -294,6 +316,7 @@ benchmark = [
     { name = "memray" },
 ]
 dev = [
+    { name = "array-api-strict" },
     { name = "pre-commit" },
     { name = "pyfftw" },
     { name = "pytest" },
@@ -304,6 +327,7 @@ fftw = [
     { name = "pyfftw" },
 ]
 test = [
+    { name = "array-api-strict" },
     { name = "pyfftw" },
     { name = "pytest" },
 ]
@@ -315,6 +339,7 @@ tutorial = [
 
 [package.metadata]
 requires-dist = [
+    { name = "array-api-compat", specifier = ">=1.11.2" },
     { name = "numpy", specifier = ">=2.3.2" },
     { name = "scipy", specifier = ">=1.16.1" },
 ]
@@ -322,6 +347,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 benchmark = [{ name = "memray", specifier = ">=1.14.0" }]
 dev = [
+    { name = "array-api-strict", specifier = ">=2.3.1" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyfftw", specifier = ">0.14.0" },
     { name = "pytest", specifier = ">=8.4.1" },
@@ -330,6 +356,7 @@ dev = [
 ]
 fftw = [{ name = "pyfftw", specifier = ">0.14.0" }]
 test = [
+    { name = "array-api-strict", specifier = ">=2.3.1" },
     { name = "pyfftw", specifier = ">0.14.0" },
     { name = "pytest", specifier = ">=8.4.1" },
 ]

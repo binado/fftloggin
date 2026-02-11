@@ -4,6 +4,7 @@ from functools import cached_property
 
 import numpy as np
 import numpy.typing as npt
+from array_api_compat import array_namespace, is_array_api_obj, is_numpy_array
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .fft import DEFAULT_FFT_BACKEND_FACTORY, FFTBackend, FFTWorkspace
@@ -825,6 +826,62 @@ class FFTLog:
         shift = (logc - optimal) / dlog
         return optimal + np.round(shift) * dlog
 
+    def _forward_xp(self, a):
+        """Forward Hankel transform using Array API (non-NumPy arrays)."""
+        xp = array_namespace(a)
+        na = a.shape[-1]
+        bias = np.asarray(self.bias)
+        dlog = np.asarray(self.dlog)
+        logc = np.asarray(self.logc)
+
+        # Bias power law: exp(-bias * (i - ic) * dlog)
+        ic = (na - 1) / 2.0
+        i_minus_ic = xp.arange(na, dtype=a.dtype) - ic
+        bias_power_law = xp.exp(xp.asarray(-bias) * i_minus_ic * xp.asarray(dlog))
+        bias_logc_factor = xp.exp(xp.asarray(-bias * logc))
+
+        a_biased = a * bias_power_law
+
+        # FFT via xp.fft
+        a_biased_fftd = xp.fft.rfft(a_biased)
+
+        # Convert cached NumPy coefficients to target namespace
+        coeffs = xp.asarray(self.kernel_coefficients)
+        ak = xp.fft.irfft(a_biased_fftd * coeffs, n=na)
+        ak = xp.flip(ak, axis=-1)
+
+        # Unbias
+        ak = ak * bias_power_law * bias_logc_factor
+        return ak
+
+    def _inverse_xp(self, ak):
+        """Inverse Hankel transform using Array API (non-NumPy arrays)."""
+        xp = array_namespace(ak)
+        na = ak.shape[-1]
+        bias = np.asarray(self.bias)
+        dlog = np.asarray(self.dlog)
+        logc = np.asarray(self.logc)
+
+        # Bias power law: exp(+bias * (i - ic) * dlog)
+        ic = (na - 1) / 2.0
+        i_minus_ic = xp.arange(na, dtype=ak.dtype) - ic
+        bias_power_law = xp.exp(xp.asarray(bias) * i_minus_ic * xp.asarray(dlog))
+        bias_logc_factor = xp.exp(xp.asarray(bias * logc))
+
+        ak_biased = ak * bias_power_law * bias_logc_factor
+
+        # FFT via xp.fft
+        ak_biased_fftd = xp.fft.rfft(ak_biased)
+
+        # Convert cached NumPy coefficients to target namespace
+        coeffs_conj = xp.asarray(self.kernel_coefficients_conj)
+        a = xp.fft.irfft(ak_biased_fftd / coeffs_conj, n=na)
+        a = xp.flip(a, axis=-1)
+
+        # Unbias
+        a = a * bias_power_law
+        return a
+
     def forward(
         self,
         a: npt.ArrayLike,
@@ -843,16 +900,17 @@ class FFTLog:
         ----------
         a : array_like
             Real input array to be transformed. Must be sampled on a
-            logarithmically-spaced grid with spacing dlog.
+            logarithmically-spaced grid with spacing dlog. Supports any
+            Array API-compatible array (NumPy, JAX, CuPy, etc.).
         out : ndarray, optional
-            Optional output array to write the result into. Must match the
-            broadcasted output shape and be writable. If provided, it must not
-            share memory with ``a``.
+            Optional output array to write the result into. Only supported
+            for NumPy arrays. Must match the broadcasted output shape and
+            be writable. If provided, it must not share memory with ``a``.
         workspace : FFTWorkspace, optional
             Optional workspace for reusing FFT plans and buffers in backends
-            that support it (e.g., PyFFTW). Ignored by other backends.
+            that support it (e.g., PyFFTW). Only used for NumPy arrays.
         **kwargs
-            Additional keyword arguments passed to the FFT backend.
+            Additional keyword arguments passed to the FFT backend (NumPy only).
 
         Returns
         -------
@@ -889,6 +947,15 @@ class FFTLog:
         inverse : Inverse Hankel transform
         Grid.forward : Recommended high-level interface with coordinate management
         """
+        if is_array_api_obj(a) and not is_numpy_array(a):
+            na = a.shape[-1]
+            if na != self.n:
+                raise ValueError(
+                    f"Input array size {na} does not match FFTLog size {self.n}. "
+                    f"Set the `n` property or create a new FFTLog instance."
+                )
+            return self._forward_xp(a)
+
         a = np.asarray(a)
         self._validate_out(out, a)
         na = a.shape[-1]
@@ -948,16 +1015,17 @@ class FFTLog:
         ----------
         ak : array_like
             Real input array to be inverse transformed. Must be sampled on a
-            logarithmically-spaced grid with spacing dlog.
+            logarithmically-spaced grid with spacing dlog. Supports any
+            Array API-compatible array (NumPy, JAX, CuPy, etc.).
         out : ndarray, optional
-            Optional output array to write the result into. Must match the
-            broadcasted output shape and be writable. If provided, it must not
-            share memory with ``ak``.
+            Optional output array to write the result into. Only supported
+            for NumPy arrays. Must match the broadcasted output shape and
+            be writable. If provided, it must not share memory with ``ak``.
         workspace : FFTWorkspace, optional
             Optional workspace for reusing FFT plans and buffers in backends
-            that support it (e.g., PyFFTW). Ignored by other backends.
+            that support it (e.g., PyFFTW). Only used for NumPy arrays.
         **kwargs
-            Additional keyword arguments passed to the FFT backend.
+            Additional keyword arguments passed to the FFT backend (NumPy only).
 
         Returns
         -------
@@ -994,6 +1062,15 @@ class FFTLog:
         forward : Forward Hankel transform
         Grid.inverse : Recommended high-level interface with coordinate management
         """
+        if is_array_api_obj(ak) and not is_numpy_array(ak):
+            na = ak.shape[-1]
+            if na != self.n:
+                raise ValueError(
+                    f"Input array size {na} does not match FFTLog size {self.n}. "
+                    f"Set the `n` property or create a new FFTLog instance."
+                )
+            return self._inverse_xp(ak)
+
         ak = np.asarray(ak)
         self._validate_out(out, ak)
         na = ak.shape[-1]
