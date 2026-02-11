@@ -20,6 +20,7 @@ class NumPyFFTBackend:
         overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
+        """Delegates to ``numpy.fft.rfft``. ``workspace`` and ``overwrite_x`` are ignored."""
         _ = workspace, overwrite_x
         return rfft(x, n=n, out=out, **kwargs)
 
@@ -32,5 +33,6 @@ class NumPyFFTBackend:
         overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
+        """Delegates to ``numpy.fft.irfft``. ``workspace`` and ``overwrite_x`` are ignored."""
         _ = workspace, overwrite_x
         return irfft(x, n=n, out=out, **kwargs)

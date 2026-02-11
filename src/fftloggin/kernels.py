@@ -70,9 +70,11 @@ class Kernel:
 
         Returns
         -------
-        tuple[ArrayLike, ArrayLike]
-            Lower and upper bounds of the domain (strip of convergence)
-            in the complex plane.
+        tuple[float | NDArray, float | NDArray]
+            Lower and upper bounds of the strip of convergence in the
+            complex plane. The base class returns plain floats; subclasses
+            may return arrays when the bounds depend on vectorized parameters
+            (e.g. a batch of ``mu`` values in :class:`BesselJKernel`).
         """
         return (-np.inf, np.inf)
 
@@ -350,7 +352,6 @@ class BesselJKernel(Kernel):
 
     See Also
     --------
-    SphericalBesselJKernel : Related spherical Bessel function kernel
     Derivative : Compute derivatives of kernels
     """
 

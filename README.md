@@ -6,7 +6,7 @@ Vectorized FFTLog in pure python
 
 ```bash
 # Install with uv
-uv pip install fftloggin
+uv add fftloggin
 
 # Or with pip
 pip install fftloggin
@@ -18,7 +18,11 @@ If you want FFTW-based plans and buffer reuse, install the optional dependency
 and use the PyFFTW backend.
 
 ```bash
-uv pip install "fftloggin[fftw]"
+# With uv
+uv add "fftloggin[fftw]"
+
+# Or with pip
+pip install "fftloggin[fftw]"
 ```
 
 ```python
@@ -34,11 +38,11 @@ fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, backend=PyFFTWBackend
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/fftloggin.git
+git clone https://github.com/binado/fftloggin.git
 cd fftloggin
 
 # Install dependencies
-uv sync --all-extras --dev
+uv sync --all-groups
 ```
 
 ### Running Tests
