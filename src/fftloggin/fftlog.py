@@ -887,7 +887,10 @@ class FFTLog:
         self._validate_out(out, a)
         na = a.shape[-1]
         if na != self.n:
-            self.n = na
+            raise ValueError(
+                f"Input array size {na} does not match FFTLog size {self.n}. "
+                f"Set the `n` property or create a new FFTLog instance."
+            )
 
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
@@ -983,7 +986,10 @@ class FFTLog:
         self._validate_out(out, ak)
         na = ak.shape[-1]
         if na != self.n:
-            self.n = na
+            raise ValueError(
+                f"Input array size {na} does not match FFTLog size {self.n}. "
+                f"Set the `n` property or create a new FFTLog instance."
+            )
 
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype

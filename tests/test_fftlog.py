@@ -661,3 +661,23 @@ def test_combined_kernel_broadcasting():
     # Broadcast (1,1,ns) and (3,ns) -> (1,3,ns)
     # Stack -> (2, 1, 3, ns)
     assert res.shape == (2, 1, 3, ns)
+
+
+def test_forward_raises_on_size_mismatch():
+    """forward() must raise ValueError when input size != self.n (issue #35)."""
+    r = np.logspace(-2, 2, 128)
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
+
+    wrong_size = np.ones(64)
+    with pytest.raises(ValueError, match="64.*does not match.*128|128.*64"):
+        fftlog.forward(wrong_size)
+
+
+def test_inverse_raises_on_size_mismatch():
+    """inverse() must raise ValueError when input size != self.n (issue #35)."""
+    r = np.logspace(-2, 2, 128)
+    fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
+
+    wrong_size = np.ones(64)
+    with pytest.raises(ValueError, match="64.*does not match.*128|128.*64"):
+        fftlog.inverse(wrong_size)
