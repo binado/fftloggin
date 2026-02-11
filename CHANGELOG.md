@@ -1,3 +1,23 @@
+## 0.3.0 (2026-02-11)
+
+### Feat
+
+- add CombinedKernel class (#29)
+- add domain validation for FFTLog bias parameter (#28)
+
+### Fix
+
+- raise ValueError on input size mismatch in forward()/inverse() (#36)
+- remove unused pixi-sync-environment pre-commit hook (#24)
+
+### Refactor
+
+- download Fortran benchmark code on-demand instead of storin… (#21)
+
+### Perf
+
+- reduce fftlog allocation churn (#33)
+
 ## 0.2.1 (2025-11-02)
 
 ### Fix
