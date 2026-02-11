@@ -105,7 +105,7 @@ def _run_benchmarks(args: argparse.Namespace) -> None:
         except ImportError as exc:
             raise SystemExit(
                 "pyfftw backend requested but optional dependency is missing. "
-                'Install with `uv pip install "fftloggin[fftw]"`.'
+                'Install with `pip install "fftloggin[fftw]"` or `uv add "fftloggin[fftw]"`.'
             ) from exc
         backend = PyFFTWBackend()
     else:

@@ -42,9 +42,6 @@ Repository = "https://github.com/binado/fftloggin.git"
 Issues = "https://github.com/binado/fftloggin/issues"
 Documentation = "https://github.com/binado/fftloggin#readme"
 
-[project.scripts]
-fftloggin = "fftloggin:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

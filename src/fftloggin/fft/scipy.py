@@ -20,6 +20,7 @@ class SciPyFFTBackend:
         overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
+        """Delegates to ``scipy.fft.rfft``, forwarding ``overwrite_x``. ``workspace`` is ignored."""
         _ = workspace
         result = rfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
         if out is None:
@@ -35,6 +36,7 @@ class SciPyFFTBackend:
         overwrite_x: bool = False,
         **kwargs,
     ) -> npt.NDArray:
+        """Delegates to ``scipy.fft.irfft``, forwarding ``overwrite_x``. ``workspace`` is ignored."""
         _ = workspace
         result = irfft(x, n=n, overwrite_x=overwrite_x, **kwargs)
         if out is None:

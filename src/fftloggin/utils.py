@@ -9,6 +9,21 @@ import numpy.typing as npt
 def allocate_broadcasted_array(
     *arrs: npt.NDArray, dtype: npt.DTypeLike | None = None
 ) -> npt.NDArray:
+    """
+    Allocate an empty array whose shape is the broadcast shape of *arrs*.
+
+    Parameters
+    ----------
+    *arrs : ndarray
+        Input arrays whose shapes are broadcast together.
+    dtype : dtype-like, optional
+        Element type of the output array. Defaults to ``np.result_type(*arrs)``.
+
+    Returns
+    -------
+    ndarray
+        Uninitialized array with the broadcasted shape and the requested dtype.
+    """
     if dtype is None:
         dtype = np.result_type(*arrs)
     else:
@@ -20,6 +35,28 @@ def allocate_broadcasted_array(
 def in_place_compatible(
     target: npt.NDArray, *others: npt.NDArray, casting: str = "same_kind"
 ) -> bool:
+    """
+    Return True if an operation on *target* and *others* can be written back
+    into *target* without shape expansion or dtype loss.
+
+    Two conditions must both hold:
+    1. Broadcasting *target* with all *others* does not change the shape of *target*.
+    2. The result dtype can be cast back into ``target.dtype`` under *casting*.
+
+    Parameters
+    ----------
+    target : ndarray
+        Array that would receive the in-place result.
+    *others : ndarray
+        Other operands participating in the operation.
+    casting : str, optional
+        NumPy casting rule passed to ``np.can_cast``. Default is ``"same_kind"``.
+
+    Returns
+    -------
+    bool
+        ``True`` if writing the result back into *target* is safe.
+    """
     if not others:
         return True
     shape = np.broadcast_shapes(target.shape, *(arr.shape for arr in others))
