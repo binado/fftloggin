@@ -860,10 +860,16 @@ class FFTLog:
             The transformed output array, representing the function on
             a logarithmically-spaced wavenumber grid.
 
+        Raises
+        ------
+        ValueError
+            If the input array size does not match ``self.n``. Use the ``n``
+            property to adjust the FFTLog size, or create a new FFTLog instance.
+
         Notes
         -----
-        The array size is automatically adjusted if input size doesn't match
-        self.n. The transform assumes input is sampled on a log-spaced grid.
+        The transform assumes input is sampled on a log-spaced grid with
+        spacing ``dlog``. Input array size must match ``self.n``.
 
         Examples
         --------
@@ -887,7 +893,10 @@ class FFTLog:
         self._validate_out(out, a)
         na = a.shape[-1]
         if na != self.n:
-            self.n = na
+            raise ValueError(
+                f"Input array size {na} does not match FFTLog size {self.n}. "
+                f"Set the `n` property or create a new FFTLog instance."
+            )
 
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
@@ -956,10 +965,16 @@ class FFTLog:
             The inverse transformed output array, representing the function on
             a logarithmically-spaced radial grid.
 
+        Raises
+        ------
+        ValueError
+            If the input array size does not match ``self.n``. Use the ``n``
+            property to adjust the FFTLog size, or create a new FFTLog instance.
+
         Notes
         -----
-        The array size is automatically adjusted if input size doesn't match
-        self.n. The transform assumes input is sampled on a log-spaced grid.
+        The transform assumes input is sampled on a log-spaced grid with
+        spacing ``dlog``. Input array size must match ``self.n``.
 
         Examples
         --------
@@ -983,7 +998,10 @@ class FFTLog:
         self._validate_out(out, ak)
         na = ak.shape[-1]
         if na != self.n:
-            self.n = na
+            raise ValueError(
+                f"Input array size {na} does not match FFTLog size {self.n}. "
+                f"Set the `n` property or create a new FFTLog instance."
+            )
 
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype
