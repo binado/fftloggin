@@ -7,13 +7,14 @@ of various integral kernels used in generalized FFTLog transforms.
 
 from collections.abc import Sequence
 from contextlib import contextmanager
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from array_api_compat import array_namespace, is_array_api_obj
 from scipy import special
 
 from .exceptions import ArgumentOutOfDomainError
-from .utils import safe_broadcast
 
 __all__ = (
     "ArgumentOutOfDomainError",
@@ -26,6 +27,38 @@ __all__ = (
 
 LOG_2 = np.log(2)
 SQRT_PI_OVER_2 = np.sqrt(np.pi / 2)
+
+
+def _get_namespace(*arrays: Any) -> Any:
+    for arr in arrays:
+        if is_array_api_obj(arr):
+            return array_namespace(arr)
+    return np
+
+
+def _safe_broadcast_namespace(left: Any, right: Any, xp: Any) -> tuple[Any, Any]:
+    left = xp.asarray(left)
+    right = xp.asarray(right)
+
+    if left.ndim > 0 and right.ndim > 0:
+        n_trailing_ones = 0
+        for dim in left.shape[::-1]:
+            if dim == 1:
+                n_trailing_ones += 1
+            else:
+                break
+        n_dims_to_add = max(0, right.ndim - n_trailing_ones)
+        if n_dims_to_add > 0:
+            left = left.reshape(left.shape + (1,) * n_dims_to_add)
+
+    return left, right
+
+
+def _kernel_forward(kernel: "Kernel", s: Any) -> Any:
+    # Ensure forward() always receives an array object with a discoverable namespace.
+    if not is_array_api_obj(s):
+        s = np.asarray(s)
+    return kernel.forward(s)
 
 
 class Kernel:
@@ -78,7 +111,7 @@ class Kernel:
         """
         return (-np.inf, np.inf)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def forward(self, s: npt.ArrayLike, xp: Any | None = None) -> npt.NDArray | Any:
         """
         Compute the Mellin transform at s.
 
@@ -99,7 +132,7 @@ class Kernel:
         """
         raise NotImplementedError
 
-    def is_in_domain(self, s: npt.ArrayLike) -> bool:
+    def is_in_domain(self, s: npt.ArrayLike, xp: Any | None = None) -> bool:
         """
         Check if s is within the domain of convergence.
 
@@ -113,16 +146,15 @@ class Kernel:
         bool
             True if all values are within the domain.
         """
+        xp = xp or _get_namespace(s)
         inf, sup = self.domain
-        # Domain applies to the real part of s
-        s_real = np.real(s)
-        # Reshape inf/sup to have trailing dimensions for proper broadcasting
-        inf, _ = safe_broadcast(inf, s)
-        sup, _ = safe_broadcast(sup, s)
+        s_real = xp.real(xp.asarray(s))
+        inf, _ = _safe_broadcast_namespace(inf, s_real, xp=xp)
+        sup, _ = _safe_broadcast_namespace(sup, s_real, xp=xp)
         in_bounds = (s_real >= inf) & (s_real <= sup)
-        return bool(np.all(in_bounds))
+        return bool(np.all(np.asarray(in_bounds)))
 
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
+    def __call__(self, s: npt.ArrayLike, xp: Any | None = None) -> npt.NDArray | Any:
         """
         Compute the Mellin transform at s with optional bounds checking.
 
@@ -141,14 +173,15 @@ class Kernel:
         ArgumentOutOfDomainError
             If s is outside the domain of convergence and check_bounds is True.
         """
+        xp = xp or _get_namespace(s)
         if self.check_bounds:
-            if not self.is_in_domain(s):
+            if not self.is_in_domain(s, xp=xp):
                 raise ArgumentOutOfDomainError(
                     s=s, kernel=self, context="when calling kernel directly"
                 )
 
-        s = np.asarray(s)
-        return self.forward(s)
+        s = xp.asarray(s)
+        return _kernel_forward(self, s)
 
     def derive(self, order: int = 1) -> "Kernel":
         r"""
@@ -296,17 +329,20 @@ class Derivative(Kernel):
         inf, sup = self.transform.domain
         return np.asarray(inf) + self.order, np.asarray(sup) + self.order
 
-    def is_in_domain(self, s: npt.ArrayLike) -> bool:
-        s = np.asarray(s)
-        return self.transform.is_in_domain(s - self.order)
+    def is_in_domain(self, s: npt.ArrayLike, xp: Any | None = None) -> bool:
+        xp = xp or _get_namespace(s)
+        s = xp.asarray(s)
+        return self.transform.is_in_domain(s - self.order, xp=xp)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
-        s = np.asarray(s)
+    def forward(self, s: npt.ArrayLike, xp: Any | None = None) -> npt.NDArray | Any:
+        xp = xp or _get_namespace(s)
+        s = xp.asarray(s)
         sign = 1 - 2 * (self.order % 2)
+        shifted = s.reshape(s.shape + (1,)) - xp.arange(1, self.order + 1)
         return (
             sign
-            * np.prod(s.reshape(*s.shape, 1) - np.arange(1, self.order + 1), axis=-1)
-            * self.transform.forward(s - self.order)
+            * xp.prod(shifted, axis=-1)
+            * _kernel_forward(self.transform, s - self.order)
         )
 
 
@@ -364,7 +400,7 @@ class BesselJKernel(Kernel):
         """Domain of convergence: (-mu, 1.5)."""
         return (-self.mu, 1.5 * np.ones_like(self.mu))
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def forward(self, s: npt.ArrayLike, xp: Any | None = None) -> npt.NDArray | Any:
         """
         Compute the Mellin transform.
 
@@ -383,14 +419,24 @@ class BesselJKernel(Kernel):
         The implementation uses log-gamma functions for numerical stability
         to avoid overflow/underflow in direct gamma computations.
         """
+        xp = xp or _get_namespace(s)
         # Reshape mu and s to enable proper broadcasting
-        mu, s = safe_broadcast(self.mu, s)
+        mu, s = _safe_broadcast_namespace(self.mu, s, xp=xp)
+        try:
+            mu = np.asarray(mu)
+            s = np.asarray(s)
+        except Exception as err:
+            raise TypeError(
+                "Kernel namespace path is not supported by BesselJKernel's "
+                "SciPy-based implementation. Provide an Array-API-compliant "
+                "kernel implementation for this namespace."
+            ) from err
         logforward = (
             LOG_2 * (s - 1)
             + special.loggamma(0.5 * (mu + s))
             - special.loggamma(0.5 * (mu + 2 - s))
         )
-        return np.exp(logforward)
+        return xp.asarray(np.exp(logforward))
 
 
 class SphericalBesselJKernel(BesselJKernel):
@@ -417,9 +463,10 @@ class SphericalBesselJKernel(BesselJKernel):
         inf, sup = super().domain
         return (np.asarray(inf) + 0.5, np.asarray(sup) + 0.5)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
-        s = np.asarray(s)
-        return super().forward(s - 0.5) * SQRT_PI_OVER_2
+    def forward(self, s: npt.ArrayLike, xp: Any | None = None) -> npt.NDArray | Any:
+        xp = xp or _get_namespace(s)
+        s = xp.asarray(s)
+        return super().forward(s - 0.5) * xp.asarray(SQRT_PI_OVER_2)
 
 
 class CombinedKernel(Kernel):
@@ -485,7 +532,7 @@ class CombinedKernel(Kernel):
         sups = np.broadcast_arrays(*[d[1] for d in domains])
         return np.stack(infs, axis=0), np.stack(sups, axis=0)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def forward(self, s: npt.ArrayLike, xp: Any | None = None) -> npt.NDArray | Any:
         """
         Compute the Mellin transform for all kernels and stack results.
 
@@ -501,11 +548,15 @@ class CombinedKernel(Kernel):
             the number of kernels. If s is scalar, returns shape (N, 1)
             for compatibility with FFTLog batch processing.
         """
-        results = np.broadcast_arrays(*[k.forward(s) for k in self.kernels])
-        res = np.stack(results, axis=0)
+        xp = xp or _get_namespace(s)
+        s = xp.asarray(s)
+        results = [_kernel_forward(k, s) for k in self.kernels]
+        shape = np.broadcast_shapes(*(r.shape for r in results))
+        results = [xp.broadcast_to(r, shape) for r in results]
+        res = xp.stack(results, axis=0)
 
         # Scalar input needs shape (N, 1) for FFTLog broadcasting
-        if np.ndim(s) == 0 and res.ndim == 1:
+        if xp.asarray(s).ndim == 0 and res.ndim == 1:
             res = res[..., np.newaxis]
 
         return res

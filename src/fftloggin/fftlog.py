@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import warnings
 from enum import Enum
 from functools import cached_property
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
+from array_api_compat import array_namespace, is_array_api_obj, is_numpy_array
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .fft import DEFAULT_FFT_BACKEND_FACTORY, FFTBackend, FFTWorkspace
@@ -11,7 +15,18 @@ from .grids import Grid
 from .kernels import Kernel
 from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadcast
 
+if TYPE_CHECKING:
+    from types import ModuleType
+
 LN_2 = np.log(2)
+ArrayT = TypeVar("ArrayT")
+
+
+def _kernel_forward(kernel: Kernel, s: Any) -> Any:
+    """Call kernel.forward with an array argument so namespace can be inferred."""
+    if not is_array_api_obj(s):
+        s = np.asarray(s)
+    return kernel.forward(s)
 
 
 class DomainCheckMode(Enum):
@@ -174,8 +189,11 @@ def _inverse_hankel_transform(
 
 
 def optimal_logcenter(
-    kernel: Kernel, dlog: npt.ArrayLike, bias: npt.ArrayLike = 0.0
-) -> npt.NDArray:
+    kernel: Kernel,
+    dlog: npt.ArrayLike,
+    bias: npt.ArrayLike = 0.0,
+    xp: ModuleType | None = None,
+) -> npt.NDArray | Any:
     """
     Compute optimal log-center parameter to minimize ringing.
 
@@ -196,11 +214,20 @@ def optimal_logcenter(
     logc : ndarray
         Optimal log-center parameter. Scalar or shape (*batch_shape, 1).
     """
-    dlog = np.asarray(dlog)
-    bias = np.asarray(bias)
-    s = 1j * np.pi / dlog + 1 + bias
-    arg = np.angle(kernel.forward(s))
-    return dlog * arg / np.pi
+    xp = xp or np
+    dlog_arr = xp.asarray(dlog)
+    bias_arr = xp.asarray(bias)
+    complex_dtype = getattr(xp, "complex128", None) or getattr(xp, "complex64", None)
+    if complex_dtype is None:
+        raise TypeError("Array namespace must support complex dtypes.")
+    dlog_c = xp.asarray(dlog_arr, dtype=complex_dtype)
+    bias_c = xp.asarray(bias_arr, dtype=complex_dtype)
+    one = xp.asarray(1, dtype=complex_dtype)
+    imag_unit = xp.asarray(1j, dtype=complex_dtype)
+    s = imag_unit * (np.pi / dlog_c) + one + bias_c
+    u_k = _kernel_forward(kernel, s)
+    arg = xp.atan2(xp.imag(u_k), xp.real(u_k))
+    return dlog_arr * arg / np.pi
 
 
 def compute_kernel_coefficients(
@@ -209,7 +236,8 @@ def compute_kernel_coefficients(
     kr: npt.ArrayLike,
     dlog: npt.ArrayLike,
     bias: npt.ArrayLike = 0.0,
-) -> npt.NDArray:
+    xp: ModuleType | None = None,
+) -> npt.NDArray | Any:
     """
     Compute FFT coefficients for FFTLog transform.
 
@@ -236,20 +264,27 @@ def compute_kernel_coefficients(
         FFT coefficients with shape (ns,) for scalar inputs or (*batch_shape, ns)
         for batched inputs, where ns = n//2 + 1.
     """
-    dlog = np.asarray(dlog)
-    bias = np.asarray(bias)
-    # Length of real Fourier transform
-    ns = n // 2 + 1
-    m = np.arange(0, ns)
-    angle = (2 * np.pi * 1j / n) * m / dlog
-    s = angle + 1 + bias
-    coeffs = kernel.forward(s)
-    logc = np.log(np.asarray(kr))
-    coeffs = coeffs * np.exp(-angle * logc)
-    # Handle Nyquist frequency for even n
-    if n % 2 == 0:
-        coeffs[..., -1] = np.real(coeffs[..., -1])
+    xp = xp or np
+    dlog_arr = xp.asarray(dlog)
+    bias_arr = xp.asarray(bias)
+    complex_dtype = getattr(xp, "complex128", None) or getattr(xp, "complex64", None)
+    if complex_dtype is None:
+        raise TypeError("Array namespace must support complex dtypes.")
 
+    ns = n // 2 + 1
+    m = xp.arange(0, ns, dtype=complex_dtype)
+    dlog_c = xp.asarray(dlog_arr, dtype=complex_dtype)
+    bias_c = xp.asarray(bias_arr, dtype=complex_dtype)
+    imag_unit = xp.asarray(1j, dtype=complex_dtype)
+    one = xp.asarray(1, dtype=complex_dtype)
+    angle = (2 * np.pi / n) * imag_unit * m / dlog_c
+    s = angle + one + bias_c
+    coeffs = _kernel_forward(kernel, s)
+    logc = xp.log(xp.asarray(kr, dtype=complex_dtype))
+    coeffs = coeffs * xp.exp(-angle * logc)
+    if n % 2 == 0:
+        nyq_mask = xp.arange(ns) == (ns - 1)
+        coeffs = xp.where(nyq_mask, xp.real(coeffs), coeffs)
     return coeffs
 
 
@@ -258,8 +293,9 @@ def biased_power_law(
     dlog: npt.ArrayLike,
     n: int,
     sign: int,
-    dtype: np.dtype,
-) -> npt.NDArray:
+    dtype: Any,
+    xp: ModuleType | None = None,
+) -> npt.NDArray | Any:
     """
     Compute exp(sign * bias * dlog * (i - ic)).
 
@@ -281,27 +317,38 @@ def biased_power_law(
     NDArray
         Broadcasted bias power-law factor.
     """
-    bias = np.asarray(bias)
-    dlog = np.asarray(dlog)
-    base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype)
-    ic = (n - 1) / 2.0
-    i_minus_ic = np.arange(n, dtype=base_dtype) - ic
-    shape = np.broadcast_shapes(i_minus_ic.shape, bias.shape, dlog.shape)
-    buf = np.empty(shape, dtype=base_dtype)
-    np.multiply(i_minus_ic, dlog, out=buf)
+    xp = xp or np
+    if xp is np:
+        bias = np.asarray(bias)
+        dlog = np.asarray(dlog)
+        base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype)
+        ic = (n - 1) / 2.0
+        i_minus_ic = np.arange(n, dtype=base_dtype) - ic
+        shape = np.broadcast_shapes(i_minus_ic.shape, bias.shape, dlog.shape)
+        buf = np.empty(shape, dtype=base_dtype)
+        np.multiply(i_minus_ic, dlog, out=buf)
+        if sign < 0:
+            np.negative(buf, out=buf)
+        np.multiply(buf, bias, out=buf)
+        np.exp(buf, out=buf)
+        return buf
+
+    bias = xp.asarray(bias)
+    dlog = xp.asarray(dlog)
+    i_minus_ic = xp.arange(n, dtype=dtype) - (n - 1) / 2.0
+    exponent = i_minus_ic * dlog
     if sign < 0:
-        np.negative(buf, out=buf)
-    np.multiply(buf, bias, out=buf)
-    np.exp(buf, out=buf)
-    return buf
+        exponent = -exponent
+    return xp.exp(exponent * bias)
 
 
 def biased_logc(
     bias: npt.ArrayLike,
     logc: npt.ArrayLike,
     sign: int,
-    dtype: np.dtype,
-) -> npt.NDArray:
+    dtype: Any,
+    xp: ModuleType | None = None,
+) -> npt.NDArray | Any:
     """
     Compute exp(sign * bias * logc).
 
@@ -321,16 +368,237 @@ def biased_logc(
     NDArray
         Broadcasted bias logc factor.
     """
-    bias = np.asarray(bias)
-    logc = np.asarray(logc)
-    base_dtype = np.result_type(dtype, bias.dtype, logc.dtype)
-    shape = np.broadcast_shapes(bias.shape, logc.shape)
-    buf = np.empty(shape, dtype=base_dtype)
-    np.multiply(bias, logc, out=buf)
+    xp = xp or np
+    if xp is np:
+        bias = np.asarray(bias)
+        logc = np.asarray(logc)
+        base_dtype = np.result_type(dtype, bias.dtype, logc.dtype)
+        shape = np.broadcast_shapes(bias.shape, logc.shape)
+        buf = np.empty(shape, dtype=base_dtype)
+        np.multiply(bias, logc, out=buf)
+        if sign < 0:
+            np.negative(buf, out=buf)
+        np.exp(buf, out=buf)
+        return buf
+
+    bias = xp.asarray(bias, dtype=dtype)
+    logc = xp.asarray(logc, dtype=dtype)
+    exponent = bias * logc
     if sign < 0:
-        np.negative(buf, out=buf)
-    np.exp(buf, out=buf)
-    return buf
+        exponent = -exponent
+    return xp.exp(exponent)
+
+
+@runtime_checkable
+class ComputeBackend(Protocol[ArrayT]):
+    """Protocol for FFTLog compute backends."""
+
+    def kernel_coefficients(
+        self,
+        kernel: Kernel,
+        n: int,
+        kr: npt.ArrayLike | ArrayT,
+        dlog: npt.ArrayLike | ArrayT,
+        bias: npt.ArrayLike | ArrayT,
+    ) -> ArrayT: ...
+
+    def optimal_logcenter(
+        self,
+        kernel: Kernel,
+        dlog: npt.ArrayLike | ArrayT,
+        bias: npt.ArrayLike | ArrayT,
+    ) -> ArrayT: ...
+
+    def forward(
+        self,
+        a: ArrayT,
+        coeffs: ArrayT,
+        logc: npt.ArrayLike | ArrayT,
+        dlog: npt.ArrayLike | ArrayT,
+        bias: npt.ArrayLike | ArrayT,
+        n: int,
+    ) -> ArrayT: ...
+
+    def inverse(
+        self,
+        ak: ArrayT,
+        coeffs: ArrayT,
+        logc: npt.ArrayLike | ArrayT,
+        dlog: npt.ArrayLike | ArrayT,
+        bias: npt.ArrayLike | ArrayT,
+        n: int,
+    ) -> ArrayT: ...
+
+
+class NumPyComputeBackend:
+    """NumPy-optimized compute backend using in-place operations and FFTBackend."""
+
+    def __init__(self, fft_backend: FFTBackend) -> None:
+        self._fft = fft_backend
+
+    def kernel_coefficients(
+        self,
+        kernel: Kernel,
+        n: int,
+        kr: npt.ArrayLike,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+    ) -> npt.NDArray:
+        return compute_kernel_coefficients(kernel, n, kr, dlog, bias)
+
+    def optimal_logcenter(
+        self,
+        kernel: Kernel,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+    ) -> npt.NDArray:
+        return optimal_logcenter(kernel, dlog, bias)
+
+    def forward(
+        self,
+        a: npt.NDArray,
+        coeffs: npt.NDArray,
+        logc: npt.ArrayLike,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+        n: int,
+        workspace: FFTWorkspace | None = None,
+        **kwargs,
+    ) -> npt.NDArray:
+        na = a.shape[-1]
+        bpl = biased_power_law(bias, dlog, n, sign=-1, dtype=a.dtype)
+        blc = biased_logc(bias, logc, sign=-1, dtype=a.dtype)
+
+        a_biased = allocate_broadcasted_array(a, bpl)
+        np.multiply(a, bpl, out=a_biased)
+
+        fft_kwargs = {"workspace": workspace, **kwargs}
+        fft_kwargs.setdefault("overwrite_x", True)
+        a_biased_fftd = self._fft.rfft(a_biased, **fft_kwargs)
+
+        if in_place_compatible(a_biased_fftd, coeffs):
+            np.multiply(a_biased_fftd, coeffs, out=a_biased_fftd)
+            ak = self._fft.irfft(a_biased_fftd, n=na, **fft_kwargs)
+        else:
+            prod = allocate_broadcasted_array(a_biased_fftd, coeffs)
+            np.multiply(a_biased_fftd, coeffs, out=prod)
+            ak = self._fft.irfft(prod, n=na, **fft_kwargs)
+        ak = np.flip(ak, axis=-1)  # type: ignore
+
+        out_dtype = np.result_type(ak.dtype, bpl.dtype, blc.dtype)
+        if ak.dtype != out_dtype:
+            ak = ak.astype(out_dtype, copy=False)
+        np.multiply(ak, bpl, out=ak)
+        np.multiply(ak, blc, out=ak)
+        return ak
+
+    def inverse(
+        self,
+        ak: npt.NDArray,
+        coeffs: npt.NDArray,
+        logc: npt.ArrayLike,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+        n: int,
+        workspace: FFTWorkspace | None = None,
+        **kwargs,
+    ) -> npt.NDArray:
+        na = ak.shape[-1]
+        bpl = biased_power_law(bias, dlog, n, sign=1, dtype=ak.dtype)
+        blc = biased_logc(bias, logc, sign=1, dtype=ak.dtype)
+
+        ak_biased = allocate_broadcasted_array(ak, bpl, blc)
+        np.multiply(ak, bpl, out=ak_biased)
+        np.multiply(ak_biased, blc, out=ak_biased)
+
+        fft_kwargs = {"workspace": workspace, **kwargs}
+        fft_kwargs.setdefault("overwrite_x", True)
+        ak_biased_fftd = self._fft.rfft(ak_biased, **fft_kwargs)
+
+        coeffs_conj = np.conjugate(coeffs)
+        if in_place_compatible(ak_biased_fftd, coeffs_conj):
+            np.divide(ak_biased_fftd, coeffs_conj, out=ak_biased_fftd)
+            a = self._fft.irfft(ak_biased_fftd, n=na, **fft_kwargs)
+        else:
+            div = allocate_broadcasted_array(ak_biased_fftd, coeffs_conj)
+            np.divide(ak_biased_fftd, coeffs_conj, out=div)
+            a = self._fft.irfft(div, n=na, **fft_kwargs)
+        a = np.flip(a, axis=-1)  # type: ignore
+
+        out_dtype = np.result_type(a.dtype, bpl.dtype)
+        if a.dtype != out_dtype:
+            a = a.astype(out_dtype, copy=False)
+        np.multiply(a, bpl, out=a)
+        return a
+
+
+class ArrayAPIComputeBackend:
+    """Generic Array API compute backend for non-NumPy arrays."""
+
+    def __init__(self, xp: ModuleType) -> None:
+        self._xp = xp
+
+    def kernel_coefficients(
+        self,
+        kernel: Kernel,
+        n: int,
+        kr: npt.ArrayLike,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+    ) -> Any:
+        return compute_kernel_coefficients(kernel, n, kr, dlog, bias, xp=self._xp)
+
+    def optimal_logcenter(
+        self,
+        kernel: Kernel,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+    ) -> Any:
+        return optimal_logcenter(kernel, dlog, bias, xp=self._xp)
+
+    def forward(
+        self,
+        a: Any,
+        coeffs: Any,
+        logc: npt.ArrayLike,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+        n: int,
+    ) -> Any:
+        xp = self._xp
+        na = a.shape[-1]
+        bpl = biased_power_law(bias, dlog, n, sign=-1, dtype=a.dtype, xp=xp)
+        blc = biased_logc(bias, logc, sign=-1, dtype=a.dtype, xp=xp)
+
+        a_biased = a * bpl
+        a_biased_fftd = xp.fft.rfft(a_biased)
+        ak = xp.fft.irfft(a_biased_fftd * coeffs, n=na)
+        ak = xp.flip(ak, axis=-1)
+        ak = ak * bpl * blc
+        return ak
+
+    def inverse(
+        self,
+        ak: Any,
+        coeffs: Any,
+        logc: npt.ArrayLike,
+        dlog: npt.ArrayLike,
+        bias: npt.ArrayLike,
+        n: int,
+    ) -> Any:
+        xp = self._xp
+        na = ak.shape[-1]
+        bpl = biased_power_law(bias, dlog, n, sign=1, dtype=ak.dtype, xp=xp)
+        blc = biased_logc(bias, logc, sign=1, dtype=ak.dtype, xp=xp)
+
+        ak_biased = ak * bpl * blc
+        ak_biased_fftd = xp.fft.rfft(ak_biased)
+
+        coeffs_conj = xp.conj(coeffs)
+        a = xp.fft.irfft(ak_biased_fftd / coeffs_conj, n=na)
+        a = xp.flip(a, axis=-1)
+        a = a * bpl
+        return a
 
 
 class FFTLog:
@@ -492,7 +760,10 @@ class FFTLog:
         self._lowring = lowring
         self._kr = kr
         self._domain_check_mode = DomainCheckMode(check_domain)
-        self._fft = backend or DEFAULT_FFT_BACKEND_FACTORY()
+        fft = backend or DEFAULT_FFT_BACKEND_FACTORY()
+        self._compute_backend: ComputeBackend[npt.NDArray[Any]] = NumPyComputeBackend(
+            fft
+        )
 
         # Validate domain at construction time
         self._validate_domain()
@@ -502,7 +773,6 @@ class FFTLog:
             "kr",
             "logc",
             "kernel_coefficients",
-            "kernel_coefficients_conj",
             "optimal_logcenter",
         ):
             try:
@@ -673,15 +943,7 @@ class FFTLog:
 
     @cached_property
     def kernel_coefficients(self) -> npt.NDArray:
-        return self._compute_kernel_coefficients()
-
-    @cached_property
-    def kernel_coefficients_conj(self) -> npt.NDArray:
-        return np.conjugate(self.kernel_coefficients)
-
-    def _compute_kernel_coefficients(self) -> npt.NDArray:
-        """Compute FFT coefficients using instance parameters."""
-        return compute_kernel_coefficients(
+        return self._compute_backend.kernel_coefficients(
             self.kernel, self.n, self.kr, self.dlog, self.bias
         )
 
@@ -814,7 +1076,9 @@ class FFTLog:
         ndarray
             Optimal log-center parameter. Scalar or shape (*batch_shape, 1).
         """
-        return optimal_logcenter(self.kernel, self.dlog, self.bias)
+        return self._compute_backend.optimal_logcenter(
+            self.kernel, self.dlog, self.bias
+        )
 
     def shift_logcenter(self, logc: npt.ArrayLike) -> npt.NDArray:
         logc = np.asarray(logc)
@@ -843,16 +1107,17 @@ class FFTLog:
         ----------
         a : array_like
             Real input array to be transformed. Must be sampled on a
-            logarithmically-spaced grid with spacing dlog.
+            logarithmically-spaced grid with spacing dlog. Supports any
+            Array API-compatible array (NumPy, JAX, CuPy, etc.).
         out : ndarray, optional
-            Optional output array to write the result into. Must match the
-            broadcasted output shape and be writable. If provided, it must not
-            share memory with ``a``.
+            Optional output array to write the result into. Only supported
+            for NumPy arrays. Must match the broadcasted output shape and
+            be writable. If provided, it must not share memory with ``a``.
         workspace : FFTWorkspace, optional
             Optional workspace for reusing FFT plans and buffers in backends
-            that support it (e.g., PyFFTW). Ignored by other backends.
+            that support it (e.g., PyFFTW). Only used for NumPy arrays.
         **kwargs
-            Additional keyword arguments passed to the FFT backend.
+            Additional keyword arguments passed to the FFT backend (NumPy only).
 
         Returns
         -------
@@ -889,6 +1154,20 @@ class FFTLog:
         inverse : Inverse Hankel transform
         Grid.forward : Recommended high-level interface with coordinate management
         """
+        if is_array_api_obj(a) and not is_numpy_array(a):
+            na = a.shape[-1]
+            if na != self.n:
+                raise ValueError(
+                    f"Input array size {na} does not match FFTLog size {self.n}. "
+                    f"Set the `n` property or create a new FFTLog instance."
+                )
+            xp = array_namespace(a)
+            backend = ArrayAPIComputeBackend(xp)
+            coeffs = backend.kernel_coefficients(
+                self.kernel, self.n, self.kr, self.dlog, self.bias
+            )
+            return backend.forward(a, coeffs, self.logc, self.dlog, self.bias, self.n)
+
         a = np.asarray(a)
         self._validate_out(out, a)
         na = a.shape[-1]
@@ -898,36 +1177,22 @@ class FFTLog:
                 f"Set the `n` property or create a new FFTLog instance."
             )
 
-        bias_power_law = biased_power_law(
-            self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
+        backend = self._compute_backend
+        assert isinstance(backend, NumPyComputeBackend)
+        ak = backend.forward(
+            a,
+            self.kernel_coefficients,
+            self.logc,
+            self.dlog,
+            self.bias,
+            self.n,
+            workspace=workspace,
+            **kwargs,
         )
-        bias_logc = biased_logc(self.bias, self.logc, sign=-1, dtype=a.dtype)
-        a_biased = allocate_broadcasted_array(a, bias_power_law)
-        np.multiply(a, bias_power_law, out=a_biased)
-
-        fft_kwargs = {"workspace": workspace, **kwargs}
-        fft_kwargs.setdefault("overwrite_x", True)
-        a_biased_fftd = self._fft.rfft(a_biased, **fft_kwargs)
-        coeffs = self.kernel_coefficients
-        if in_place_compatible(a_biased_fftd, coeffs):
-            np.multiply(a_biased_fftd, coeffs, out=a_biased_fftd)
-            ak = self._fft.irfft(a_biased_fftd, n=na, **fft_kwargs)
-        else:
-            prod = allocate_broadcasted_array(a_biased_fftd, coeffs)
-            np.multiply(a_biased_fftd, coeffs, out=prod)
-            ak = self._fft.irfft(prod, n=na, **fft_kwargs)
-        ak = np.flip(ak, axis=-1)  # type: ignore
-        out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
         if out is not None:
-            self._validate_out(out, a, shape=ak.shape, dtype=out_dtype)
-            # Write directly to out, avoiding extra copy
-            np.multiply(ak, bias_power_law, out=out, casting="same_kind")
-            np.multiply(out, bias_logc, out=out)
+            self._validate_out(out, a, shape=ak.shape, dtype=ak.dtype)
+            np.copyto(out, ak, casting="same_kind")
             return out
-        if ak.dtype != out_dtype:
-            ak = ak.astype(out_dtype, copy=False)
-        np.multiply(ak, bias_power_law, out=ak)
-        np.multiply(ak, bias_logc, out=ak)
         return ak
 
     def inverse(
@@ -948,16 +1213,17 @@ class FFTLog:
         ----------
         ak : array_like
             Real input array to be inverse transformed. Must be sampled on a
-            logarithmically-spaced grid with spacing dlog.
+            logarithmically-spaced grid with spacing dlog. Supports any
+            Array API-compatible array (NumPy, JAX, CuPy, etc.).
         out : ndarray, optional
-            Optional output array to write the result into. Must match the
-            broadcasted output shape and be writable. If provided, it must not
-            share memory with ``ak``.
+            Optional output array to write the result into. Only supported
+            for NumPy arrays. Must match the broadcasted output shape and
+            be writable. If provided, it must not share memory with ``ak``.
         workspace : FFTWorkspace, optional
             Optional workspace for reusing FFT plans and buffers in backends
-            that support it (e.g., PyFFTW). Ignored by other backends.
+            that support it (e.g., PyFFTW). Only used for NumPy arrays.
         **kwargs
-            Additional keyword arguments passed to the FFT backend.
+            Additional keyword arguments passed to the FFT backend (NumPy only).
 
         Returns
         -------
@@ -994,6 +1260,20 @@ class FFTLog:
         forward : Forward Hankel transform
         Grid.inverse : Recommended high-level interface with coordinate management
         """
+        if is_array_api_obj(ak) and not is_numpy_array(ak):
+            na = ak.shape[-1]
+            if na != self.n:
+                raise ValueError(
+                    f"Input array size {na} does not match FFTLog size {self.n}. "
+                    f"Set the `n` property or create a new FFTLog instance."
+                )
+            xp = array_namespace(ak)
+            backend = ArrayAPIComputeBackend(xp)
+            coeffs = backend.kernel_coefficients(
+                self.kernel, self.n, self.kr, self.dlog, self.bias
+            )
+            return backend.inverse(ak, coeffs, self.logc, self.dlog, self.bias, self.n)
+
         ak = np.asarray(ak)
         self._validate_out(out, ak)
         na = ak.shape[-1]
@@ -1003,33 +1283,20 @@ class FFTLog:
                 f"Set the `n` property or create a new FFTLog instance."
             )
 
-        bias_power_law = biased_power_law(
-            self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype
+        backend = self._compute_backend
+        assert isinstance(backend, NumPyComputeBackend)
+        a = backend.inverse(
+            ak,
+            self.kernel_coefficients,
+            self.logc,
+            self.dlog,
+            self.bias,
+            self.n,
+            workspace=workspace,
+            **kwargs,
         )
-        bias_logc = biased_logc(self.bias, self.logc, sign=1, dtype=ak.dtype)
-        ak_biased = allocate_broadcasted_array(ak, bias_power_law, bias_logc)
-        np.multiply(ak, bias_power_law, out=ak_biased)
-        np.multiply(ak_biased, bias_logc, out=ak_biased)
-
-        fft_kwargs = {"workspace": workspace, **kwargs}
-        fft_kwargs.setdefault("overwrite_x", True)
-        ak_biased_fftd = self._fft.rfft(ak_biased, **fft_kwargs)
-        coeffs_conj = self.kernel_coefficients_conj
-        if in_place_compatible(ak_biased_fftd, coeffs_conj):
-            np.divide(ak_biased_fftd, coeffs_conj, out=ak_biased_fftd)
-            a = self._fft.irfft(ak_biased_fftd, n=na, **fft_kwargs)
-        else:
-            div = allocate_broadcasted_array(ak_biased_fftd, coeffs_conj)
-            np.divide(ak_biased_fftd, coeffs_conj, out=div)
-            a = self._fft.irfft(div, n=na, **fft_kwargs)
-        a = np.flip(a, axis=-1)  # type: ignore
-        out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
         if out is not None:
-            self._validate_out(out, ak, shape=a.shape, dtype=out_dtype)
-            # Write directly to out, avoiding extra copy
-            np.multiply(a, bias_power_law, out=out, casting="same_kind")
+            self._validate_out(out, ak, shape=a.shape, dtype=a.dtype)
+            np.copyto(out, a, casting="same_kind")
             return out
-        if a.dtype != out_dtype:
-            a = a.astype(out_dtype, copy=False)
-        np.multiply(a, bias_power_law, out=a)
         return a
