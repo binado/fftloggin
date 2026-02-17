@@ -101,8 +101,8 @@ def get_other_array(
         Input log-spaced coordinate array with shape (..., n).
     logc : array_like
         Log-center parameter: log(y_c * x_c). In scipy, this was called 'offset'.
-        Can be scalar or array with shape (*batch_shape,) or (*batch_shape, 1)
-        for batch operations.
+        Must be scalar or array with shape (*batch_shape, 1) for batch
+        operations.
 
     Returns
     -------
@@ -128,8 +128,33 @@ def get_other_array(
     (2, 128)
     """
     x = np.asarray(x)
+    logc_arr = np.asarray(logc)
+    if x.ndim == 0:
+        raise ValueError(
+            f"Invalid input shape for 'x': {x.shape}. Expected array with sample axis "
+            "in the last dimension, shape (..., n)."
+        )
+
+    if logc_arr.ndim > 0 and logc_arr.shape[-1] != 1:
+        raise ValueError(
+            f"Invalid 'logc' shape {logc_arr.shape} for input 'x' shape {x.shape}. "
+            "Expected scalar or shape (*batch_shape, 1). "
+            "Hint: add trailing singleton axis, e.g. `arr = arr[..., None]`."
+        )
+
+    if logc_arr.ndim > 0:
+        x_batch_shape = x.shape[:-1]
+        logc_batch_shape = logc_arr.shape[:-1]
+        try:
+            np.broadcast_shapes(logc_batch_shape, x_batch_shape)
+        except ValueError as e:
+            raise ValueError(
+                f"Incompatible batch shapes: logc batch shape {logc_batch_shape} "
+                f"and x batch shape {x_batch_shape} are not broadcastable."
+            ) from e
+
     # Symmetric formula: y = exp(logc) / x[::-1]
-    return np.exp(logc) / x[..., ::-1]
+    return np.exp(logc_arr) / x[..., ::-1]
 
 
 def infer_logc(

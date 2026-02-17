@@ -12,7 +12,7 @@ from scipy.special import poch
 
 from fftloggin import DomainCheckMode
 from fftloggin.fftlog import FFTLog
-from fftloggin.kernels import BesselJKernel, CombinedKernel
+from fftloggin.kernels import BesselJKernel, CombinedKernel, SphericalBesselJKernel
 from fftloggin.utils import prepare_batch_params
 
 
@@ -480,6 +480,44 @@ class TestBatchedTransforms:
         assert bias.shape == ()
         assert kr.shape == (3, 1)
 
+    def test_rejects_non_singleton_parameter_shape(self):
+        """FFTLog should fail fast when non-scalar params lack trailing singleton."""
+        r = np.logspace(-2, 2, 128)
+        mu = 0.3
+        kr = np.array([0.5, 1.0, 2.0])  # Missing trailing singleton axis
+
+        with pytest.raises(ValueError, match="invalid shape for 'kr'"):
+            FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
+
+    def test_rejects_incompatible_parameter_batch_shapes(self):
+        """FFTLog should fail fast on incompatible parameter batch dimensions."""
+        mu = 0.3
+        dlog = np.array([0.04, 0.05]).reshape(-1, 1)  # batch shape (2,)
+        bias = np.array([0.0, 0.1, 0.2]).reshape(-1, 1)  # batch shape (3,)
+
+        with pytest.raises(ValueError, match="incompatible batch shapes"):
+            FFTLog(
+                kernel=BesselJKernel(mu),
+                n=64,
+                dlog=dlog,
+                bias=bias,
+                kr=1.0,
+                lowring=False,
+            )
+
+    def test_forward_inverse_reject_incompatible_input_batch_shape(self):
+        """forward/inverse should reject input batches incompatible with param batch."""
+        r = np.logspace(-2, 2, 128)
+        mu = 0.3
+        kr = np.array([0.5, 1.0, 2.0]).reshape(-1, 1)  # batch shape (3,)
+        fftlog = FFTLog.from_array(r, kernel=BesselJKernel(mu), kr=kr, lowring=False)
+
+        bad_input = np.ones((2, 128))  # batch shape (2,) incompatible with (3,)
+        with pytest.raises(ValueError, match="batch shape"):
+            fftlog.forward(bad_input)
+        with pytest.raises(ValueError, match="batch shape"):
+            fftlog.inverse(bad_input)
+
     def test_batched_round_trip(self):
         """Test forward and inverse transforms with batched parameters."""
         r = np.logspace(-2, 2, 128)
@@ -614,6 +652,41 @@ def test_combined_kernel_broadcasting_integration():
     assert res.shape == (2, 3, n)
 
 
+def test_combined_kernel_lowring_create_grid():
+    """lowring + CombinedKernel should fail fast for bad kernel parameter shape."""
+    r = np.geomspace(1.0, 100.0, 64)
+    ells = np.array([2, 3, 4])
+    kernel = CombinedKernel(
+        [
+            SphericalBesselJKernel(ells),
+            SphericalBesselJKernel(ells).derive(1),
+        ]
+    )
+
+    with pytest.raises(
+        ValueError, match="Expected a scalar or shape \\(\\*batch_shape, 1\\)"
+    ):
+        FFTLog.from_array(r, kernel=kernel, bias=0.1, lowring=True, kr=1.0)
+
+
+def test_combined_kernel_lowring_create_grid_with_explicit_batch_axis():
+    """Regression test with explicit trailing singleton in kernel parameters."""
+    r = np.geomspace(1.0, 100.0, 64)
+    ells = np.array([2, 3, 4]).reshape(-1, 1)
+    kernel = CombinedKernel(
+        [
+            SphericalBesselJKernel(ells),
+            SphericalBesselJKernel(ells).derive(1),
+        ]
+    )
+
+    fftlog = FFTLog.from_array(r, kernel=kernel, bias=0.1, lowring=True, kr=1.0)
+    grid = fftlog.create_grid(r=r)
+
+    assert grid.r.shape == r.shape
+    assert grid.k.shape == (2, 3, 64)
+
+
 def test_combined_kernel_broadcasting():
     """Test CombinedKernel broadcasting rules."""
     n = 16
@@ -669,7 +742,10 @@ def test_forward_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
+    with pytest.raises(
+        ValueError,
+        match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)",
+    ):
         fftlog.forward(wrong_size)
 
 
@@ -679,5 +755,8 @@ def test_inverse_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
+    with pytest.raises(
+        ValueError,
+        match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)",
+    ):
         fftlog.inverse(wrong_size)

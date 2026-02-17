@@ -14,6 +14,26 @@ from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadca
 LN_2 = np.log(2)
 
 
+def _validate_parameter_shape(
+    name: str,
+    value: npt.ArrayLike,
+    *,
+    context: str,
+    hint: str | None = None,
+) -> npt.NDArray:
+    """Validate scalar-or-(*batch_shape,1) parameter convention."""
+    arr = np.asarray(value)
+    if arr.ndim > 0 and arr.shape[-1] != 1:
+        msg = (
+            f"{context}: invalid shape for '{name}': {arr.shape}. "
+            "Expected a scalar or shape (*batch_shape, 1)."
+        )
+        if hint:
+            msg += f" {hint}"
+        raise ValueError(msg)
+    return arr
+
+
 class DomainCheckMode(Enum):
     """
     Mode for domain validation in FFTLog.
@@ -196,8 +216,8 @@ def optimal_logcenter(
     logc : ndarray
         Optimal log-center parameter. Scalar or shape (*batch_shape, 1).
     """
-    dlog = np.asarray(dlog)
-    bias = np.asarray(bias)
+    dlog = _validate_parameter_shape("dlog", dlog, context="optimal_logcenter")
+    bias = _validate_parameter_shape("bias", bias, context="optimal_logcenter")
     s = 1j * np.pi / dlog + 1 + bias
     arg = np.angle(kernel.forward(s))
     return dlog * arg / np.pi
@@ -236,15 +256,31 @@ def compute_kernel_coefficients(
         FFT coefficients with shape (ns,) for scalar inputs or (*batch_shape, ns)
         for batched inputs, where ns = n//2 + 1.
     """
-    dlog = np.asarray(dlog)
-    bias = np.asarray(bias)
+    dlog = _validate_parameter_shape(
+        "dlog",
+        dlog,
+        context="compute_kernel_coefficients",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
+    bias = _validate_parameter_shape(
+        "bias",
+        bias,
+        context="compute_kernel_coefficients",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
+    kr = _validate_parameter_shape(
+        "kr",
+        kr,
+        context="compute_kernel_coefficients",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
     # Length of real Fourier transform
     ns = n // 2 + 1
     m = np.arange(0, ns)
     angle = (2 * np.pi * 1j / n) * m / dlog
     s = angle + 1 + bias
     coeffs = kernel.forward(s)
-    logc = np.log(np.asarray(kr))
+    logc = np.log(kr)
     coeffs = coeffs * np.exp(-angle * logc)
     # Handle Nyquist frequency for even n
     if n % 2 == 0:
@@ -281,8 +317,18 @@ def biased_power_law(
     NDArray
         Broadcasted bias power-law factor.
     """
-    bias = np.asarray(bias)
-    dlog = np.asarray(dlog)
+    bias = _validate_parameter_shape(
+        "bias",
+        bias,
+        context="biased_power_law",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
+    dlog = _validate_parameter_shape(
+        "dlog",
+        dlog,
+        context="biased_power_law",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
     base_dtype = np.result_type(dtype, bias.dtype, dlog.dtype)
     ic = (n - 1) / 2.0
     i_minus_ic = np.arange(n, dtype=base_dtype) - ic
@@ -321,8 +367,18 @@ def biased_logc(
     NDArray
         Broadcasted bias logc factor.
     """
-    bias = np.asarray(bias)
-    logc = np.asarray(logc)
+    bias = _validate_parameter_shape(
+        "bias",
+        bias,
+        context="biased_logc",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
+    logc = _validate_parameter_shape(
+        "logc",
+        logc,
+        context="biased_logc",
+        hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+    )
     base_dtype = np.result_type(dtype, bias.dtype, logc.dtype)
     shape = np.broadcast_shapes(bias.shape, logc.shape)
     buf = np.empty(shape, dtype=base_dtype)
@@ -494,11 +550,16 @@ class FFTLog:
         self._domain_check_mode = DomainCheckMode(check_domain)
         self._fft = backend or DEFAULT_FFT_BACKEND_FACTORY()
 
+        # Validate parameter shape contract at construction time
+        self._validate_param_shapes()
+
         # Validate domain at construction time
         self._validate_domain()
 
     def _cleanup(self) -> None:
         for attr in (
+            "batch_shape",
+            "kernel_batch_shape",
             "kr",
             "logc",
             "kernel_coefficients",
@@ -509,6 +570,73 @@ class FFTLog:
                 delattr(self, attr)
             except AttributeError:
                 pass
+
+    @cached_property
+    def kernel_batch_shape(self) -> tuple[int, ...]:
+        """Kernel batch shape inferred from kernel output shape (..., ns)."""
+        probe = np.asarray(self.kernel.forward(np.asarray([1.0 + 0.0j, 1.5 + 0.0j])))
+        if probe.ndim <= 1:
+            return ()
+        return probe.shape[:-1]
+
+    @cached_property
+    def batch_shape(self) -> tuple[int, ...]:
+        """Broadcasted batch shape across FFTLog parameters and kernel."""
+        dlog = _validate_parameter_shape(
+            "dlog",
+            self._dlog,
+            context="FFTLog",
+            hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+        )
+        bias = _validate_parameter_shape(
+            "bias",
+            self._bias,
+            context="FFTLog",
+            hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+        )
+        _validate_parameter_shape(
+            "kr",
+            self._kr,
+            context="FFTLog",
+            hint="Use prepare_batch_params(...) or reshape arrays with [..., None].",
+        )
+
+        logc_hint = (
+            "When lowring=True, this often means kernel parameters need a trailing "
+            "singleton axis (e.g. `ells = np.asarray(ells)[..., None]`)."
+        )
+        logc = _validate_parameter_shape(
+            "logc", self.logc, context="FFTLog", hint=logc_hint
+        )
+
+        batch_shapes: dict[str, tuple[int, ...]] = {}
+        if dlog.ndim > 0:
+            batch_shapes["dlog"] = dlog.shape[:-1]
+        if bias.ndim > 0:
+            batch_shapes["bias"] = bias.shape[:-1]
+        if logc.ndim > 0:
+            batch_shapes["logc"] = logc.shape[:-1]
+        if self.kernel_batch_shape:
+            batch_shapes["kernel"] = self.kernel_batch_shape
+
+        if not batch_shapes:
+            return ()
+
+        try:
+            return np.broadcast_shapes(*batch_shapes.values())
+        except ValueError as e:
+            shape_desc = ", ".join(
+                f"{name}={shape}" for name, shape in batch_shapes.items()
+            )
+            raise ValueError(
+                "FFTLog: incompatible batch shapes across parameters/kernel: "
+                f"{shape_desc}. All non-scalar parameters must be broadcast-compatible "
+                "across batch dimensions. Use prepare_batch_params(...) and ensure "
+                "kernel parameters are shaped consistently."
+            ) from e
+
+    def _validate_param_shapes(self) -> None:
+        _ = self.batch_shape
 
     def _validate_out(
         self,
@@ -529,6 +657,19 @@ class FFTLog:
             raise ValueError(f"out has shape {out.shape}, expected {shape}.")
         if dtype is not None and not np.can_cast(dtype, out.dtype, casting="same_kind"):
             raise TypeError(f"out dtype {out.dtype} cannot safely represent {dtype}.")
+
+    def _validate_input_batch_shape(self, arr: npt.NDArray, name: str) -> None:
+        """Validate input batch dimensions against FFTLog parameter batch shape."""
+        data_batch_shape = arr.shape[:-1]
+        try:
+            np.broadcast_shapes(data_batch_shape, self.batch_shape)
+        except ValueError as e:
+            raise ValueError(
+                f"{name} batch shape {data_batch_shape} is not broadcastable with "
+                f"FFTLog parameter batch shape {self.batch_shape}. Expected input "
+                "shape (..., n) with batch dimensions compatible with FFTLog "
+                "parameters."
+            ) from e
 
     def _validate_domain(self) -> None:
         """Validate that bias is within the kernel's domain of convergence."""
@@ -611,6 +752,7 @@ class FFTLog:
     def kernel(self, other: Kernel):
         self._kernel = other
         self._cleanup()
+        self._validate_param_shapes()
         self._validate_domain()
 
     @property
@@ -630,6 +772,7 @@ class FFTLog:
     def dlog(self, other: npt.ArrayLike):
         self._dlog = other
         self._cleanup()
+        self._validate_param_shapes()
 
     @property
     def bias(self) -> npt.ArrayLike:
@@ -639,6 +782,7 @@ class FFTLog:
     def bias(self, other: npt.ArrayLike):
         self._bias = other
         self._cleanup()
+        self._validate_param_shapes()
         self._validate_domain()
 
     @property
@@ -649,6 +793,7 @@ class FFTLog:
     def lowring(self, other: bool):
         self._lowring = other
         self._cleanup()
+        self._validate_param_shapes()
 
     @property
     def domain_check_mode(self) -> DomainCheckMode:
@@ -795,11 +940,25 @@ class FFTLog:
 
         if r is not None:
             r_arr = np.asarray(r)
-            k_arr = get_other_array(r_arr, self.logc)
+            try:
+                k_arr = get_other_array(r_arr, self.logc)
+            except ValueError as e:
+                raise ValueError(
+                    "FFTLog.create_grid failed shape validation with "
+                    f"lowring={self.lowring}, logc shape={np.shape(self.logc)}, "
+                    f"r shape={r_arr.shape}. {e}"
+                ) from e
             return Grid(r_arr, k_arr)
         else:
             k_arr = np.asarray(k)
-            r_arr = get_other_array(k_arr, self.logc)
+            try:
+                r_arr = get_other_array(k_arr, self.logc)
+            except ValueError as e:
+                raise ValueError(
+                    "FFTLog.create_grid failed shape validation with "
+                    f"lowring={self.lowring}, logc shape={np.shape(self.logc)}, "
+                    f"k shape={k_arr.shape}. {e}"
+                ) from e
             return Grid(r_arr, k_arr)
 
     @cached_property
@@ -897,6 +1056,7 @@ class FFTLog:
                 f"Input array size {na} does not match FFTLog size {self.n}. "
                 f"Set the `n` property or create a new FFTLog instance."
             )
+        self._validate_input_batch_shape(a, "a")
 
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=-1, dtype=a.dtype
@@ -1002,6 +1162,7 @@ class FFTLog:
                 f"Input array size {na} does not match FFTLog size {self.n}. "
                 f"Set the `n` property or create a new FFTLog instance."
             )
+        self._validate_input_batch_shape(ak, "ak")
 
         bias_power_law = biased_power_law(
             self.bias, self.dlog, self.n, sign=1, dtype=ak.dtype
