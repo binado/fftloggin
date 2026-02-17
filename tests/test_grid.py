@@ -329,9 +329,31 @@ def test_get_other_array_involution_batched():
     r_reconstructed = get_other_array(k, logc)
     assert_allclose(r_reconstructed, r)
 
+
+def test_get_other_array_with_batched_logc_without_trailing_axis():
+    """Batched logc without trailing singleton should raise clear error."""
+    r = np.logspace(-2, 2, 128)
+    logc = np.random.randn(2, 3)  # No trailing singleton axis
+
+    with pytest.raises(
+        ValueError, match="Expected scalar or shape \\(\\*batch_shape, 1\\)"
+    ):
+        get_other_array(r, logc)
+
     # Test with 2D batch
     r = np.logspace(-2, 2, 126).reshape(2, 3, -1)
     logc = np.random.randn(2, 3, 1)  # Shape (2, 3, 1) for broadcasting
     k = get_other_array(r, logc)
     r_reconstructed = get_other_array(k, logc)
     assert_allclose(r_reconstructed, r)
+
+
+def test_get_other_array_rejects_logc_with_sample_axis():
+    """logc carrying sample axis should be rejected by strict shape contract."""
+    x = np.arange(10, dtype=float).reshape(2, 1, 5) + 1.0
+    logc = np.zeros((2, 3, 5))
+
+    with pytest.raises(
+        ValueError, match="Expected scalar or shape \\(\\*batch_shape, 1\\)"
+    ):
+        get_other_array(x, logc)
