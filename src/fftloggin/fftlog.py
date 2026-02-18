@@ -1,5 +1,4 @@
 import warnings
-from enum import Enum
 from functools import cached_property
 
 import numpy as np
@@ -12,165 +11,6 @@ from .kernels import Kernel
 from .utils import allocate_broadcasted_array, in_place_compatible, safe_broadcast
 
 LN_2 = np.log(2)
-
-
-class DomainCheckMode(Enum):
-    """
-    Mode for domain validation in FFTLog.
-
-    Controls how FFTLog responds when the bias parameter places the
-    evaluation point outside the kernel's domain of convergence.
-
-    Attributes
-    ----------
-    RAISE : str
-        Raise an ArgumentOutOfDomainError if domain validation fails.
-    WARN : str
-        Issue a DomainCheckWarning if domain validation fails.
-    SILENT : str
-        Skip domain validation entirely.
-
-    Examples
-    --------
-    >>> from fftloggin import FFTLog, DomainCheckMode
-    >>> from fftloggin.kernels import BesselJKernel
-    >>> fftlog = FFTLog(
-    ...     kernel=BesselJKernel(0),
-    ...     n=64,
-    ...     dlog=0.1,
-    ...     bias=0.0,
-    ...     check_domain=DomainCheckMode.RAISE
-    ... )
-    """
-
-    RAISE = "raise"
-    WARN = "warn"
-    SILENT = "silent"
-
-
-def _forward_hankel_transform(
-    a: npt.ArrayLike,
-    u: npt.ArrayLike,
-    logc: npt.ArrayLike,
-    dlog: npt.ArrayLike,
-    bias: npt.ArrayLike,
-    fft_backend: FFTBackend | None = None,
-    workspace: FFTWorkspace | None = None,
-    **kwargs,
-):
-    """
-    Low-level forward Hankel transform implementation.
-
-    Parameters
-    ----------
-    a : array_like
-        Input array with shape (n,).
-    u : array_like
-        FFT coefficients with shape (*batch_shape, ns) where ns = n//2 + 1.
-    logc : array_like
-        Log-center parameter. Scalar or shape (*batch_shape, 1).
-    dlog : array_like
-        Logarithmic spacing. Scalar or shape (*batch_shape, 1).
-    bias : array_like
-        Power-law bias. Scalar or shape (*batch_shape, 1).
-    fft_backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: SciPy FFT).
-    **kwargs
-        Additional arguments passed to the FFT backend.
-
-    Returns
-    -------
-    ak : ndarray
-        Transformed array with shape (n,) for scalar params or (*batch_shape, n)
-        for batched params.
-    """
-    fft_backend = fft_backend or DEFAULT_FFT_BACKEND_FACTORY()
-    a = np.asarray(a)
-    u = np.asarray(u)
-    logc = np.asarray(logc)
-    bias = np.asarray(bias)
-    na = a.shape[-1]
-    # Step 1: bias a by (r_n / r_0)^{-q}
-    i = np.arange(na).astype(a.dtype)
-    ic = (na - 1) / 2
-    bias_power_law = np.exp(-bias * (i - ic) * dlog)
-    a_biased = a * bias_power_law
-
-    # Step 2: FFT
-    a_biased_fftd = fft_backend.rfft(a_biased, workspace=workspace, **kwargs)
-
-    # Step 3: multiply by coefficients
-    # coeffs may be batched, while a is not
-    ak_biased = fft_backend.irfft(
-        a_biased_fftd * u, n=na, workspace=workspace, **kwargs
-    )
-    ak_biased = np.flip(ak_biased, axis=-1)  # type: ignore
-
-    # Step 4: unbias ak by (k_0 r_0)^{-q} (k_n / k_0)^{-q}
-    ak = ak_biased * bias_power_law * np.exp(-bias * logc)
-    return ak
-
-
-def _inverse_hankel_transform(
-    ak: npt.ArrayLike,
-    u: npt.ArrayLike,
-    logc: npt.ArrayLike,
-    dlog: npt.ArrayLike,
-    bias: npt.ArrayLike,
-    fft_backend: FFTBackend | None = None,
-    workspace: FFTWorkspace | None = None,
-    **kwargs,
-):
-    """
-    Low-level inverse Hankel transform implementation.
-
-    Parameters
-    ----------
-    ak : array_like
-        Input array with shape (n,).
-    u : array_like
-        FFT coefficients with shape (*batch_shape, ns) where ns = n//2 + 1.
-    logc : array_like
-        Log-center parameter. Scalar or shape (*batch_shape, 1).
-    dlog : array_like
-        Logarithmic spacing. Scalar or shape (*batch_shape, 1).
-    bias : array_like
-        Power-law bias. Scalar or shape (*batch_shape, 1).
-    fft_backend : FFTBackend, optional
-        FFT backend implementation used for transforms (default: SciPy FFT).
-    **kwargs
-        Additional arguments passed to the FFT backend.
-
-    Returns
-    -------
-    a : ndarray
-        Inverse transformed array with shape (n,) for scalar params or
-        (*batch_shape, n) for batched params.
-    """
-    fft_backend = fft_backend or DEFAULT_FFT_BACKEND_FACTORY()
-    ak = np.asarray(ak)
-    u = np.asarray(u)
-    logc = np.asarray(logc)
-    na = ak.shape[-1]
-    # Step 1: bias a by (k_0 r_0)^{q} (k_n / k_0)^{q}
-    i = np.arange(na).astype(ak.dtype)
-    ic = (na - 1) / 2
-    bias_power_law = np.exp(bias * (i - ic) * dlog)
-    ak_biased = ak * bias_power_law * np.exp(bias * logc)
-
-    # Step 2: FFT
-    ak_biased_fftd = fft_backend.rfft(ak_biased, workspace=workspace, **kwargs)
-
-    # Step 3: divide by coefficients
-    # coeffs may be batched, while a is not
-    a_biased = fft_backend.irfft(
-        ak_biased_fftd / np.conjugate(u), n=na, workspace=workspace, **kwargs
-    )
-    a_biased = np.flip(a_biased, axis=-1)  # type: ignore
-
-    # Step 4: unbias ak by (r_n / r_0)^{q}
-    a = a_biased * bias_power_law
-    return a
 
 
 def optimal_logcenter(
@@ -199,7 +39,7 @@ def optimal_logcenter(
     dlog = np.asarray(dlog)
     bias = np.asarray(bias)
     s = 1j * np.pi / dlog + 1 + bias
-    arg = np.angle(kernel.forward(s))
+    arg = np.angle(kernel(s))
     return dlog * arg / np.pi
 
 
@@ -243,7 +83,7 @@ def compute_kernel_coefficients(
     m = np.arange(0, ns)
     angle = (2 * np.pi * 1j / n) * m / dlog
     s = angle + 1 + bias
-    coeffs = kernel.forward(s)
+    coeffs = kernel(s)
     logc = np.log(np.asarray(kr))
     coeffs = coeffs * np.exp(-angle * logc)
     # Handle Nyquist frequency for even n
@@ -358,13 +198,6 @@ class FFTLog:
     kr : array_like, optional
         The product k*r at the geometric center of the grid (default: 1.0).
         Can be scalar or array with shape (*batch_shape, 1) for batch transforms.
-    check_domain : DomainCheckMode or str, optional
-        How to handle domain validation at construction time (default: WARN).
-        Can be a DomainCheckMode enum value or string ('raise', 'warn', 'silent').
-        - RAISE: Raise ValueError if bias is outside kernel's domain of convergence.
-        - WARN: Issue DomainCheckWarning if bias is outside kernel's domain of
-          convergence.
-        - SILENT: Skip domain validation entirely.
     backend : FFTBackend, optional
         FFT backend implementation used for transforms (default: SciPy FFT).
 
@@ -482,7 +315,6 @@ class FFTLog:
         bias: npt.ArrayLike = 0.0,
         lowring: bool = True,
         kr: npt.ArrayLike = 1,
-        check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
         backend: FFTBackend | None = None,
     ) -> None:
         self._kernel = kernel
@@ -491,7 +323,6 @@ class FFTLog:
         self._bias = bias
         self._lowring = lowring
         self._kr = kr
-        self._domain_check_mode = DomainCheckMode(check_domain)
         self._fft = backend or DEFAULT_FFT_BACKEND_FACTORY()
 
         # Validate domain at construction time
@@ -531,77 +362,53 @@ class FFTLog:
             raise TypeError(f"out dtype {out.dtype} cannot safely represent {dtype}.")
 
     def _validate_domain(self) -> None:
-        """Validate that bias is within the kernel's domain of convergence."""
-        if self._domain_check_mode == DomainCheckMode.SILENT:
-            return
+        """Warn if bias is outside the kernel's domain of convergence."""
+        if not self.check_domain():
+            s = 1 + np.asarray(self.bias)
+            inf, sup = self.kernel.domain
+            inf, _ = safe_broadcast(inf, s)
+            sup, _ = safe_broadcast(sup, s)
+            context_msg = (
+                f"FFTLog bias parameter: 1 + bias = {np.real(s)}. "
+                f"Valid bias range: ({inf - 1}, {sup - 1})"
+            )
+            warnings.warn(
+                str(
+                    ArgumentOutOfDomainError(
+                        s=s, kernel=self.kernel, context=context_msg
+                    )
+                ),
+                DomainCheckWarning,
+                stacklevel=3,
+            )
 
-        if self._domain_check_mode == DomainCheckMode.RAISE:
-            self.check_domain(raise_exception=True)
-            return
-
-        if self._domain_check_mode == DomainCheckMode.WARN:
-            try:
-                self.check_domain(raise_exception=True)
-            except ArgumentOutOfDomainError as e:
-                warnings.warn(str(e), DomainCheckWarning, stacklevel=3)
-
-    def check_domain(self, raise_exception: bool = False) -> bool:
+    def check_domain(self) -> bool:
         """
         Check if the current configuration is within the kernel's domain.
-
-        This is a lightweight check that uses kernel.is_in_domain() directly
-        rather than forcing recomputation of cached properties.
-
-        Parameters
-        ----------
-        raise_exception : bool, optional
-            If True, raise ArgumentOutOfDomainError when invalid. Default is False.
 
         Returns
         -------
         bool
             True if configuration is valid, False otherwise.
 
-        Raises
-        ------
-        ArgumentOutOfDomainError
-            If raise_exception is True and configuration is invalid.
-
         Examples
         --------
-        >>> from fftloggin import FFTLog, DomainCheckMode
+        >>> from fftloggin import FFTLog
         >>> from fftloggin.kernels import BesselJKernel
-        >>> fftlog = FFTLog(
-        ...     kernel=BesselJKernel(0),
-        ...     n=64,
-        ...     dlog=0.1,
-        ...     bias=0.0,
-        ...     check_domain=DomainCheckMode.SILENT
-        ... )
+        >>> import warnings
+        >>> with warnings.catch_warnings():
+        ...     warnings.simplefilter("ignore")
+        ...     fftlog = FFTLog(
+        ...         kernel=BesselJKernel(0),
+        ...         n=64,
+        ...         dlog=0.1,
+        ...         bias=0.0,
+        ...     )
         >>> fftlog.check_domain()
         True
-        >>> fftlog.bias = 1.0  # Outside domain for mu=0
-        >>> fftlog.check_domain()
-        False
         """
         s = 1 + np.asarray(self.bias)
-        is_valid = self.kernel.is_in_domain(s)
-
-        if not is_valid and raise_exception:
-            inf, sup = self.kernel.domain
-            # Format inf/sup for broadcasting with s
-            inf, _ = safe_broadcast(inf, s)
-            sup, _ = safe_broadcast(sup, s)
-
-            # Create context message with helpful bias range
-            context_msg = (
-                f"FFTLog bias parameter: 1 + bias = {np.real(s)}. "
-                f"Valid bias range: ({inf - 1}, {sup - 1})"
-            )
-
-            raise ArgumentOutOfDomainError(s=s, kernel=self.kernel, context=context_msg)
-
-        return is_valid
+        return self.kernel.is_in_domain(s)
 
     @property
     def kernel(self) -> Kernel:
@@ -650,15 +457,6 @@ class FFTLog:
         self._lowring = other
         self._cleanup()
 
-    @property
-    def domain_check_mode(self) -> DomainCheckMode:
-        return self._domain_check_mode
-
-    @domain_check_mode.setter
-    def domain_check_mode(self, other: DomainCheckMode | str):
-        self._domain_check_mode = DomainCheckMode(other)
-        self._validate_domain()
-
     @cached_property
     def kr(self) -> npt.ArrayLike:
         if self.lowring:
@@ -693,7 +491,6 @@ class FFTLog:
         bias: npt.ArrayLike = 0.0,
         kr: npt.ArrayLike = 1.0,
         lowring: bool = True,
-        check_domain: DomainCheckMode | str = DomainCheckMode.WARN,
         backend: FFTBackend | None = None,
     ) -> "FFTLog":
         """
@@ -711,8 +508,6 @@ class FFTLog:
             The product k*r at the geometric center of the grid. Default is 1.0.
         lowring : bool, optional
             Whether to snap kr to minimize ringing. Default is True.
-        check_domain : DomainCheckMode or str, optional
-            How to handle domain validation (default: WARN).
         backend : FFTBackend, optional
             FFT backend implementation used for transforms (default: SciPy FFT).
 
@@ -742,7 +537,6 @@ class FFTLog:
             bias=bias,
             lowring=lowring,
             kr=kr,
-            check_domain=check_domain,
             backend=backend,
         )
 
@@ -887,7 +681,6 @@ class FFTLog:
         See Also
         --------
         inverse : Inverse Hankel transform
-        Grid.forward : Recommended high-level interface with coordinate management
         """
         a = np.asarray(a)
         self._validate_out(out, a)
@@ -992,7 +785,6 @@ class FFTLog:
         See Also
         --------
         forward : Forward Hankel transform
-        Grid.inverse : Recommended high-level interface with coordinate management
         """
         ak = np.asarray(ak)
         self._validate_out(out, ak)

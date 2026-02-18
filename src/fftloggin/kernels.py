@@ -6,17 +6,14 @@ of various integral kernels used in generalized FFTLog transforms.
 """
 
 from collections.abc import Sequence
-from contextlib import contextmanager
 
 import numpy as np
 import numpy.typing as npt
 from scipy import special
 
-from .exceptions import ArgumentOutOfDomainError
 from .utils import safe_broadcast
 
 __all__ = (
-    "ArgumentOutOfDomainError",
     "Kernel",
     "BesselJKernel",
     "Derivative",
@@ -36,12 +33,6 @@ class Kernel:
     Kernels have a domain (strip of convergence) in the complex plane where
     the transform is well-defined.
 
-    Parameters
-    ----------
-    check_bounds : bool, optional
-        If True, validate that input values are within the domain.
-        Default is True.
-
     Examples
     --------
     >>> from fftloggin.kernels import BesselJKernel
@@ -60,8 +51,8 @@ class Kernel:
     Derivative : Compute derivatives of kernels
     """
 
-    def __init__(self, check_bounds: bool = True) -> None:
-        self.check_bounds = check_bounds
+    def __init__(self) -> None:
+        pass
 
     @property
     def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
@@ -78,7 +69,7 @@ class Kernel:
         """
         return (-np.inf, np.inf)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform at s.
 
@@ -91,11 +82,6 @@ class Kernel:
         -------
         ndarray
             Mellin transform evaluated at s.
-
-        Notes
-        -----
-        Bounds checking is not performed in this method; it is done in __call__.
-        Subclasses should override this method to implement the Mellin transform.
         """
         raise NotImplementedError
 
@@ -121,34 +107,6 @@ class Kernel:
         sup, _ = safe_broadcast(sup, s)
         in_bounds = (s_real >= inf) & (s_real <= sup)
         return bool(np.all(in_bounds))
-
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        """
-        Compute the Mellin transform at s with optional bounds checking.
-
-        Parameters
-        ----------
-        s : array_like
-            Complex frequency variable.
-
-        Returns
-        -------
-        ndarray
-            Mellin transform evaluated at s.
-
-        Raises
-        ------
-        ArgumentOutOfDomainError
-            If s is outside the domain of convergence and check_bounds is True.
-        """
-        if self.check_bounds:
-            if not self.is_in_domain(s):
-                raise ArgumentOutOfDomainError(
-                    s=s, kernel=self, context="when calling kernel directly"
-                )
-
-        s = np.asarray(s)
-        return self.forward(s)
 
     def derive(self, order: int = 1) -> "Kernel":
         r"""
@@ -187,60 +145,6 @@ class Kernel:
             return self
         return Derivative(self, order)
 
-    @contextmanager
-    def checking_enabled(self):
-        """
-        Context manager that temporarily enables bounds checking.
-
-        Within this context, the kernel's ``check_bounds`` attribute is set
-        to ``True``, and restored to its original value upon exit.
-
-        Yields
-        ------
-        Kernel
-            This kernel instance with bounds checking enabled.
-
-        Examples
-        --------
-        >>> kernel = BesselJKernel(mu=0.5, check_bounds=False)
-        >>> with kernel.checking_enabled():
-        ...     pass  # Will validate bounds when kernel is called
-        >>> # check_bounds is restored to False here
-        """
-        original = self.check_bounds
-        self.check_bounds = True
-        try:
-            yield self
-        finally:
-            self.check_bounds = original
-
-    @contextmanager
-    def checking_disabled(self):
-        """
-        Context manager that temporarily disables bounds checking.
-
-        Within this context, the kernel's ``check_bounds`` attribute is set
-        to ``False``, and restored to its original value upon exit.
-
-        Yields
-        ------
-        Kernel
-            This kernel instance with bounds checking disabled.
-
-        Examples
-        --------
-        >>> kernel = BesselJKernel(mu=0.5, check_bounds=True)
-        >>> with kernel.checking_disabled():
-        ...     pass  # Will skip bounds validation when kernel is called
-        >>> # check_bounds is restored to True here
-        """
-        original = self.check_bounds
-        self.check_bounds = False
-        try:
-            yield self
-        finally:
-            self.check_bounds = original
-
 
 class Derivative(Kernel):
     r"""
@@ -269,7 +173,7 @@ class Derivative(Kernel):
     >>> from fftloggin.kernels import BesselJKernel
     >>> kernel = BesselJKernel(mu=0.5)
     >>> d_kernel = Derivative(kernel, 1)  # First derivative
-    >>> result = d_kernel.forward(2.0)
+    >>> result = d_kernel(2.0)
 
     Notes
     -----
@@ -282,7 +186,7 @@ class Derivative(Kernel):
     """
 
     def __init__(self, transform: Kernel, order: int) -> None:
-        super().__init__(check_bounds=transform.check_bounds)
+        super().__init__()
         self.transform = transform
         if order < 1:
             raise ValueError(
@@ -300,13 +204,13 @@ class Derivative(Kernel):
         s = np.asarray(s)
         return self.transform.is_in_domain(s - self.order)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         s = np.asarray(s)
         sign = 1 - 2 * (self.order % 2)
         return (
             sign
             * np.prod(s.reshape(*s.shape, 1) - np.arange(1, self.order + 1), axis=-1)
-            * self.transform.forward(s - self.order)
+            * self.transform(s - self.order)
         )
 
 
@@ -325,9 +229,6 @@ class BesselJKernel(Kernel):
     ----------
     mu : array_like
         Order of the Bessel function. Can be scalar or array.
-    check_bounds : bool, optional
-        If True, validate that input values are within the domain.
-        Default is True.
 
     Examples
     --------
@@ -338,7 +239,7 @@ class BesselJKernel(Kernel):
     >>> # Multiple orders (for vectorized transforms)
     >>> kernels = BesselJKernel(mu=np.array([0, 0.5, 1.0]))
     >>> # Compute Mellin transform at s = 1.0
-    >>> result = kernel.forward(1.0)
+    >>> result = kernel(1.0)
 
     Notes
     -----
@@ -355,8 +256,8 @@ class BesselJKernel(Kernel):
     Derivative : Compute derivatives of kernels
     """
 
-    def __init__(self, mu: npt.ArrayLike, check_bounds: bool = True) -> None:
-        super().__init__(check_bounds=check_bounds)
+    def __init__(self, mu: npt.ArrayLike) -> None:
+        super().__init__()
         self.mu = np.asarray(mu)
 
     @property
@@ -364,7 +265,7 @@ class BesselJKernel(Kernel):
         """Domain of convergence: (-mu, 1.5)."""
         return (-self.mu, 1.5 * np.ones_like(self.mu))
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform.
 
@@ -408,18 +309,18 @@ class SphericalBesselJKernel(BesselJKernel):
 
     """
 
-    def __init__(self, ell: npt.ArrayLike, check_bounds: bool = True) -> None:
+    def __init__(self, ell: npt.ArrayLike) -> None:
         mu = np.asarray(ell) + 0.5
-        super().__init__(mu, check_bounds=check_bounds)
+        super().__init__(mu)
 
     @property
     def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
         inf, sup = super().domain
         return (np.asarray(inf) + 0.5, np.asarray(sup) + 0.5)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         s = np.asarray(s)
-        return super().forward(s - 0.5) * SQRT_PI_OVER_2
+        return super().__call__(s - 0.5) * SQRT_PI_OVER_2
 
 
 class CombinedKernel(Kernel):
@@ -434,9 +335,6 @@ class CombinedKernel(Kernel):
     ----------
     kernels : Sequence[Kernel]
         Sequence of kernel instances to combine.
-    check_bounds : bool, optional
-        If True, validate that input values are within the domain of all kernels.
-        Default is True.
 
     Examples
     --------
@@ -447,8 +345,8 @@ class CombinedKernel(Kernel):
     >>> # Transform uses both kernels, returning shape (2, n)
     """
 
-    def __init__(self, kernels: Sequence[Kernel], check_bounds: bool = True) -> None:
-        super().__init__(check_bounds=check_bounds)
+    def __init__(self, kernels: Sequence[Kernel]) -> None:
+        super().__init__()
         self.kernels = kernels
 
     @staticmethod
@@ -485,7 +383,7 @@ class CombinedKernel(Kernel):
         sups = np.broadcast_arrays(*[d[1] for d in domains])
         return np.stack(infs, axis=0), np.stack(sups, axis=0)
 
-    def forward(self, s: npt.ArrayLike) -> npt.NDArray:
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         """
         Compute the Mellin transform for all kernels and stack results.
 
@@ -501,7 +399,7 @@ class CombinedKernel(Kernel):
             the number of kernels. If s is scalar, returns shape (N, 1)
             for compatibility with FFTLog batch processing.
         """
-        results = np.broadcast_arrays(*[k.forward(s) for k in self.kernels])
+        results = np.broadcast_arrays(*[k(s) for k in self.kernels])
         res = np.stack(results, axis=0)
 
         # Scalar input needs shape (N, 1) for FFTLog broadcasting

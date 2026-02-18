@@ -3,6 +3,7 @@ Test suite for FFTLog implementation using Grid API.
 Adapted from scipy's test suite with Grid-based interface.
 """
 
+import warnings
 from numbers import Number
 
 import numpy as np
@@ -10,7 +11,6 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal, assert_array_less
 from scipy.special import poch
 
-from fftloggin import DomainCheckMode
 from fftloggin.fftlog import FFTLog
 from fftloggin.kernels import BesselJKernel, CombinedKernel
 from fftloggin.utils import prepare_batch_params
@@ -119,15 +119,16 @@ def test_fftlog_with_positive_bias():
     # This value for the bias lies outside the strip of definition
     # of the kernel, but we skip the bound checking here for
     # compatibility with scipy's implementation.
-    kernel = BesselJKernel(mu, check_bounds=False)
-    fftlog = FFTLog.from_array(
-        r,
-        kernel=kernel,
-        bias=bias,
-        kr=1.0,
-        lowring=True,
-        check_domain=DomainCheckMode.SILENT,
-    )
+    kernel = BesselJKernel(mu)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fftlog = FFTLog.from_array(
+            r,
+            kernel=kernel,
+            bias=bias,
+            kr=1.0,
+            lowring=True,
+        )
     ours = fftlog.forward(a)
 
     theirs = [
@@ -624,7 +625,7 @@ def test_combined_kernel_broadcasting():
     k1 = BesselJKernel(mu=0)
     k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))
     ck = CombinedKernel([k1, k2])
-    res = ck.forward(s)
+    res = ck(s)
     # k1(s) -> (ns,). k2(s) -> (3, ns).
     # Broadcast -> k1 (3, ns), k2 (3, ns).
     # Stack -> (2, 3, ns).
@@ -634,7 +635,7 @@ def test_combined_kernel_broadcasting():
     k1 = BesselJKernel(mu=np.array([[0]]))  # (1, 1)
     k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))  # (3, 1)
     ck = CombinedKernel([k1, k2])
-    res = ck.forward(s)
+    res = ck(s)
     # k1(s) -> (1, ns) because safe_broadcast (1,1) + (ns,) -> (1,ns)
     # k2(s) -> (3, ns) because safe_broadcast (3,1) + (ns,) -> (3,ns)
     # Broadcast common shape -> (3, ns).
@@ -649,13 +650,13 @@ def test_combined_kernel_broadcasting():
     # k2(s) -> (3, 1, ns).
     # (2,...) vs (3,...) cannot broadcast.
     with pytest.raises(ValueError, match="cannot be broadcast"):
-        ck.forward(s)
+        ck(s)
 
     # 4. Different Dimensions
     k1 = BesselJKernel(mu=np.array([1]).reshape(-1, 1, 1))  # (1, 1, 1)
     k2 = BesselJKernel(mu=np.array([0, 1, 2]).reshape(-1, 1))  # (3, 1)
     ck = CombinedKernel([k1, k2])
-    res = ck.forward(s)
+    res = ck(s)
     # k1(s) -> (1, 1, ns)
     # k2(s) -> (3, ns)
     # Broadcast (1,1,ns) and (3,ns) -> (1,3,ns)
@@ -669,7 +670,10 @@ def test_forward_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
+    with pytest.raises(
+        ValueError,
+        match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)",
+    ):
         fftlog.forward(wrong_size)
 
 
@@ -679,5 +683,8 @@ def test_inverse_raises_on_size_mismatch():
     fftlog = FFTLog.from_array(r, kernel=BesselJKernel(0))
 
     wrong_size = np.ones(64)
-    with pytest.raises(ValueError, match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)"):
+    with pytest.raises(
+        ValueError,
+        match="(64.*does not match.*FFTLog size.*128|128.*does not match.*FFTLog size.*64)",
+    ):
         fftlog.inverse(wrong_size)

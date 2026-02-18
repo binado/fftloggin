@@ -6,7 +6,7 @@ from .fft import (
     NumPyFFTBackend,
     SciPyFFTBackend,
 )
-from .fftlog import DomainCheckMode, FFTLog
+from .fftlog import FFTLog
 from .grids import Grid
 from .kernels import BesselJKernel, Derivative, Kernel
 from .utils import prepare_batch_params
@@ -28,7 +28,6 @@ def __getattr__(name: str):
 __all__ = (
     "ArgumentOutOfDomainError",
     "DomainCheckWarning",
-    "DomainCheckMode",
     "FFTBackend",
     "FFTWorkspace",
     "FFTLog",
