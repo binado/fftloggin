@@ -2,14 +2,11 @@
 Tests for Mellin transform kernel classes.
 """
 
-from contextlib import nullcontext
-
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
 from fftloggin.kernels import (
-    ArgumentOutOfDomainError,
     BesselJKernel,
     CombinedKernel,
     Derivative,
@@ -134,33 +131,25 @@ def test_derivative_invalid_order():
 @pytest.mark.parametrize("mu", [-1, 1, 5, 10])
 @pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
 @pytest.mark.parametrize("order", [0, 1, 2])
-def test_bessel_kernel_bounds_checking(mu: float, s: complex | float, order: int):
-    """Test that BesselJKernel.__call__() correctly checks bounds."""
-    kernel = BesselJKernel(mu, check_bounds=True)
+def test_bessel_kernel_is_in_domain(mu: float, s: complex | float, order: int):
+    """Test that is_in_domain correctly identifies valid/invalid inputs."""
+    kernel = BesselJKernel(mu)
     sr = s.real if isinstance(s, complex) else s
     if order > 0:
         kernel = kernel.derive(order)
 
-    is_in_domain = (sr - order >= -mu) & (sr - order <= 1.5)
-
-    # s outside domain should raise
-    context = (
-        nullcontext()
-        if is_in_domain
-        else pytest.raises(ArgumentOutOfDomainError, match="outside domain")
-    )
-    with context:
-        kernel(s)
+    expected = bool((sr - order >= -mu) & (sr - order <= 1.5))
+    assert kernel.is_in_domain(s) == expected
 
 
 @pytest.mark.parametrize("ell", [1, 5, 10])
 @pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
 @pytest.mark.parametrize("order", [0, 1, 2])
-def test_spherical_bessel_kernel_bounds_checking(
+def test_spherical_bessel_kernel_is_in_domain(
     ell: float, s: complex | float, order: int
 ):
-    """Test that SphericalBesselJKernel.__call__() correctly checks bounds."""
-    kernel = SphericalBesselJKernel(ell, check_bounds=True)
+    """Test that SphericalBesselJKernel.is_in_domain works correctly."""
+    kernel = SphericalBesselJKernel(ell)
     if order > 0:
         kernel = kernel.derive(order)
 
@@ -168,38 +157,8 @@ def test_spherical_bessel_kernel_bounds_checking(
     inf, sup = kernel.domain
     inf = np.asarray(inf)
     sup = np.asarray(sup)
-    is_in_domain = (sr >= inf) & (sr <= sup)
-
-    # s outside domain should raise
-    context = (
-        nullcontext()
-        if is_in_domain
-        else pytest.raises(ArgumentOutOfDomainError, match="outside domain")
-    )
-    with context:
-        kernel(s)
-
-
-def test_bessel_kernel_skips_bounds_checking():
-    """Test that BesselJKernel.__call__() skips bounds checking."""
-    mu = 0.5
-    kernel = BesselJKernel(mu, check_bounds=False)
-
-    # s outside domain should not raise
-    kernel(-mu - 1)  # Below lower bound
-
-    kernel(2.0)  # Above upper bound
-
-
-def test_spherical_bessel_kernel_skips_bounds_checking():
-    """Test that SphericalBesselJKernel.__call__() skips bounds checking."""
-    ell = 1
-    kernel = SphericalBesselJKernel(ell, check_bounds=False)
-
-    # s outside domain should not raise
-    mu = ell + 0.5
-    kernel(-mu - 1)  # Below lower bound
-    kernel(2.0)  # Above upper bound
+    expected = bool((sr >= inf) & (sr <= sup))
+    assert kernel.is_in_domain(s) == expected
 
 
 class TestCombinedKernel:
@@ -261,9 +220,9 @@ class TestCombinedKernel:
         # s = 2.0 (out both)
         assert not kernel.is_in_domain(2.0)
 
-        # Check bounds checking call
-        with pytest.raises(ArgumentOutOfDomainError):
-            kernel(-0.5)
+        # Calling with out-of-domain value still computes (no bounds checking)
+        result = kernel(-0.5)
+        assert result is not None
 
     def test_combined_kernel_flattens_nested(self):
         """Test CombinedKernel flattens nested CombinedKernel instances."""
@@ -285,8 +244,8 @@ class TestCombinedKernel:
         flat = CombinedKernel([k1, k2, k3])
         s = np.array([0.5, 1.0, 1.5])
 
-        result_nested = outer.forward(s)
-        result_flat = flat.forward(s)
+        result_nested = outer(s)
+        result_flat = flat(s)
 
         # Shape should be identical
         assert result_nested.shape == result_flat.shape == (3, 3)
