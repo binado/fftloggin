@@ -12,7 +12,7 @@ from .kernels import BesselJKernel, Derivative, Kernel
 from .utils import prepare_batch_params
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type[FFTBackend]:
     if name == "PyFFTWBackend":
         try:
             from .fft import PyFFTWBackend

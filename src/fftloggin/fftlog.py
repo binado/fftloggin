@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import warnings
 from functools import cached_property
 
@@ -415,7 +417,7 @@ class FFTLog:
         return self._kernel
 
     @kernel.setter
-    def kernel(self, other: Kernel):
+    def kernel(self, other: Kernel) -> None:
         self._kernel = other
         self._cleanup()
         self._validate_domain()
@@ -425,7 +427,7 @@ class FFTLog:
         return self._n
 
     @n.setter
-    def n(self, other: int):
+    def n(self, other: int) -> None:
         self._n = other
         self._cleanup()
 
@@ -434,7 +436,7 @@ class FFTLog:
         return self._dlog
 
     @dlog.setter
-    def dlog(self, other: npt.ArrayLike):
+    def dlog(self, other: npt.ArrayLike) -> None:
         self._dlog = other
         self._cleanup()
 
@@ -443,7 +445,7 @@ class FFTLog:
         return self._bias
 
     @bias.setter
-    def bias(self, other: npt.ArrayLike):
+    def bias(self, other: npt.ArrayLike) -> None:
         self._bias = other
         self._cleanup()
         self._validate_domain()
@@ -453,7 +455,7 @@ class FFTLog:
         return self._lowring
 
     @lowring.setter
-    def lowring(self, other: bool):
+    def lowring(self, other: bool) -> None:
         self._lowring = other
         self._cleanup()
 
@@ -492,7 +494,7 @@ class FFTLog:
         kr: npt.ArrayLike = 1.0,
         lowring: bool = True,
         backend: FFTBackend | None = None,
-    ) -> "FFTLog":
+    ) -> FFTLog:
         """
         Create FFTLog instance from a log-spaced coordinate array.
 
@@ -709,7 +711,7 @@ class FFTLog:
             prod = allocate_broadcasted_array(a_biased_fftd, coeffs)
             np.multiply(a_biased_fftd, coeffs, out=prod)
             ak = self._fft.irfft(prod, n=na, **fft_kwargs)
-        ak = np.flip(ak, axis=-1)  # type: ignore
+        ak = np.asarray(np.flip(ak, axis=-1))
         out_dtype = np.result_type(ak.dtype, bias_power_law.dtype, bias_logc.dtype)
         if out is not None:
             self._validate_out(out, a, shape=ak.shape, dtype=out_dtype)
@@ -814,7 +816,7 @@ class FFTLog:
             div = allocate_broadcasted_array(ak_biased_fftd, coeffs_conj)
             np.divide(ak_biased_fftd, coeffs_conj, out=div)
             a = self._fft.irfft(div, n=na, **fft_kwargs)
-        a = np.flip(a, axis=-1)  # type: ignore
+        a = np.asarray(np.flip(a, axis=-1))
         out_dtype = np.result_type(a.dtype, bias_power_law.dtype)
         if out is not None:
             self._validate_out(out, ak, shape=a.shape, dtype=out_dtype)
