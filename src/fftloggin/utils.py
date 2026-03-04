@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 
-CastingRule = Literal["no", "equiv", "safe", "same_kind", "same_value", "unsafe"]
+CastingRule = Literal["no", "equiv", "safe", "same_kind", "unsafe"]
 
 
 def allocate_broadcasted_array(
