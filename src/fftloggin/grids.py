@@ -54,7 +54,7 @@ def infer_dlog(x: npt.ArrayLike, rtol: float = 1e-5) -> npt.NDArray:
     if not np.allclose(dlog_arr, dlog_broadcast, rtol=rtol):
         raise ValueError(
             f"Array is not uniformly log-spaced. "
-            f"Expected spacing: {dlog:.6f}, "
+            f"Expected spacing: {dlog}, "
             f"got range: [{dlog_arr.min():.6f}, {dlog_arr.max():.6f}]"
         )
 
