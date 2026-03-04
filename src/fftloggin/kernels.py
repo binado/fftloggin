@@ -5,7 +5,10 @@ This module provides kernel functions that compute the Mellin transform
 of various integral kernels used in generalized FFTLog transforms.
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
+from typing import Generic, Literal, Self, TypeVar, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -108,7 +111,13 @@ class Kernel:
         in_bounds = (s_real >= inf) & (s_real <= sup)
         return bool(np.all(in_bounds))
 
-    def derive(self, order: int = 1) -> "Kernel":
+    @overload
+    def derive(self, order: Literal[0]) -> Self: ...
+
+    @overload
+    def derive(self, order: int = 1) -> Derivative[Self]: ...
+
+    def derive(self, order: int = 1) -> Self | Derivative[Self]:
         r"""
         Return the nth derivative of this kernel.
 
@@ -125,9 +134,9 @@ class Kernel:
 
         Returns
         -------
-        Kernel
-            A new Kernel representing the nth derivative.
-            If order is 0, returns self unchanged.
+        Self | Derivative[Self]
+            If ``order`` is 0, returns ``self`` unchanged.
+            Otherwise returns a :class:`Derivative` wrapper around ``self``.
 
         Examples
         --------
@@ -146,7 +155,10 @@ class Kernel:
         return Derivative(self, order)
 
 
-class Derivative(Kernel):
+K = TypeVar("K", bound=Kernel)
+
+
+class Derivative(Kernel, Generic[K]):
     r"""
     Kernel representing the nth derivative of another kernel.
 
@@ -185,7 +197,7 @@ class Derivative(Kernel):
     Kernel.derive : Recommended way to compute derivatives
     """
 
-    def __init__(self, transform: Kernel, order: int) -> None:
+    def __init__(self, transform: K, order: int) -> None:
         super().__init__()
         self.transform = transform
         if order < 1:
