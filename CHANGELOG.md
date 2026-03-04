@@ -1,3 +1,10 @@
+## 0.3.1 (2026-03-04)
+
+### Refactor
+
+- tighten package typing annotations (#46)
+- simplify domain checking system (#45)
+
 ## 0.3.0 (2026-02-11)
 
 ### Feat
