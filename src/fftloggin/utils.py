@@ -6,6 +6,9 @@ import numpy as np
 import numpy.typing as npt
 
 
+CastingRule = Literal["no", "equiv", "safe", "same_kind", "unsafe"]
+
+
 def allocate_broadcasted_array(
     *arrs: npt.NDArray, dtype: npt.DTypeLike | None = None
 ) -> npt.NDArray:
@@ -33,7 +36,7 @@ def allocate_broadcasted_array(
 
 
 def in_place_compatible(
-    target: npt.NDArray, *others: npt.NDArray, casting: str = "same_kind"
+    target: npt.NDArray, *others: npt.NDArray, casting: CastingRule = "same_kind"
 ) -> bool:
     """
     Return True if an operation on *target* and *others* can be written back

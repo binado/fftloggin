@@ -2,6 +2,8 @@
 Exceptions and warnings for fftloggin.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -59,7 +61,7 @@ class ArgumentOutOfDomainError(ValueError):
     Values [2.0] outside domain (0.0, 1.5)
     """
 
-    def __init__(self, s: npt.ArrayLike, kernel: "Kernel", context: str = ""):
+    def __init__(self, s: npt.ArrayLike, kernel: Kernel, context: str = ""):
         self.s = np.asarray(s)
         self.kernel = kernel
         self.domain = kernel.domain

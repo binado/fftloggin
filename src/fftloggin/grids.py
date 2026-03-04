@@ -61,7 +61,7 @@ def infer_dlog(x: npt.ArrayLike, rtol: float = 1e-5) -> npt.NDArray:
     return dlog
 
 
-def get_array_center(x: npt.ArrayLike):
+def get_array_center(x: npt.ArrayLike) -> npt.NDArray:
     """
     Compute the geometric center of a log-spaced array.
 
@@ -285,7 +285,7 @@ class Grid:
         self,
         r: npt.ArrayLike,
         k: npt.ArrayLike,
-    ):
+    ) -> None:
         """
         Create a Grid from coordinate arrays.
 
@@ -298,7 +298,7 @@ class Grid:
         """
         self._setup(r, k)
 
-    def _setup(self, r: npt.ArrayLike, k: npt.ArrayLike):
+    def _setup(self, r: npt.ArrayLike, k: npt.ArrayLike) -> None:
         self._r = np.asarray(r)
         self._k = np.asarray(k)
 

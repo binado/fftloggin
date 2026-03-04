@@ -18,7 +18,7 @@ DEFAULT_FFT_BACKEND_FACTORY: type[FFTBackend]
 DEFAULT_FFT_BACKEND_FACTORY = SciPyFFTBackend
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type[FFTBackend]:
     if name == "PyFFTWBackend":
         try:
             from .pyfftw import PyFFTWBackend
