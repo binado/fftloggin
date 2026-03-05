@@ -116,6 +116,17 @@ def test_kernel_shift_method():
     assert shifted.nu == nu
 
 
+def test_kernel_shift_method_with_array_nu():
+    """Kernel.shift() should accept batched nu with trailing singleton axis."""
+    kernel = BesselJKernel(0.5)
+    nu = np.array([0.1, 0.3]).reshape(-1, 1)
+    shifted = kernel.shift(nu)
+
+    assert isinstance(shifted, ShiftedKernel)
+    assert shifted.base is kernel
+    assert_allclose(shifted.nu, nu)
+
+
 def test_shifted_kernel_domain_shifts_bounds():
     """Shifted kernel domain should shift the base domain by -nu."""
     mu = 0.5
@@ -130,10 +141,34 @@ def test_shifted_kernel_domain_shifts_bounds():
     assert_allclose(sup, 1.5 - nu)
 
 
+def test_shifted_kernel_domain_with_array_nu():
+    """Shifted kernel domain should broadcast with batched nu."""
+    mu = 0.5
+    nu = np.array([0.1, 0.3]).reshape(-1, 1)
+    kernel = BesselJKernel(mu)
+    shifted = kernel.shift(nu)
+
+    inf, sup = shifted.domain
+    assert_allclose(inf, -mu - nu)
+    assert_allclose(sup, 1.5 - nu)
+
+
 def test_shifted_kernel_evaluation_matches_shifted_argument():
     """Shifted kernel should evaluate as base(s + nu)."""
     kernel = BesselJKernel(0.5)
     nu = 0.3
+    shifted = kernel.shift(nu)
+    s = np.array([0.2, 0.8, 1.1]) + 0.4j
+
+    expected = kernel(s + nu)
+    got = shifted(s)
+    assert_allclose(got, expected)
+
+
+def test_shifted_kernel_evaluation_matches_shifted_argument_array_nu():
+    """Batched nu should broadcast in shifted kernel evaluation."""
+    kernel = BesselJKernel(0.5)
+    nu = np.array([0.1, 0.3]).reshape(-1, 1)
     shifted = kernel.shift(nu)
     s = np.array([0.2, 0.8, 1.1]) + 0.4j
 
@@ -151,6 +186,15 @@ def test_shifted_kernel_is_in_domain():
     assert shifted.is_in_domain(0.0) == kernel.is_in_domain(0.4)
     assert shifted.is_in_domain(1.1) == kernel.is_in_domain(1.5)
     assert shifted.is_in_domain(1.2) == kernel.is_in_domain(1.6)
+
+
+def test_shifted_kernel_rejects_invalid_array_nu_shape():
+    """Array nu must keep sample axis free for FFTLog broadcasting."""
+    kernel = BesselJKernel(0.5)
+    nu = np.array([0.1, 0.2])  # shape (2,), last axis not singleton
+
+    with pytest.raises(ValueError, match="shape\\[-1\\] == 1"):
+        kernel.shift(nu)
 
 
 def test_derivative_domain_shifts_bounds():

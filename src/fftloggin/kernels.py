@@ -159,16 +159,18 @@ class Kernel:
     def shift(self, nu: Literal[0] = 0) -> Self: ...
 
     @overload
-    def shift(self, nu: float) -> ShiftedKernel[Self]: ...
+    def shift(self, nu: npt.ArrayLike) -> ShiftedKernel[Self]: ...
 
-    def shift(self, nu: float = 0.0) -> Self | ShiftedKernel[Self]:
+    def shift(self, nu: npt.ArrayLike = 0.0) -> Self | ShiftedKernel[Self]:
         """
         Return a kernel with Mellin argument shift ``s -> s + nu``.
 
         Parameters
         ----------
-        nu : float, optional
-            Additive shift in Mellin-space argument. Default is 0.0.
+        nu : array_like, optional
+            Additive shift in Mellin-space argument. Can be scalar or
+            batch-shaped with trailing singleton axis (``shape[-1] == 1``).
+            Default is 0.0.
 
         Returns
         -------
@@ -176,9 +178,10 @@ class Kernel:
             If ``nu`` is 0, returns ``self`` unchanged.
             Otherwise returns a :class:`ShiftedKernel` wrapper.
         """
-        if nu == 0:
+        nu_arr = np.asarray(nu)
+        if nu_arr.ndim == 0 and nu_arr == 0:
             return self
-        return ShiftedKernel(self, nu)
+        return ShiftedKernel(self, nu_arr)
 
 
 K = TypeVar("K", bound=Kernel)
@@ -192,10 +195,16 @@ class ShiftedKernel(Kernel, Generic[K]):
         shifted(s) = base(s + nu)
     """
 
-    def __init__(self, base: K, nu: float) -> None:
+    def __init__(self, base: K, nu: npt.ArrayLike) -> None:
         super().__init__()
+        nu_arr = np.asarray(nu)
+        if nu_arr.ndim > 0 and nu_arr.shape[-1] != 1:
+            raise ValueError(
+                "nu must be scalar or have trailing singleton dimension "
+                "(shape[-1] == 1) for FFTLog broadcasting"
+            )
         self.base = base
-        self.nu = float(nu)
+        self.nu = nu_arr
 
     @property
     def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
