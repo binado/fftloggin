@@ -218,7 +218,7 @@ class ShiftedKernel(Kernel, Generic[K]):
     def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
         return self.base(np.asarray(s) + self.nu)
 
-    def shift(self, nu: npt.ArrayLike) -> Self | ShiftedKernel[K]:
+    def shift(self, nu: npt.ArrayLike = 0.0) -> Self | ShiftedKernel[K]:
         """Return an equivalent flattened shifted kernel."""
         nu_arr = np.asarray(nu)
         if nu_arr.ndim == 0 and nu_arr == 0:
