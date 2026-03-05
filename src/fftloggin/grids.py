@@ -55,8 +55,8 @@ def infer_dlog(x: npt.ArrayLike, rtol: float = 1e-5) -> npt.NDArray:
         raise ValueError(
             f"Array is not uniformly log-spaced. "
             f"Expected spacing: {np.array2string(np.asarray(dlog), precision=3)}, "
-            f"got range: [{np.array2string(np.asarray(dlog_arr.min()), precision=3)}, "
-            f"{np.array2string(np.asarray(dlog_arr.max()), precision=3)}]"
+            f"got range: [{np.array2string(dlog_arr.min(), precision=3)}, "
+            f"{np.array2string(dlog_arr.max(), precision=3)}]"
         )
 
     return dlog
