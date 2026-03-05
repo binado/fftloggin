@@ -19,6 +19,7 @@ from .utils import safe_broadcast
 __all__ = (
     "Kernel",
     "BesselJKernel",
+    "ShiftedKernel",
     "Derivative",
     "CombinedKernel",
 )
@@ -154,8 +155,59 @@ class Kernel:
             return self
         return Derivative(self, order)
 
+    @overload
+    def shift(self, nu: Literal[0] = 0) -> Self: ...
+
+    @overload
+    def shift(self, nu: float) -> ShiftedKernel[Self]: ...
+
+    def shift(self, nu: float = 0.0) -> Self | ShiftedKernel[Self]:
+        """
+        Return a kernel with Mellin argument shift ``s -> s + nu``.
+
+        Parameters
+        ----------
+        nu : float, optional
+            Additive shift in Mellin-space argument. Default is 0.0.
+
+        Returns
+        -------
+        Self | ShiftedKernel[Self]
+            If ``nu`` is 0, returns ``self`` unchanged.
+            Otherwise returns a :class:`ShiftedKernel` wrapper.
+        """
+        if nu == 0:
+            return self
+        return ShiftedKernel(self, nu)
+
 
 K = TypeVar("K", bound=Kernel)
+
+
+class ShiftedKernel(Kernel, Generic[K]):
+    """
+    Kernel wrapper that applies an additive Mellin-space argument shift.
+
+    Semantics:
+        shifted(s) = base(s + nu)
+    """
+
+    def __init__(self, base: K, nu: float) -> None:
+        super().__init__()
+        self.base = base
+        self.nu = float(nu)
+
+    @property
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        inf, sup = self.base.domain
+        return np.asarray(inf) - self.nu, np.asarray(sup) - self.nu
+
+    def is_in_domain(self, s: npt.ArrayLike) -> bool:
+        s = np.asarray(s)
+        return self.base.is_in_domain(s + self.nu)
+
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
+        return self.base(np.asarray(s) + self.nu)
 
 
 class Derivative(Kernel, Generic[K]):

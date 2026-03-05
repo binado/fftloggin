@@ -308,6 +308,32 @@ def test_fftlog_exact(n):
     assert_allclose(A, At)
 
 
+def test_shifted_kernel_matches_bias_shifted_coefficients():
+    """K(s + nu) should match base-kernel coefficients with bias -> bias + nu."""
+    n = 128
+    r = np.logspace(-3, 3, n)
+    mu = 0.4
+    nu = 0.2
+    bias = 0.1
+
+    base = BesselJKernel(mu)
+    shifted = base.shift(nu)
+
+    fftlog_shifted = FFTLog.from_array(
+        r, kernel=shifted, bias=bias, kr=1.0, lowring=False
+    )
+    fftlog_bias_shifted = FFTLog.from_array(
+        r, kernel=base, bias=bias + nu, kr=1.0, lowring=False
+    )
+
+    assert_allclose(
+        fftlog_shifted.kernel_coefficients,
+        fftlog_bias_shifted.kernel_coefficients,
+        rtol=1e-13,
+        atol=1e-13,
+    )
+
+
 def test_array_like():
     """Test that array-like inputs work."""
     x = [[[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]]

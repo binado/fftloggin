@@ -44,6 +44,22 @@ class TestFFTLogDomainValidation:
         with pytest.warns(DomainCheckWarning, match="outside domain"):
             FFTLog(kernel, n=64, dlog=0.1, bias=1.0)
 
+    def test_shifted_kernel_warns_for_bias_becoming_invalid(self):
+        """Shifted kernels should alter FFTLog domain validation as expected."""
+        kernel = BesselJKernel(mu=0).shift(1.0)
+        # Base domain for mu=0: (0, 1.5). After shift(+1): (-1, 0.5).
+        # bias=0 -> s_real=1.0, out of shifted domain.
+        with pytest.warns(DomainCheckWarning, match="outside domain"):
+            FFTLog(kernel, n=64, dlog=0.1, bias=0.0)
+
+    def test_shifted_kernel_accepts_bias_in_shifted_domain(self):
+        """A valid shifted-kernel/bias combination should not warn."""
+        kernel = BesselJKernel(mu=0).shift(1.0)
+        # Shifted domain: (-1, 0.5). bias=-0.75 -> s_real=0.25 is valid.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            FFTLog(kernel, n=64, dlog=0.1, bias=-0.75)
+
 
 class TestFFTLogCheckDomainMethod:
     """Tests for FFTLog.check_domain() method."""
