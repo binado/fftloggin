@@ -195,16 +195,15 @@ class ShiftedKernel(Kernel, Generic[K]):
         shifted(s) = base(s + nu)
     """
 
-    def __init__(self, base: K, nu: npt.ArrayLike) -> None:
+    def __init__(self, base: K, nu: npt.NDArray) -> None:
         super().__init__()
-        nu_arr = np.asarray(nu)
-        if nu_arr.ndim > 0 and nu_arr.shape[-1] != 1:
+        if nu.ndim > 0 and nu.shape[-1] != 1:
             raise ValueError(
                 "nu must be scalar or have trailing singleton dimension "
                 "(shape[-1] == 1) for FFTLog broadcasting"
             )
         self.base = base
-        self.nu = nu_arr
+        self.nu = nu
 
     @property
     def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
