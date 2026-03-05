@@ -1,3 +1,13 @@
+## 0.4.0 (2026-03-05)
+
+### Feat
+
+- add per-kernel Mellin shift API (#52)
+
+### Fix
+
+- support array inputs in infer_dlog error message (#48)
+
 ## 0.3.1 (2026-03-04)
 
 ### Refactor
