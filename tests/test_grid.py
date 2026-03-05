@@ -307,6 +307,20 @@ def test_infer_dlog_two_elements():
     assert_allclose(dlog, expected_dlog)
 
 
+def test_infer_dlog_non_logspaced_1d_raises():
+    """Regression test: infer_dlog raises ValueError (not TypeError) for non-log-spaced 1D array."""
+    non_logspaced = np.linspace(1.0, 100.0, 64)
+    with pytest.raises(ValueError, match="not uniformly log-spaced"):
+        infer_dlog(non_logspaced)
+
+
+def test_infer_dlog_non_logspaced_2d_raises():
+    """Regression test: infer_dlog raises ValueError (not TypeError) for non-log-spaced 2D batched array."""
+    non_logspaced = np.tile(np.linspace(1.0, 100.0, 64), (3, 1))
+    with pytest.raises(ValueError, match="not uniformly log-spaced"):
+        infer_dlog(non_logspaced)
+
+
 def test_get_other_array_involution():
     """Test that get_other_array is an involution (applying it twice gives identity)."""
     r = np.logspace(-2, 2, 128)
