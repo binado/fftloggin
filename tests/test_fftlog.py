@@ -308,6 +308,82 @@ def test_fftlog_exact(n):
     assert_allclose(A, At)
 
 
+def test_shifted_kernel_matches_bias_shifted_coefficients():
+    """K(s + nu) should match base-kernel coefficients with bias -> bias + nu."""
+    n = 128
+    r = np.logspace(-3, 3, n)
+    mu = 0.4
+    nu = 0.2
+    bias = 0.1
+
+    base = BesselJKernel(mu)
+    shifted = base.shift(nu)
+
+    fftlog_shifted = FFTLog.from_array(
+        r, kernel=shifted, bias=bias, kr=1.0, lowring=False
+    )
+    fftlog_bias_shifted = FFTLog.from_array(
+        r, kernel=base, bias=bias + nu, kr=1.0, lowring=False
+    )
+
+    assert_allclose(
+        fftlog_shifted.kernel_coefficients,
+        fftlog_bias_shifted.kernel_coefficients,
+        rtol=1e-13,
+        atol=1e-13,
+    )
+
+
+def test_shifted_kernel_with_array_nu_matches_bias_shifted_coefficients():
+    """Batched K(s + nu) should match base-kernel coefficients with bias -> bias + nu."""
+    n = 128
+    r = np.logspace(-3, 3, n)
+    mu = 2.0
+    nu = np.array([0.1, 0.2]).reshape(-1, 1)
+    bias = 0.0
+
+    base = BesselJKernel(mu)
+    shifted = base.shift(nu)
+
+    fftlog_shifted = FFTLog.from_array(
+        r, kernel=shifted, bias=bias, kr=1.0, lowring=False
+    )
+    fftlog_bias_shifted = FFTLog.from_array(
+        r, kernel=base, bias=bias + nu, kr=1.0, lowring=False
+    )
+
+    assert_allclose(
+        fftlog_shifted.kernel_coefficients,
+        fftlog_bias_shifted.kernel_coefficients,
+        rtol=1e-13,
+        atol=1e-13,
+    )
+
+
+def test_shifted_kernel_with_k_power_compensation_matches_weighted_input_transform():
+    """K(s+nu) with k^{-nu} correction should match direct transform of a * r^nu."""
+    n = 128
+    r = np.logspace(-3, 3, n)
+    a = np.exp(-(r**2))
+    mu = 0.8
+    nu = 0.2
+    bias = -0.4
+
+    base = BesselJKernel(mu)
+    fftlog_shifted = FFTLog.from_array(
+        r, kernel=base.shift(nu), bias=bias, kr=1.0, lowring=False
+    )
+    fftlog_direct = FFTLog.from_array(
+        r, kernel=base, bias=bias + nu, kr=1.0, lowring=False
+    )
+    k = fftlog_direct.create_grid(r=r).k
+
+    shifted_and_compensated = fftlog_shifted.forward(a) * k**-nu
+    direct = fftlog_direct.forward(a * r**nu)
+
+    assert_allclose(shifted_and_compensated, direct, rtol=1e-12, atol=1e-12)
+
+
 def test_array_like():
     """Test that array-like inputs work."""
     x = [[[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]]

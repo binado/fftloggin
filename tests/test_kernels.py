@@ -10,6 +10,7 @@ from fftloggin.kernels import (
     BesselJKernel,
     CombinedKernel,
     Derivative,
+    ShiftedKernel,
     SphericalBesselJKernel,
 )
 
@@ -99,6 +100,121 @@ def test_kernel_derive_method():
     assert d2_kernel.order == 2
 
 
+def test_kernel_shift_method():
+    """Test Kernel.shift() method."""
+    kernel = BesselJKernel(0.5)
+
+    # Test nu=0 returns self
+    shifted0 = kernel.shift(0)
+    assert shifted0 is kernel
+
+    # Test nu!=0 returns ShiftedKernel
+    nu = 0.25
+    shifted = kernel.shift(nu)
+    assert isinstance(shifted, ShiftedKernel)
+    assert shifted.base is kernel
+    assert shifted.nu == nu
+
+
+def test_kernel_shift_method_with_array_nu():
+    """Kernel.shift() should accept batched nu with trailing singleton axis."""
+    kernel = BesselJKernel(0.5)
+    nu = np.array([0.1, 0.3]).reshape(-1, 1)
+    shifted = kernel.shift(nu)
+
+    assert isinstance(shifted, ShiftedKernel)
+    assert shifted.base is kernel
+    assert_allclose(shifted.nu, nu)
+
+
+def test_shifted_kernel_domain_shifts_bounds():
+    """Shifted kernel domain should shift the base domain by -nu."""
+    mu = 0.5
+    nu = 0.25
+    kernel = BesselJKernel(mu)
+    shifted = kernel.shift(nu)
+
+    inf, sup = shifted.domain
+    inf = np.asarray(inf)
+    sup = np.asarray(sup)
+    assert_allclose(inf, -mu - nu)
+    assert_allclose(sup, 1.5 - nu)
+
+
+def test_nested_shift_flattens_to_single_shift():
+    """Shifting a ShiftedKernel should flatten nested wrappers."""
+    kernel = BesselJKernel(0.5)
+    shifted = kernel.shift(0.25).shift(0.5)
+
+    assert isinstance(shifted, ShiftedKernel)
+    assert shifted.base is kernel
+    assert_allclose(shifted.nu, 0.75)
+
+
+def test_shifted_kernel_zero_shift_returns_self():
+    """Shifting by zero should return the original shifted kernel."""
+    kernel = BesselJKernel(0.5).shift(0.25)
+    no_op = kernel.shift(0)
+
+    assert no_op is kernel
+
+
+def test_shifted_kernel_domain_with_array_nu():
+    """Shifted kernel domain should broadcast with batched nu."""
+    mu = 0.5
+    nu = np.array([0.1, 0.3]).reshape(-1, 1)
+    kernel = BesselJKernel(mu)
+    shifted = kernel.shift(nu)
+
+    inf, sup = shifted.domain
+    assert_allclose(inf, -mu - nu)
+    assert_allclose(sup, 1.5 - nu)
+
+
+def test_shifted_kernel_evaluation_matches_shifted_argument():
+    """Shifted kernel should evaluate as base(s + nu)."""
+    kernel = BesselJKernel(0.5)
+    nu = 0.3
+    shifted = kernel.shift(nu)
+    s = np.array([0.2, 0.8, 1.1]) + 0.4j
+
+    expected = kernel(s + nu)
+    got = shifted(s)
+    assert_allclose(got, expected)
+
+
+def test_shifted_kernel_evaluation_matches_shifted_argument_array_nu():
+    """Batched nu should broadcast in shifted kernel evaluation."""
+    kernel = BesselJKernel(0.5)
+    nu = np.array([0.1, 0.3]).reshape(-1, 1)
+    shifted = kernel.shift(nu)
+    s = np.array([0.2, 0.8, 1.1]) + 0.4j
+
+    expected = kernel(s + nu)
+    got = shifted(s)
+    assert_allclose(got, expected)
+
+
+def test_shifted_kernel_is_in_domain():
+    """Shifted kernel domain checks should delegate via s + nu."""
+    kernel = BesselJKernel(0.5)
+    nu = 0.4
+    shifted = kernel.shift(nu)
+
+    assert shifted.is_in_domain(0.0) == kernel.is_in_domain(0.4)
+    assert shifted.is_in_domain(1.1) == kernel.is_in_domain(1.5)
+    assert shifted.is_in_domain(1.2) == kernel.is_in_domain(1.6)
+
+
+def test_shifted_kernel_rejects_invalid_array_nu_shape():
+    """Array nu must keep sample axis free for FFTLog broadcasting."""
+    kernel = BesselJKernel(0.5)
+    nu = np.array([0.1, 0.2])  # shape (2,), last axis not singleton
+
+    with pytest.raises(ValueError, match="shape\\[-1\\] == 1"):
+        kernel.shift(nu)
+
+
 def test_derivative_domain_shifts_bounds():
     """Derivative domain should shift the base kernel domain by order."""
     mu = 0.5
@@ -162,6 +278,18 @@ def test_spherical_bessel_kernel_is_in_domain(
 
 
 class TestCombinedKernel:
+    def test_combined_kernel_with_shifted_kernel(self):
+        """Shifted kernels should compose naturally in CombinedKernel."""
+        k1 = BesselJKernel(mu=0)
+        k2 = BesselJKernel(mu=1)
+        nu = 0.2
+        kernel = CombinedKernel([k1, k2.shift(nu)])
+
+        s = np.array([0.5, 1.0, 1.4])
+        res = kernel(s)
+        assert_allclose(res[0], k1(s))
+        assert_allclose(res[1], k2(s + nu))
+
     def test_combined_kernel_raises_on_empty_list(self):
         """Test CombinedKernel raises on empty kernel list."""
         with pytest.raises(ValueError, match="At least one kernel"):

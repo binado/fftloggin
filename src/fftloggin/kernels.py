@@ -19,6 +19,7 @@ from .utils import safe_broadcast
 __all__ = (
     "Kernel",
     "BesselJKernel",
+    "ShiftedKernel",
     "Derivative",
     "CombinedKernel",
 )
@@ -154,8 +155,75 @@ class Kernel:
             return self
         return Derivative(self, order)
 
+    @overload
+    def shift(self, nu: Literal[0] = 0) -> Self: ...
+
+    @overload
+    def shift(self, nu: npt.ArrayLike) -> ShiftedKernel[Self]: ...
+
+    def shift(self, nu: npt.ArrayLike = 0) -> Self | ShiftedKernel[Self]:
+        """
+        Return a kernel with Mellin argument shift ``s -> s + nu``.
+
+        Parameters
+        ----------
+        nu : array_like, optional
+            Additive shift in Mellin-space argument. Can be scalar or
+            batch-shaped with trailing singleton axis (``shape[-1] == 1``).
+            Default is 0.
+
+        Returns
+        -------
+        Self | ShiftedKernel[Self]
+            If ``nu`` is a scalar 0, returns ``self`` unchanged.
+            Otherwise returns a :class:`ShiftedKernel` wrapper.
+        """
+        nu_arr = np.asarray(nu)
+        if nu_arr.ndim == 0 and nu_arr == 0:
+            return self
+        return ShiftedKernel(self, nu_arr)
+
 
 K = TypeVar("K", bound=Kernel)
+
+
+class ShiftedKernel(Kernel, Generic[K]):
+    """
+    Kernel wrapper that applies an additive Mellin-space argument shift.
+
+    Semantics:
+        shifted(s) = base(s + nu)
+    """
+
+    def __init__(self, base: K, nu: npt.NDArray) -> None:
+        super().__init__()
+        if nu.ndim > 0 and nu.shape[-1] != 1:
+            raise ValueError(
+                "nu must be scalar or have trailing singleton dimension "
+                "(shape[-1] == 1) for FFTLog broadcasting"
+            )
+        self.base = base
+        self.nu = nu
+
+    @property
+    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
+        inf, sup = self.base.domain
+        return np.asarray(inf) - self.nu, np.asarray(sup) - self.nu
+
+    def is_in_domain(self, s: npt.ArrayLike) -> bool:
+        s = np.asarray(s)
+        return self.base.is_in_domain(s + self.nu)
+
+    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
+        return self.base(np.asarray(s) + self.nu)
+
+    def shift(self, nu: npt.ArrayLike = 0.0) -> Self | ShiftedKernel[K]:
+        """Return an equivalent flattened shifted kernel."""
+        nu_arr = np.asarray(nu)
+        if nu_arr.ndim == 0 and nu_arr == 0:
+            return self
+        total_nu = self.nu + nu_arr
+        return ShiftedKernel(self.base, total_nu)
 
 
 class Derivative(Kernel, Generic[K]):
