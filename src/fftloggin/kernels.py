@@ -161,7 +161,7 @@ class Kernel:
     @overload
     def shift(self, nu: npt.ArrayLike) -> ShiftedKernel[Self]: ...
 
-    def shift(self, nu: npt.ArrayLike = 0.0) -> Self | ShiftedKernel[Self]:
+    def shift(self, nu: npt.ArrayLike = 0) -> Self | ShiftedKernel[Self]:
         """
         Return a kernel with Mellin argument shift ``s -> s + nu``.
 
@@ -170,7 +170,7 @@ class Kernel:
         nu : array_like, optional
             Additive shift in Mellin-space argument. Can be scalar or
             batch-shaped with trailing singleton axis (``shape[-1] == 1``).
-            Default is 0.0.
+            Default is 0.
 
         Returns
         -------
