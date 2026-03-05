@@ -141,6 +141,24 @@ def test_shifted_kernel_domain_shifts_bounds():
     assert_allclose(sup, 1.5 - nu)
 
 
+def test_nested_shift_flattens_to_single_shift():
+    """Shifting a ShiftedKernel should flatten nested wrappers."""
+    kernel = BesselJKernel(0.5)
+    shifted = kernel.shift(0.25).shift(0.5)
+
+    assert isinstance(shifted, ShiftedKernel)
+    assert shifted.base is kernel
+    assert_allclose(shifted.nu, 0.75)
+
+
+def test_shifted_kernel_zero_shift_returns_self():
+    """Shifting by zero should return the original shifted kernel."""
+    kernel = BesselJKernel(0.5).shift(0.25)
+    no_op = kernel.shift(0)
+
+    assert no_op is kernel
+
+
 def test_shifted_kernel_domain_with_array_nu():
     """Shifted kernel domain should broadcast with batched nu."""
     mu = 0.5
