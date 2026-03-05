@@ -175,7 +175,7 @@ class Kernel:
         Returns
         -------
         Self | ShiftedKernel[Self]
-            If ``nu`` is 0, returns ``self`` unchanged.
+            If ``nu`` is a scalar 0, returns ``self`` unchanged.
             Otherwise returns a :class:`ShiftedKernel` wrapper.
         """
         nu_arr = np.asarray(nu)
