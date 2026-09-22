@@ -1,0 +1,31 @@
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v6.0.0"
+hooks = [
+  { id = "check-yaml" },
+  { id = "end-of-file-fixer" },
+  { id = "trailing-whitespace" },
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.16.8"
+hooks = [
+  { id = "ruff-check", args = ["--fix"], types_or = ["python"] },
+  { id = "ruff-format", types_or = ["python"] },
+]
+
+[[repos]]
+repo = "https://github.com/srstevenson/nb-clean"
+rev = "4.0.1"
+hooks = [
+  { id = "nb-clean", args = ["--remove-empty-cells", "--remove-all-notebook-metadata"] },
+]
+
+[[repos]]
+repo = "https://github.com/commitizen-tools/commitizen"
+rev = "v4.19.0"
+hooks = [
+  { id = "commitizen" },
+  { id = "commitizen-branch", stages = ["pre-push"] },
+]
