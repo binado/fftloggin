@@ -21,11 +21,3 @@ rev = "4.0.1"
 hooks = [
   { id = "nb-clean", args = ["--remove-empty-cells", "--remove-all-notebook-metadata"] },
 ]
-
-[[repos]]
-repo = "https://github.com/commitizen-tools/commitizen"
-rev = "v4.19.0"
-hooks = [
-  { id = "commitizen" },
-  { id = "commitizen-branch", stages = ["pre-push"] },
-]
