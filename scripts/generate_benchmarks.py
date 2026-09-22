@@ -10,6 +10,7 @@ The Fortran source code is downloaded on-demand from the original FFTLog
 distribution at https://jila.colorado.edu/~ajsh/FFTLog/
 """
 
+import hashlib
 import os
 import re
 import shutil
@@ -19,7 +20,6 @@ import tarfile
 import tempfile
 import urllib.error
 import urllib.request
-import hashlib
 from pathlib import Path
 
 # Define paths
@@ -172,6 +172,7 @@ def build_executable():
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
         if result.returncode != 0:
             print(f"Build failed:\n{result.stderr}")
@@ -188,7 +189,7 @@ def build_executable():
     except subprocess.TimeoutExpired:
         print("ERROR: Build timed out")
         return False
-    except Exception as e:
+    except OSError as e:
         print(f"ERROR: Build failed: {e}")
         return False
 
@@ -242,7 +243,7 @@ def run_benchmark(log10rmin, log10rmax, n, mu, q, kr, lowring, filename):
         return True, ""
     except subprocess.TimeoutExpired:
         return False, "Timeout (30s)"
-    except Exception as e:
+    except OSError as e:
         return False, str(e)
 
 

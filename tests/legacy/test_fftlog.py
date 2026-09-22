@@ -8,12 +8,12 @@ from numbers import Number
 
 import numpy as np
 import pytest
+from fftloggin.utils import prepare_batch_params
 from numpy.testing import assert_allclose, assert_array_equal, assert_array_less
 from scipy.special import poch
 
 from fftloggin.fftlog import FFTLog
 from fftloggin.kernels import BesselJKernel, CombinedKernel
-from fftloggin.utils import prepare_batch_params
 
 
 # test function, analytical Hankel transform is of the same form

@@ -245,9 +245,9 @@ def test_derivative_invalid_order():
 
 
 @pytest.mark.parametrize("mu", [-1, 1, 5, 10])
-@pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
+@pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 1 + 1j, 1.5])
 @pytest.mark.parametrize("order", [0, 1, 2])
-def test_bessel_kernel_is_in_domain(mu: float, s: complex | float, order: int):
+def test_bessel_kernel_is_in_domain(mu: float, s: complex, order: int):
     """Test that is_in_domain correctly identifies valid/invalid inputs."""
     kernel = BesselJKernel(mu)
     sr = s.real if isinstance(s, complex) else s
@@ -259,11 +259,9 @@ def test_bessel_kernel_is_in_domain(mu: float, s: complex | float, order: int):
 
 
 @pytest.mark.parametrize("ell", [1, 5, 10])
-@pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 0 + 1j, 1 + 1j, 1.5])
+@pytest.mark.parametrize("s", [-11, -10.5, -5, 0 + 1j, 1 + 1j, 1.5])
 @pytest.mark.parametrize("order", [0, 1, 2])
-def test_spherical_bessel_kernel_is_in_domain(
-    ell: float, s: complex | float, order: int
-):
+def test_spherical_bessel_kernel_is_in_domain(ell: float, s: complex, order: int):
     """Test that SphericalBesselJKernel.is_in_domain works correctly."""
     kernel = SphericalBesselJKernel(ell)
     if order > 0:

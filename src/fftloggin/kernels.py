@@ -12,11 +12,11 @@ from jax.scipy.special import loggamma as _jax_loggamma
 from jax.tree_util import register_dataclass
 
 __all__ = (
-    "Kernel",
     "BesselJKernel",
-    "SphericalBesselJKernel",
-    "ShiftedKernel",
     "Derivative",
+    "Kernel",
+    "ShiftedKernel",
+    "SphericalBesselJKernel",
 )
 
 

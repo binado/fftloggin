@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-__all__ = ("infer_dlog", "get_array_center", "get_other_array", "infer_log_kr")
+__all__ = ("get_array_center", "get_other_array", "infer_dlog", "infer_log_kr")
 
 
 def infer_dlog(x: jax.Array, *, rtol: float = 1e-5) -> jax.Array:

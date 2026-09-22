@@ -2,14 +2,13 @@
 
 import numpy as np
 import pytest
-from numpy.testing import assert_allclose, assert_array_equal
-
 from fftloggin.utils import (
     append_dims,
     outer_broadcast,
     prepare_batch_params,
     safe_broadcast,
 )
+from numpy.testing import assert_allclose, assert_array_equal
 
 
 class TestAppendDims:
@@ -348,7 +347,7 @@ class TestPrepareBatchParams:
     def test_2d_array_with_trailing_singleton(self):
         """Test that 2D arrays with trailing singleton pass through."""
         dlog_in = np.array([[0.04], [0.05]])  # shape (2, 1)
-        dlog, bias, kr = prepare_batch_params(dlog_in, 0.0, 1.0)
+        dlog, _bias, _kr = prepare_batch_params(dlog_in, 0.0, 1.0)
 
         assert dlog.shape == (2, 1)
         assert_array_equal(dlog, dlog_in)
@@ -356,7 +355,7 @@ class TestPrepareBatchParams:
     def test_2d_array_without_trailing_singleton(self):
         """Test that 2D arrays without trailing singleton get one added."""
         dlog_in = np.array([[0.04, 0.05]])  # shape (1, 2)
-        dlog, bias, kr = prepare_batch_params(dlog_in, 0.0, 1.0)
+        dlog, _bias, _kr = prepare_batch_params(dlog_in, 0.0, 1.0)
 
         assert dlog.shape == (1, 2, 1)  # Trailing singleton added
 
@@ -383,7 +382,7 @@ class TestPrepareBatchParams:
     def test_broadcast_validation(self):
         """Test that broadcast validation works correctly."""
         # These should broadcast fine (both become (2, 1))
-        dlog, bias, kr = prepare_batch_params([0.04, 0.05], 0.0, [1.0, 2.0])
+        dlog, _bias, kr = prepare_batch_params([0.04, 0.05], 0.0, [1.0, 2.0])
         assert dlog.shape == (2, 1)
         assert kr.shape == (2, 1)
 

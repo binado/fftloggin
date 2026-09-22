@@ -46,8 +46,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.3.0",
-    "ruff>=0.12.11",
+    "prek>=0.5.3",
+    "ruff>=0.16.0",
     { include-group = "test" },
 ]
 test = [
@@ -64,6 +64,9 @@ tutorial = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["legacy"]
+
+[tool.ruff.lint.per-file-ignores]
+"*.ipynb" = ["F821"]
 
 [tool.ty.src]
 include = ["src", "tests"]
