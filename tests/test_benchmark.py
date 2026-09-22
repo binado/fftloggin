@@ -11,7 +11,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from fftloggin import forward, get_other_array, lowring_log_kr
+from fftloggin import forward, get_paired_grids, lowring_log_kr
 from fftloggin.kernels import BesselJKernel
 
 # Check if benchmarks exist
@@ -112,7 +112,7 @@ def test_benchmark(benchmark_file: Path):
     log_kr = jnp.log(kr)
     if lowring:
         log_kr = lowring_log_kr(kernel, dlog=dlog, bias=q, log_kr=log_kr)
-    k = get_other_array(jnp.asarray(r), log_kr)
+    _, k = get_paired_grids(r=jnp.asarray(r), log_kr=log_kr)
 
     # Evaluate analytical function on r grid
     fr = f(r, mu)

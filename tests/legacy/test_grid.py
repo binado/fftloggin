@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from fftloggin.grids import (
     Grid,
     get_array_center,
-    get_other_array,
+    get_paired_grids,
     infer_dlog,
     infer_logc,
 )
@@ -321,31 +321,31 @@ def test_infer_dlog_non_logspaced_2d_raises():
         infer_dlog(non_logspaced)
 
 
-def test_get_other_array_involution():
-    """Test that get_other_array is an involution (applying it twice gives identity)."""
+def test_get_paired_grids_involution():
+    """Test that paired-grid generation is an involution."""
     r = np.logspace(-2, 2, 128)
     logc = 0.0
 
     # Apply transformation twice
-    k = get_other_array(r, logc)
-    r_back = get_other_array(k, logc)
+    _, k = get_paired_grids(r=r, log_kr=logc)
+    r_back, _ = get_paired_grids(k=k, log_kr=logc)
 
     # Should get back original array
     assert_allclose(r_back, r, rtol=1e-10)
 
 
-def test_get_other_array_involution_batched():
+def test_get_paired_grids_involution_batched():
     """Test symmetry property with batched inputs."""
     # Test with 1D batch
     r = np.logspace(-2, 2, 128).reshape(2, -1)
     logc = np.random.randn(2, 1)  # Shape (2, 1) for broadcasting
-    k = get_other_array(r, logc)
-    r_reconstructed = get_other_array(k, logc)
+    _, k = get_paired_grids(r=r, log_kr=logc)
+    r_reconstructed, _ = get_paired_grids(k=k, log_kr=logc)
     assert_allclose(r_reconstructed, r)
 
     # Test with 2D batch
     r = np.logspace(-2, 2, 126).reshape(2, 3, -1)
     logc = np.random.randn(2, 3, 1)  # Shape (2, 3, 1) for broadcasting
-    k = get_other_array(r, logc)
-    r_reconstructed = get_other_array(k, logc)
+    _, k = get_paired_grids(r=r, log_kr=logc)
+    r_reconstructed, _ = get_paired_grids(k=k, log_kr=logc)
     assert_allclose(r_reconstructed, r)
