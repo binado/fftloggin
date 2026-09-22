@@ -25,7 +25,7 @@ The library does not change process-wide JAX configuration on import.
 ```python
 import jax
 import jax.numpy as jnp
-from fftloggin import BesselJKernel, forward, get_other_array, infer_dlog
+from fftloggin import BesselJKernel, forward, get_paired_grids, infer_dlog
 
 r = jnp.geomspace(1e-2, 1e2, 128)
 a = r * jnp.exp(-r**2 / 2)
@@ -33,11 +33,13 @@ dlog = infer_dlog(r)  # eager spacing validation
 kernel = BesselJKernel(mu=0.0)
 log_kr = 0.0
 
-k = get_other_array(r, log_kr)
+r, k = get_paired_grids(r=r, log_kr=log_kr)
 A = jax.jit(forward)(a, kernel, dlog=dlog, log_kr=log_kr)
 ```
 
 `log_kr` is the logarithm of the product of the input and output grid centers.
+`get_paired_grids` accepts exactly one of `r` or `k` and always returns the
+pair in `(r, k)` order.
 To request the traditional low-ringing snap, calculate it explicitly and use
 the returned value for both the transform and the paired grid:
 
@@ -45,7 +47,7 @@ the returned value for both the transform and the paired grid:
 from fftloggin import lowring_log_kr
 
 log_kr = lowring_log_kr(kernel, dlog=dlog, log_kr=0.0)
-k = get_other_array(r, log_kr)
+r, k = get_paired_grids(r=r, log_kr=log_kr)
 A = forward(a, kernel, dlog=dlog, log_kr=log_kr)
 ```
 

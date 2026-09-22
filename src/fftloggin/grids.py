@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-__all__ = ("get_array_center", "get_other_array", "infer_dlog", "infer_log_kr")
+__all__ = ("get_array_center", "get_paired_grids", "infer_dlog", "infer_log_kr")
 
 
 def infer_dlog(x: jax.Array, *, rtol: float = 1e-5) -> jax.Array:
@@ -31,13 +31,27 @@ def get_array_center(x: jax.Array) -> jax.Array:
     return jnp.exp(0.5 * (jnp.log(x[0]) + jnp.log(x[-1])))
 
 
-def get_other_array(x: jax.Array, log_kr: jax.Array) -> jax.Array:
-    """Return the paired grid, ``exp(log_kr) / x[::-1]``.
+def get_paired_grids(
+    *,
+    r: jax.typing.ArrayLike | None = None,
+    k: jax.typing.ArrayLike | None = None,
+    log_kr: jax.typing.ArrayLike = 0.0,
+) -> tuple[jax.Array, jax.Array]:
+    """Return paired ``(r, k)`` grids from exactly one supplied grid.
 
-    This pure operation works inside ``jit`` and ``vmap``.
+    The missing grid is ``exp(log_kr) / x[::-1]``. This pure operation works
+    inside ``jit`` and ``vmap``.
     """
-    x = jnp.asarray(x)
-    return jnp.exp(log_kr - jnp.log(x[::-1]))
+    if (r is None) == (k is None):
+        raise ValueError("provide exactly one of r or k")
+
+    if r is not None:
+        r = jnp.asarray(r)
+        k = jnp.exp(log_kr - jnp.log(r[::-1]))
+    else:
+        k = jnp.asarray(k)
+        r = jnp.exp(log_kr - jnp.log(k[::-1]))
+    return r, k
 
 
 def infer_log_kr(

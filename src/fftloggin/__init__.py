@@ -3,7 +3,7 @@
 from . import kernels
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .fftlog import forward, inverse, lowring_log_kr, validate_parameters
-from .grids import get_array_center, get_other_array, infer_dlog, infer_log_kr
+from .grids import get_array_center, get_paired_grids, infer_dlog, infer_log_kr
 from .kernels import (
     BesselJKernel,
     Derivative,
@@ -22,7 +22,7 @@ __all__ = (
     "SphericalBesselJKernel",
     "forward",
     "get_array_center",
-    "get_other_array",
+    "get_paired_grids",
     "infer_dlog",
     "infer_log_kr",
     "inverse",
