@@ -1,7 +1,7 @@
 [project]
 name = "fftloggin"
-version = "0.4.0"
-description = "High-performance vectorized FFTLog implementation for fast Hankel transforms in pure Python"
+version = "0.5.0"
+description = "Differentiable FFTLog transforms built on JAX"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
@@ -31,8 +31,7 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=2.3.2",
-    "scipy>=1.16.1",
+    "jax>=0.10.0",
 ]
 
 [project.urls]
@@ -49,18 +48,12 @@ build-backend = "hatchling.build"
 dev = [
     "pre-commit>=4.3.0",
     "ruff>=0.12.11",
-    "scipy-stubs>=1.17.0.2",
     { include-group = "test" },
 ]
-benchmark = [
-    "memray>=1.14.0",
-]
-fftw = [
-    "pyfftw>0.14.0",
-]
 test = [
+    "numpy>=2.3.2",
+    "scipy>=1.16.1",
     "pytest>=8.4.1",
-    { include-group = "fftw" },
 ]
 tutorial = [
     "camb>=1.6.4",
@@ -69,8 +62,8 @@ tutorial = [
 ]
 
 [tool.pytest.ini_options]
-addopts = ["--doctest-modules"]
-testpaths = ["tests", "src"]
+testpaths = ["tests/test_benchmark.py"]
+norecursedirs = ["legacy"]
 
 [tool.ty.src]
 include = ["src", "tests"]

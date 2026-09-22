@@ -1,112 +1,91 @@
 # fftloggin
 
-Vectorized FFTLog in pure python
+Differentiable FFTLog transforms built on JAX. The core API transforms one
+real, one-dimensional sample array at a time. Use JAX transformations for
+compilation, batching, and differentiation.
 
 ## Installation
 
 ```bash
-# Install with uv
 uv add fftloggin
-
-# Or with pip
-pip install fftloggin
+# or: pip install fftloggin
 ```
 
-### Optional PyFFTW backend
-
-If you want FFTW-based plans and buffer reuse, install the optional dependency
-and use the PyFFTW backend.
+For the numerical accuracy expected by the Fortran reference cases, enable
+JAX 64-bit values **before importing JAX or fftloggin**:
 
 ```bash
-# With uv
-uv add "fftloggin[fftw]"
-
-# Or with pip
-pip install "fftloggin[fftw]"
+export JAX_ENABLE_X64=1
 ```
+
+The library does not change process-wide JAX configuration on import.
+
+## Transform a logarithmic grid
 
 ```python
-from fftloggin import FFTLog, PyFFTWBackend
-from fftloggin.kernels import BesselJKernel
+import jax
+import jax.numpy as jnp
+from fftloggin import BesselJKernel, forward, get_other_array, infer_dlog
 
-fftlog = FFTLog(kernel=BesselJKernel(0), n=128, dlog=0.05, backend=PyFFTWBackend())
+r = jnp.geomspace(1e-2, 1e2, 128)
+a = r * jnp.exp(-r**2 / 2)
+dlog = infer_dlog(r)  # eager spacing validation
+kernel = BesselJKernel(mu=0.0)
+log_kr = 0.0
+
+k = get_other_array(r, log_kr)
+A = jax.jit(forward)(a, kernel, dlog=dlog, log_kr=log_kr)
 ```
 
-## Development
+`log_kr` is the logarithm of the product of the input and output grid centers.
+To request the traditional low-ringing snap, calculate it explicitly and use
+the returned value for both the transform and the paired grid:
 
-### Setup
+```python
+from fftloggin import lowring_log_kr
+
+log_kr = lowring_log_kr(kernel, dlog=dlog, log_kr=0.0)
+k = get_other_array(r, log_kr)
+A = forward(a, kernel, dlog=dlog, log_kr=log_kr)
+```
+
+The snap is piecewise constant in the requested `log_kr`. For fitting that
+parameter, use `forward` without snapping.
+
+## Batch and differentiate
+
+```python
+mus = jnp.array([0.0, 1.0, 2.0])
+batched = jax.jit(jax.vmap(
+    lambda mu: forward(a, BesselJKernel(mu), dlog=dlog)
+))(mus)
+
+def loss(mu):
+    prediction = forward(a, BesselJKernel(mu), dlog=dlog)
+    return jnp.sum((prediction - A) ** 2)
+
+gradient = jax.grad(loss)(0.5)
+```
+
+The built-in kernels are JAX pytrees. `forward` and `inverse` require scalar
+`dlog`, `bias`, and `log_kr`; map over any of them with `jax.vmap`. Call
+`validate_parameters(kernel, dlog=..., bias=..., log_kr=...)` outside JAX
+transformations for eager value and Mellin-domain checks.
+
+## Development and reference comparison
 
 ```bash
-# Clone the repository
-git clone https://github.com/binado/fftloggin.git
-cd fftloggin
-
-# Install dependencies
 uv sync --all-groups
-```
-
-### Running Tests
-
-```bash
-# Run standard tests (fast)
-uv run pytest
-
-# Run all tests excluding benchmarks
-uv run pytest -m "not benchmark"
-
-# Run with verbose output
-uv run pytest -v
-```
-
-### Benchmark Tests
-
-Benchmark tests compare the Python implementation against the original Fortran FFTLog code. These tests are optional and require a Fortran compiler.
-
-#### Prerequisites
-
-- Have `gfortran` installed on your PATH
-
-#### Running Benchmarks
-
-```bash
-# Generate benchmark reference files
-python scripts/generate_benchmarks.py
-
-# Run benchmark tests
-uv run pytest --run-benchmarks
-
-# Or run only benchmark tests
-uv run pytest tests/test_benchmark.py --run-benchmarks -v
-
-# Generate and run benchmarks in one command
-uv run pytest --generate-benchmarks --run-benchmarks
-```
-
-#### Regenerating Benchmarks
-
-If you need to regenerate the benchmark files:
-
-```bash
-# Remove old benchmarks
-rm -rf tests/benchmarks/*.txt
-
-# Generate fresh benchmarks
-python scripts/generate_benchmarks.py
-```
-
-### Linting
-
-```bash
-# Check code style
 uv run ruff check .
-
-# Format code
-uv run ruff format .
+JAX_ENABLE_X64=1 uv run pytest tests/test_benchmark.py --run-benchmarks
 ```
+
+The benchmark compares with 216 generated reference outputs from the original
+Fortran FFTLog program. The files are ignored by Git. To generate them, install
+`gfortran` and run `uv run python scripts/generate_benchmarks.py`. The previous
+API's tests live in `tests/legacy/` for the separate test-suite redesign.
 
 ## References
 
-- Hamilton, A. J. S. "Uncorrelated modes of the non-linear power spectrum." Monthly Notices of the Royal Astronomical Society 312.2 (2000): 257-284. [[astro-ph/9905191]](https://arxiv.org/abs/astro-ph/9905191)
-- Assassi, Valentin, Marko Simonović, and Matias Zaldarriaga. "Efficient Evaluation of Cosmological Angular Statistics." arXiv preprint arXiv:1705.05022 (2017). [[1705.05022]](https://arxiv.org/abs/1705.05022)
-- Schöneberg, Nils, et al. "Beyond the traditional Line-of-Sight approach of cosmological angular statistics." Journal of Cosmology and Astroparticle Physics 2018.10 (2018): 047. [[1807.09540]](https://arxiv.org/abs/1807.09540)
-- Fang, Xiao, et al. "Beyond Limber: Efficient computation of angular power spectra for galaxy clustering and weak lensing." Journal of Cosmology and Astroparticle Physics 2020.05 (2020): 010. [[1911.11947]](https://arxiv.org/abs/1911.11947)
+- Hamilton, A. J. S. (2000), *Uncorrelated modes of the non-linear power spectrum*, [astro-ph/9905191](https://arxiv.org/abs/astro-ph/9905191).
+- Assassi, V., Simonović, M., and Zaldarriaga, A. (2017), *Efficient Evaluation of Cosmological Angular Statistics*, [arXiv:1705.05022](https://arxiv.org/abs/1705.05022).

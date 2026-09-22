@@ -5,11 +5,13 @@ Test FFTLog implementation against Fortran benchmark results.
 import re
 from pathlib import Path
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
 import pytest
 
-from fftloggin import FFTLog, NumPyFFTBackend, SciPyFFTBackend
+from fftloggin import forward, get_other_array, lowring_log_kr
 from fftloggin.kernels import BesselJKernel
 
 # Check if benchmarks exist
@@ -64,26 +66,9 @@ def get_benchmark_files() -> list[Path]:
     return sorted(BENCHMARK_DIR.glob("benchmark_*.txt"))
 
 
-def get_fft_backends():
-    """Get all available FFT backend instances."""
-    backends = [
-        pytest.param(SciPyFFTBackend(), id="scipy"),
-        pytest.param(NumPyFFTBackend(), id="numpy"),
-    ]
-    try:
-        from fftloggin import PyFFTWBackend
-
-        backends.append(pytest.param(PyFFTWBackend(), id="pyfftw"))
-    except ImportError:
-        pass
-    return backends
-
-
 @pytest.mark.benchmark
-@pytest.mark.parametrize("rtol", [1e-5])
 @pytest.mark.parametrize("benchmark_file", get_benchmark_files(), ids=lambda f: f.name)
-@pytest.mark.parametrize("fft_backend", get_fft_backends())
-def test_benchmark(benchmark_file: Path, rtol: float, fft_backend):
+def test_benchmark(benchmark_file: Path):
     """
     Test FFTLog against a single benchmark file.
 
@@ -91,13 +76,15 @@ def test_benchmark(benchmark_file: Path, rtol: float, fft_backend):
     1. Loads benchmark data from the Fortran executable output
     2. Extracts parameters from the filename
     3. Constructs the r array from log10rmin, log10rmax, n
-    4. Creates an FFTLog object with the specified parameters
-    5. Creates a Grid from the FFTLog
-    6. Evaluates the analytical function on the r grid
-    7. Performs the forward FFTLog transform
-    8. Evaluates the analytical solution on the k grid
-    9. Compares the results against the benchmark values
+    4. Computes the effective log_kr and paired coordinate array
+    5. Evaluates the analytical function on the r grid
+    6. Performs the forward FFTLog transform
+    7. Evaluates the analytical solution on the k grid
+    8. Compares the results against the benchmark values
     """
+    if not jax.config.jax_enable_x64:
+        pytest.fail("Fortran comparisons require JAX_ENABLE_X64=1")
+
     params = parse_benchmark_filename(benchmark_file.name)
 
     # Load benchmark data: k, a_fftlog, a_analytical
@@ -122,41 +109,36 @@ def test_benchmark(benchmark_file: Path, rtol: float, fft_backend):
     kernel = BesselJKernel(mu)
     dlog = (log10rmax - log10rmin) / (n - 1) * np.log(10)
 
-    fftlog = FFTLog(
-        kernel=kernel,
-        n=n,
-        dlog=dlog,
-        bias=q,
-        kr=kr,
-        lowring=lowring,
-        backend=fft_backend,
-    )
-
-    # Create grid
-    grid = fftlog.create_grid(r=r)
+    log_kr = jnp.log(kr)
+    if lowring:
+        log_kr = lowring_log_kr(kernel, dlog=dlog, bias=q, log_kr=log_kr)
+    k = get_other_array(jnp.asarray(r), log_kr)
 
     # Evaluate analytical function on r grid
     fr = f(r, mu)
 
     # Perform forward transform
-    ak = fftlog.forward(fr)
+    ak = forward(jnp.asarray(fr), kernel, dlog=dlog, bias=q, log_kr=log_kr)
 
     # Evaluate analytical solution on k grid
-    fk = f(grid.k, mu)
+    fk = f(np.asarray(k), mu)
 
     # Compare results
     # k values should match very closely
     np.testing.assert_allclose(
-        grid.k,
+        np.asarray(k),
         k_expected,
+        rtol=1e-10,
+        atol=1e-12,
         err_msg=f"k mismatch in {benchmark_file.name}",
     )
 
     # FFTLog transform should match benchmark results
     np.testing.assert_allclose(
-        ak,
+        np.asarray(ak),
         a_fftlog_expected,
-        rtol=rtol,
+        rtol=1e-10,
+        atol=1e-12,
         err_msg=f"FFTLog transform mismatch in {benchmark_file.name}",
     )
 
@@ -164,5 +146,7 @@ def test_benchmark(benchmark_file: Path, rtol: float, fft_backend):
     np.testing.assert_allclose(
         fk,
         a_analytical_expected,
+        rtol=1e-10,
+        atol=1e-12,
         err_msg=f"Analytical solution mismatch in {benchmark_file.name}",
     )
