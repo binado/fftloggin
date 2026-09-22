@@ -28,7 +28,7 @@ def infer_dlog(x: jax.Array, *, rtol: float = 1e-5) -> jax.Array:
 def get_array_center(x: jax.Array) -> jax.Array:
     """Geometric center of a one-dimensional logarithmic grid."""
     x = jnp.asarray(x)
-    return jnp.sqrt(x[0] * x[-1])
+    return jnp.exp(0.5 * (jnp.log(x[0]) + jnp.log(x[-1])))
 
 
 def get_other_array(x: jax.Array, log_kr: jax.Array) -> jax.Array:
@@ -37,7 +37,7 @@ def get_other_array(x: jax.Array, log_kr: jax.Array) -> jax.Array:
     This pure operation works inside ``jit`` and ``vmap``.
     """
     x = jnp.asarray(x)
-    return jnp.exp(log_kr) / x[::-1]
+    return jnp.exp(log_kr - jnp.log(x[::-1]))
 
 
 def infer_log_kr(
@@ -57,7 +57,7 @@ def infer_log_kr(
         raise ValueError("provide exactly one of ycenter, ymax or ymin")
     x = jnp.asarray(x)
     if ycenter is not None:
-        return jnp.log(ycenter * get_array_center(x))
+        return jnp.log(ycenter) + 0.5 * (jnp.log(x[0]) + jnp.log(x[-1]))
     if ymax is not None:
-        return jnp.log(ymax * x[0])
-    return jnp.log(ymin * x[-1])
+        return jnp.log(ymax) + jnp.log(x[0])
+    return jnp.log(ymin) + jnp.log(x[-1])

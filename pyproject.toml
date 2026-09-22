@@ -62,7 +62,7 @@ tutorial = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/test_benchmark.py"]
+testpaths = ["tests"]
 norecursedirs = ["legacy"]
 
 [tool.ty.src]
