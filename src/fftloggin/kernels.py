@@ -1,489 +1,150 @@
-"""
-Mellin transform kernels for FFTLog algorithm.
-
-This module provides kernel functions that compute the Mellin transform
-of various integral kernels used in generalized FFTLog transforms.
-"""
+"""Scalar Mellin kernels for JAX FFTLog transforms."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Generic, Literal, Self, TypeVar, overload
+from dataclasses import dataclass
+from functools import partial
+from typing import Self
 
-import numpy as np
-import numpy.typing as npt
-from scipy import special
-
-from .utils import safe_broadcast
+import jax
+import jax.numpy as jnp
+from jax.scipy.special import loggamma as _jax_loggamma
+from jax.tree_util import register_dataclass
 
 __all__ = (
     "Kernel",
     "BesselJKernel",
+    "SphericalBesselJKernel",
     "ShiftedKernel",
     "Derivative",
-    "CombinedKernel",
 )
 
 
-LOG_2 = np.log(2)
-SQRT_PI_OVER_2 = np.sqrt(np.pi / 2)
+def _complex_digamma(z: jax.Array) -> jax.Array:
+    """Digamma via reflection and a fixed recurrence/asymptotic expansion."""
+    reflected = jnp.real(z) < 0.5
+    zp = jnp.where(reflected, 1 - z, z)
+    shifted = zp + 30
+    inv2 = 1 / (shifted * shifted)
+    term = inv2
+    correction = jnp.zeros_like(z)
+    # B_(2k)/(2k), k=1..5; the series is asymptotic, not convergent.
+    for c in (1 / 12, -1 / 120, 1 / 252, -1 / 240, 1 / 132):
+        correction = correction + c * term
+        term = term * inv2
+    positive = jnp.log(shifted) - 0.5 / shifted - correction
+    positive -= jnp.sum(1 / (zp[..., None] + jnp.arange(30)), axis=-1)
+    return jnp.where(reflected, positive - jnp.pi / jnp.tan(jnp.pi * z), positive)
+
+
+@jax.custom_jvp
+def _loggamma(z: jax.Array) -> jax.Array:
+    return _jax_loggamma(z)
+
+
+@_loggamma.defjvp
+def _loggamma_jvp(primals, tangents):
+    (z,), (tangent,) = primals, tangents
+    return _loggamma(z), _complex_digamma(z) * tangent
 
 
 class Kernel:
+    """Base interface for scalar Mellin kernels.
+
+    Custom kernels passed to ``jax.jit`` must also be registered as pytrees.
     """
-    Base class for Mellin transform kernels.
-
-    A kernel represents the Mellin transform of an integral kernel function.
-    Kernels have a domain (strip of convergence) in the complex plane where
-    the transform is well-defined.
-
-    Examples
-    --------
-    >>> from fftloggin.kernels import BesselJKernel
-    >>> kernel = BesselJKernel(mu=0.5)
-    >>> # Get second derivative
-    >>> d2_kernel = kernel.derive(2)
-
-    Notes
-    -----
-    The domain (strip of convergence) is a range in the complex plane where
-    the Mellin transform is well-defined and analytic.
-
-    See Also
-    --------
-    BesselJKernel : Standard Hankel transform kernel using Bessel functions
-    Derivative : Compute derivatives of kernels
-    """
-
-    def __init__(self) -> None:
-        pass
 
     @property
-    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        """
-        Domain of convergence (inf, sup) where the transform is defined.
+    def domain(self) -> tuple[jax.Array, jax.Array]:
+        return -jnp.inf, jnp.inf
 
-        Returns
-        -------
-        tuple[float | NDArray, float | NDArray]
-            Lower and upper bounds of the strip of convergence in the
-            complex plane. The base class returns plain floats; subclasses
-            may return arrays when the bounds depend on vectorized parameters
-            (e.g. a batch of ``mu`` values in :class:`BesselJKernel`).
-        """
-        return (-np.inf, np.inf)
-
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        """
-        Compute the Mellin transform at s.
-
-        Parameters
-        ----------
-        s : array_like
-            Complex frequency variable.
-
-        Returns
-        -------
-        ndarray
-            Mellin transform evaluated at s.
-        """
+    def __call__(self, s: jax.Array) -> jax.Array:
         raise NotImplementedError
 
-    def is_in_domain(self, s: npt.ArrayLike) -> bool:
-        """
-        Check if s is within the domain of convergence.
+    def is_in_domain(self, s: jax.Array) -> jax.Array:
+        lower, upper = self.domain
+        return jnp.all((jnp.real(s) > lower) & (jnp.real(s) < upper))
 
-        Parameters
-        ----------
-        s : array_like
-            Complex frequency variable.
-
-        Returns
-        -------
-        bool
-            True if all values are within the domain.
-        """
-        inf, sup = self.domain
-        # Domain applies to the real part of s
-        s_real = np.real(s)
-        # Reshape inf/sup to have trailing dimensions for proper broadcasting
-        inf, _ = safe_broadcast(inf, s)
-        sup, _ = safe_broadcast(sup, s)
-        in_bounds = (s_real >= inf) & (s_real <= sup)
-        return bool(np.all(in_bounds))
-
-    @overload
-    def derive(self, order: Literal[0]) -> Self: ...
-
-    @overload
-    def derive(self, order: int = 1) -> Derivative[Self]: ...
-
-    def derive(self, order: int = 1) -> Self | Derivative[Self]:
-        r"""
-        Return the nth derivative of this kernel.
-
-        Uses the Mellin transform property:
-
-        .. math::
-
-            M\left[\frac{d^n}{dr^n} f\right](s) = (-1)^n \frac{\Gamma(s)}{\Gamma(s-n)} M[f](s-n)
-
-        Parameters
-        ----------
-        order : int, optional
-            Order of derivative (must be >= 0). Default is 1.
-
-        Returns
-        -------
-        Self | Derivative[Self]
-            If ``order`` is 0, returns ``self`` unchanged.
-            Otherwise returns a :class:`Derivative` wrapper around ``self``.
-
-        Examples
-        --------
-        >>> kernel = BesselJKernel(mu=0.5)
-        >>> d_kernel = kernel.derive(1)  # First derivative
-        >>> d2_kernel = kernel.derive(2)  # Second derivative
-
-        Notes
-        -----
-        The derivative is computed using the Mellin transform property, which
-        relates derivatives in real space to shifts in the complex frequency
-        domain.
-        """
+    def derive(self, order: int = 1) -> Self | Derivative:
         if order == 0:
             return self
         return Derivative(self, order)
 
-    @overload
-    def shift(self, nu: Literal[0] = 0) -> Self: ...
-
-    @overload
-    def shift(self, nu: npt.ArrayLike) -> ShiftedKernel[Self]: ...
-
-    def shift(self, nu: npt.ArrayLike = 0) -> Self | ShiftedKernel[Self]:
-        """
-        Return a kernel with Mellin argument shift ``s -> s + nu``.
-
-        Parameters
-        ----------
-        nu : array_like, optional
-            Additive shift in Mellin-space argument. Can be scalar or
-            batch-shaped with trailing singleton axis (``shape[-1] == 1``).
-            Default is 0.
-
-        Returns
-        -------
-        Self | ShiftedKernel[Self]
-            If ``nu`` is a scalar 0, returns ``self`` unchanged.
-            Otherwise returns a :class:`ShiftedKernel` wrapper.
-        """
-        nu_arr = np.asarray(nu)
-        if nu_arr.ndim == 0 and nu_arr == 0:
+    def shift(self, nu: jax.Array = 0.0) -> Self | ShiftedKernel:
+        if isinstance(nu, (int, float)) and nu == 0:
             return self
-        return ShiftedKernel(self, nu_arr)
+        return ShiftedKernel(self, nu)
 
 
-K = TypeVar("K", bound=Kernel)
-
-
-class ShiftedKernel(Kernel, Generic[K]):
-    """
-    Kernel wrapper that applies an additive Mellin-space argument shift.
-
-    Semantics:
-        shifted(s) = base(s + nu)
-    """
-
-    def __init__(self, base: K, nu: npt.NDArray) -> None:
-        super().__init__()
-        if nu.ndim > 0 and nu.shape[-1] != 1:
-            raise ValueError(
-                "nu must be scalar or have trailing singleton dimension "
-                "(shape[-1] == 1) for FFTLog broadcasting"
-            )
-        self.base = base
-        self.nu = nu
+@partial(register_dataclass, data_fields=("base", "nu"), meta_fields=())
+@dataclass(frozen=True)
+class ShiftedKernel(Kernel):
+    base: Kernel
+    nu: jax.Array
 
     @property
-    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        inf, sup = self.base.domain
-        return np.asarray(inf) - self.nu, np.asarray(sup) - self.nu
+    def domain(self) -> tuple[jax.Array, jax.Array]:
+        lower, upper = self.base.domain
+        return lower - self.nu, upper - self.nu
 
-    def is_in_domain(self, s: npt.ArrayLike) -> bool:
-        s = np.asarray(s)
-        return self.base.is_in_domain(s + self.nu)
+    def __call__(self, s: jax.Array) -> jax.Array:
+        return self.base(s + self.nu)
 
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        return self.base(np.asarray(s) + self.nu)
-
-    def shift(self, nu: npt.ArrayLike = 0.0) -> Self | ShiftedKernel[K]:
-        """Return an equivalent flattened shifted kernel."""
-        nu_arr = np.asarray(nu)
-        if nu_arr.ndim == 0 and nu_arr == 0:
+    def shift(self, nu: jax.Array = 0.0) -> Self | ShiftedKernel:
+        if isinstance(nu, (int, float)) and nu == 0:
             return self
-        total_nu = self.nu + nu_arr
-        return ShiftedKernel(self.base, total_nu)
+        return ShiftedKernel(self.base, self.nu + nu)
 
 
-class Derivative(Kernel, Generic[K]):
-    r"""
-    Kernel representing the nth derivative of another kernel.
+@partial(register_dataclass, data_fields=("base",), meta_fields=("order",))
+@dataclass(frozen=True)
+class Derivative(Kernel):
+    base: Kernel
+    order: int
 
-    This class implements the Mellin transform property for derivatives:
-
-    .. math::
-
-        M\left[\frac{d^n}{dr^n} f\right](s) = (-1)^n \frac{\Gamma(s)}{\Gamma(s-n)} M[f](s-n)
-
-    Parameters
-    ----------
-    transform : Kernel
-        The base kernel to differentiate.
-    order : int
-        Order of the derivative (must be >= 1).
-
-    Raises
-    ------
-    ValueError
-        If order < 1.
-
-    Examples
-    --------
-    >>> from fftloggin.kernels import BesselJKernel
-    >>> kernel = BesselJKernel(mu=0.5)
-    >>> d_kernel = Derivative(kernel, 1)  # First derivative
-    >>> result = d_kernel(2.0)
-
-    Notes
-    -----
-    The derivative kernel inherits the domain of convergence from the base
-    kernel, adjusted for the derivative order.
-
-    See Also
-    --------
-    Kernel.derive : Recommended way to compute derivatives
-    """
-
-    def __init__(self, transform: K, order: int) -> None:
-        super().__init__()
-        self.transform = transform
-        if order < 1:
-            raise ValueError(
-                "Expected derivative order to be an integer greater than or equal to 1"
-            )
-
-        self.order = order
+    def __post_init__(self) -> None:
+        if not isinstance(self.order, int) or self.order < 1:
+            raise ValueError("order must be a positive integer")
 
     @property
-    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        inf, sup = self.transform.domain
-        return np.asarray(inf) + self.order, np.asarray(sup) + self.order
+    def domain(self) -> tuple[jax.Array, jax.Array]:
+        lower, upper = self.base.domain
+        return lower + self.order, upper + self.order
 
-    def is_in_domain(self, s: npt.ArrayLike) -> bool:
-        s = np.asarray(s)
-        return self.transform.is_in_domain(s - self.order)
-
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        s = np.asarray(s)
-        sign = 1 - 2 * (self.order % 2)
-        return (
-            sign
-            * np.prod(s.reshape(*s.shape, 1) - np.arange(1, self.order + 1), axis=-1)
-            * self.transform(s - self.order)
-        )
+    def __call__(self, s: jax.Array) -> jax.Array:
+        s = jnp.asarray(s)
+        factor = jnp.prod(s[..., None] - jnp.arange(1, self.order + 1), axis=-1)
+        return (-1) ** self.order * factor * self.base(s - self.order)
 
 
+@partial(register_dataclass, data_fields=("mu",), meta_fields=())
+@dataclass(frozen=True)
 class BesselJKernel(Kernel):
-    r"""
-    Mellin transform kernel for Bessel function :math:`J_\\mu`.
-
-    This kernel represents the standard Hankel transform with Bessel functions.
-    The Mellin transform is given by:
-
-    .. math::
-
-        M[J_\\mu](s) = 2^{s-1} \\frac{\\Gamma\\left(\\frac{\\mu+s}{2}\\right)}{\\Gamma\\left(\\frac{\\mu+2-s}{2}\\right)}
-
-    Parameters
-    ----------
-    mu : array_like
-        Order of the Bessel function. Can be scalar or array.
-
-    Examples
-    --------
-    >>> from fftloggin.kernels import BesselJKernel
-    >>> import numpy as np
-    >>> # Single order
-    >>> kernel = BesselJKernel(mu=0.5)
-    >>> # Multiple orders (for vectorized transforms)
-    >>> kernels = BesselJKernel(mu=np.array([0, 0.5, 1.0]))
-    >>> # Compute Mellin transform at s = 1.0
-    >>> result = kernel(1.0)
-
-    Notes
-    -----
-    The domain of convergence (strip) is :math:`(-\\mu, 1.5)` in the complex
-    :math:`s`-plane. The kernel uses log-gamma functions for numerical stability
-    in the Mellin transform computation.
-
-    References
-    ----------
-    .. [1] Hamilton A. J. S., 2000, MNRAS, 312, 257 (astro-ph/9905191)
-
-    See Also
-    --------
-    Derivative : Compute derivatives of kernels
-    """
-
-    def __init__(self, mu: npt.ArrayLike) -> None:
-        super().__init__()
-        self.mu = np.asarray(mu)
+    mu: jax.Array
 
     @property
-    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        """Domain of convergence: (-mu, 1.5)."""
-        return (-self.mu, 1.5 * np.ones_like(self.mu))
+    def domain(self) -> tuple[jax.Array, jax.Array]:
+        return -self.mu, jnp.asarray(1.5)
 
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        """
-        Compute the Mellin transform.
-
-        Parameters
-        ----------
-        s : array_like
-            Complex frequency variable.
-
-        Returns
-        -------
-        ndarray
-            Mellin transform evaluated at s.
-
-        Notes
-        -----
-        The implementation uses log-gamma functions for numerical stability
-        to avoid overflow/underflow in direct gamma computations.
-        """
-        # Reshape mu and s to enable proper broadcasting
-        mu, s = safe_broadcast(self.mu, s)
-        logforward = (
-            LOG_2 * (s - 1)
-            + special.loggamma(0.5 * (mu + s))
-            - special.loggamma(0.5 * (mu + 2 - s))
+    def __call__(self, s: jax.Array) -> jax.Array:
+        s = jnp.asarray(s)
+        log_value = (
+            jnp.log(2.0) * (s - 1)
+            + _loggamma((self.mu + s) / 2)
+            - _loggamma((self.mu + 2 - s) / 2)
         )
-        return np.exp(logforward)
+        return jnp.exp(log_value)
 
 
-class SphericalBesselJKernel(BesselJKernel):
-    r"""
-    Mellin transform of the spherical Bessel function of the first kind, :math:`j_\mu`.
-    It is related to :math:`J_\mu` by
-    .. math::
-
-        j_\ell(x) = \sqrt{\frac{\pi}{2x}} * J_{\ell+1/2}(x)
-
-    Their Mellin transforms are therefore related by
-    .. math::
-
-        M[j_\ell](s) = \sqrt{\frac{\pi}{2}} * M[J_{\ell+1/2}]\left( s + \frac{1}{2} \right)
-
-    """
-
-    def __init__(self, ell: npt.ArrayLike) -> None:
-        mu = np.asarray(ell) + 0.5
-        super().__init__(mu)
+@partial(register_dataclass, data_fields=("ell",), meta_fields=())
+@dataclass(frozen=True)
+class SphericalBesselJKernel(Kernel):
+    ell: jax.Array
 
     @property
-    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        inf, sup = super().domain
-        return (np.asarray(inf) + 0.5, np.asarray(sup) + 0.5)
+    def domain(self) -> tuple[jax.Array, jax.Array]:
+        return -self.ell, jnp.asarray(2.0)
 
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        s = np.asarray(s)
-        return super().__call__(s - 0.5) * SQRT_PI_OVER_2
-
-
-class CombinedKernel(Kernel):
-    """
-    Kernel that combines multiple kernels by stacking outputs along axis 0.
-
-    This enables mixing different kernel types, orders, and derivatives in a
-    single transform operation. The combined kernel behaves like a batched kernel,
-    where the batch dimension corresponds to the list of kernels.
-
-    Parameters
-    ----------
-    kernels : Sequence[Kernel]
-        Sequence of kernel instances to combine.
-
-    Examples
-    --------
-    >>> from fftloggin.kernels import BesselJKernel, CombinedKernel
-    >>> k1 = BesselJKernel(mu=0)
-    >>> k2 = BesselJKernel(mu=1)
-    >>> kernel = CombinedKernel([k1, k2])
-    >>> # Transform uses both kernels, returning shape (2, n)
-    """
-
-    def __init__(self, kernels: Sequence[Kernel]) -> None:
-        super().__init__()
-        self.kernels = kernels
-
-    @staticmethod
-    def _flatten_kernels(kernels: Sequence[Kernel]) -> list[Kernel]:
-        # Flatten nested CombinedKernels for a unified interface
-        flattened = []
-        for k in kernels:
-            if isinstance(k, CombinedKernel):
-                flattened.extend(k.kernels)
-            else:
-                flattened.append(k)
-
-        if len(flattened) == 0:
-            raise ValueError("At least one kernel must be provided to CombinedKernel")
-        return flattened
-
-    @property
-    def kernels(self) -> list[Kernel]:
-        return self._kernels
-
-    @kernels.setter
-    def kernels(self, kernels: Sequence[Kernel]) -> None:
-        self._kernels = self._flatten_kernels(kernels)
-
-    @property
-    def domain(self) -> tuple[npt.ArrayLike, npt.ArrayLike]:
-        """
-        Domain of convergence for the combined kernel.
-
-        Returns stacked domains of all sub-kernels.
-        """
-        domains = [k.domain for k in self.kernels]
-        infs = np.broadcast_arrays(*[d[0] for d in domains])
-        sups = np.broadcast_arrays(*[d[1] for d in domains])
-        return np.stack(infs, axis=0), np.stack(sups, axis=0)
-
-    def __call__(self, s: npt.ArrayLike) -> npt.NDArray:
-        """
-        Compute the Mellin transform for all kernels and stack results.
-
-        Parameters
-        ----------
-        s : array_like
-            Complex frequency variable.
-
-        Returns
-        -------
-        ndarray
-            Stacked Mellin transforms. Shape will be (N, ...) where N is
-            the number of kernels. If s is scalar, returns shape (N, 1)
-            for compatibility with FFTLog batch processing.
-        """
-        results = np.broadcast_arrays(*[k(s) for k in self.kernels])
-        res = np.stack(results, axis=0)
-
-        # Scalar input needs shape (N, 1) for FFTLog broadcasting
-        if np.ndim(s) == 0 and res.ndim == 1:
-            res = res[..., np.newaxis]
-
-        return res
+    def __call__(self, s: jax.Array) -> jax.Array:
+        # j_ell(x) = sqrt(pi/(2x)) J_(ell+1/2)(x).
+        return jnp.sqrt(jnp.pi / 2) * BesselJKernel(self.ell + 0.5)(s - 0.5)

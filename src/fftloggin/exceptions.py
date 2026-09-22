@@ -27,9 +27,9 @@ class DomainCheckWarning(UserWarning):
 class ArgumentOutOfDomainError(ValueError):
     """Exception raised when input values fall outside kernel's domain of convergence.
 
-    This exception indicates that the bias parameter or input array causes the
-    effective s-values to fall outside the strip of convergence where the Mellin
-    transform is mathematically valid.
+    This exception describes values outside the Mellin strip of convergence.
+    It is used by the eager ``validate_parameters`` helper to construct a
+    diagnostic warning; the JAX transform path performs no host-side checks.
 
     Parameters
     ----------
@@ -49,16 +49,7 @@ class ArgumentOutOfDomainError(ValueError):
     domain : tuple
         The kernel's domain of convergence (lower, upper).
 
-    Examples
-    --------
-    >>> from fftloggin.kernels import BesselJKernel
-    >>> from fftloggin.exceptions import ArgumentOutOfDomainError
-    >>> kernel = BesselJKernel(mu=0)  # domain: (0, 1.5)
-    >>> try:
-    ...     kernel(2.0)  # Outside domain
-    ... except ArgumentOutOfDomainError as e:
-    ...     print(f"Values {e.s} outside domain {e.domain}")  # doctest: +SKIP
-    Values [2.0] outside domain (0.0, 1.5)
+    Use ``fftloggin.validate_parameters`` for eager domain diagnostics.
     """
 
     def __init__(self, s: npt.ArrayLike, kernel: Kernel, context: str = ""):

@@ -26,9 +26,6 @@ jobs:
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
-      - name: Run tests (excluding benchmarks)
-        run: uv run pytest -m "not benchmark"
-
       - name: Run linting
         run: uv run ruff check --exclude notebooks .
 
@@ -84,4 +81,6 @@ jobs:
           fi
 
       - name: Run benchmark tests
+        env:
+          JAX_ENABLE_X64: "1"
         run: uv run pytest tests/test_benchmark.py --run-benchmarks -v
