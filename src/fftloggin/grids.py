@@ -10,6 +10,29 @@ def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, 
     """Infer and eagerly validate the logarithmic spacing of a 1-D grid.
 
     This host-side convenience function is not intended for ``jax.jit``.
+
+    Parameters
+    ----------
+    x
+        Positive grid, uniformly spaced in ``log(x)``.
+    rtol
+        Allowed deviation of each step ``diff(log(x))`` from the mean step,
+        relative to the mean step. An absolute rounding allowance of
+        ``16 * eps * (1 + max|log x|)`` is added, where ``eps`` is the machine
+        epsilon of the grid's floating-point dtype, so wide grids stay valid
+        in 32-bit precision, where rounding of ``log(x)`` alone can exceed
+        ``rtol``.
+
+    Returns
+    -------
+    jax.Array
+        The logarithmic spacing ``dlog``.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` is not a 1-D grid of at least two finite positive values
+        uniformly spaced in the logarithm.
     """
     x = jnp.asarray(x)
     if x.ndim != 1 or x.shape[0] < 2:
@@ -18,7 +41,10 @@ def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, 
         raise ValueError("grid values must be finite and positive")
     logx = jnp.log(x)
     dlog = (logx[-1] - logx[0]) / (x.shape[0] - 1)
-    if not bool(jnp.allclose(jnp.diff(logx), dlog, rtol=rtol)):
+    # log(x) carries an absolute rounding error of order eps * |log x|, which
+    # does not shrink with the step size.
+    atol = 16 * jnp.finfo(logx.dtype).eps * (1 + jnp.max(jnp.abs(logx)))
+    if not bool(jnp.allclose(jnp.diff(logx), dlog, rtol=rtol, atol=atol)):
         raise ValueError("x must be uniformly spaced in the logarithm")
     return dlog
 

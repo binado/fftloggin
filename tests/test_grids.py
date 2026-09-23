@@ -3,9 +3,47 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin.grids import get_array_center, get_paired_grids, infer_log_kr
+from fftloggin.grids import get_array_center, get_paired_grids, infer_dlog, infer_log_kr
+
+
+@pytest.fixture(params=["float32", "float64"])
+def dtype(request):
+    """Floating-point dtype, with 64-bit JAX values enabled for float64."""
+    if request.param == "float64":
+        with jax.enable_x64():
+            yield jnp.float64
+    else:
+        yield jnp.float32
+
+
+@pytest.mark.parametrize(
+    ("start", "stop", "n"),
+    [(1e-2, 1e2, 128), (1e-3, 1e3, 256), (1e-4, 1e4, 256), (1e-20, 1e-10, 4096)],
+)
+def test_infer_dlog_accepts_geomspace(dtype, start, stop, n):
+    x = jnp.geomspace(start, stop, n, dtype=dtype)
+    dlog = infer_dlog(x)
+    assert dlog.dtype == dtype
+    rtol = 1e-4 if dtype == jnp.float32 else 1e-12
+    assert_allclose(dlog, np.log(stop / start) / (n - 1), rtol=rtol)
+
+
+def test_infer_dlog_rejects_linear_grid(dtype):
+    x = jnp.linspace(1.0, 100.0, 64, dtype=dtype)
+    with pytest.raises(ValueError, match="uniformly spaced"):
+        infer_dlog(x)
+
+
+def test_infer_dlog_respects_explicit_rtol(dtype):
+    logx = np.linspace(-2.0, 2.0, 64)
+    logx[32] += 1e-3 * (logx[1] - logx[0])
+    x = jnp.asarray(np.exp(logx), dtype=dtype)
+    with pytest.raises(ValueError, match="uniformly spaced"):
+        infer_dlog(x)
+    assert_allclose(infer_dlog(x, rtol=1e-2), 4.0 / 63, rtol=1e-5)
 
 
 def test_get_array_center_typical_values():
