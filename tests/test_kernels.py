@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.scipy.special import digamma
+from jaxtyping import TypeCheckError
 from numpy.testing import assert_allclose
 from scipy.special import digamma as scipy_digamma
 from scipy.special import loggamma
@@ -98,7 +99,7 @@ def test_shifted_kernel_matches_shifted_argument():
 
 @pytest.mark.parametrize("order", [0, -1, 1.5])
 def test_derivative_constructor_rejects_invalid_order(order):
-    with pytest.raises(ValueError, match="positive integer"):
+    with pytest.raises((ValueError, TypeCheckError), match="positive integer|order"):
         Derivative(BesselJKernel(0.5), order)
 
 
@@ -106,11 +107,20 @@ def test_derivative_constructor_rejects_invalid_order(order):
     "kernel,lower,upper",
     [
         (BesselJKernel(0.5), -0.5, 1.5),
+        (BesselJKernel(0), 0.0, 1.5),
         (SphericalBesselJKernel(1.0), -1.0, 2.0),
         (ShiftedKernel(BesselJKernel(0.5), 0.25), -0.75, 1.25),
         (Derivative(BesselJKernel(0.5), 2), 1.5, 3.5),
+        (Derivative(BesselJKernel(0), 1), 1.0, 2.5),
     ],
-    ids=["bessel", "spherical", "shifted", "derivative"],
+    ids=[
+        "bessel",
+        "integer-bessel",
+        "spherical",
+        "shifted",
+        "derivative",
+        "integer-derivative",
+    ],
 )
 def test_domain_has_open_bounds_and_uses_real_part(kernel, lower, upper):
     assert_allclose(kernel.domain, (lower, upper), rtol=VALUE_RTOL)

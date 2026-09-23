@@ -82,6 +82,13 @@ uv run ruff check .
 JAX_ENABLE_X64=1 uv run pytest tests/test_benchmark.py --run-benchmarks
 ```
 
+For opt-in runtime checks of the jaxtyping annotations during development,
+install the development dependencies, then run tests with
+`FFTLOGGIN_RUNTIME_TYPECHECK=1 uv run pytest`. This uses beartype to check
+shapes and dtypes while JAX traces functions; the checks are absent from
+normal imports and compiled execution. The flag only enables checks when its
+value is exactly `1`.
+
 The benchmark compares with 216 generated reference outputs from the original
 Fortran FFTLog program. The files are ignored by Git. To generate them, install
 `gfortran` and run `uv run python scripts/generate_benchmarks.py`. The previous

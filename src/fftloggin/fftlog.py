@@ -1,7 +1,5 @@
 """Pure, one-dimensional FFTLog transforms."""
 
-from __future__ import annotations
-
 import warnings
 
 import jax.numpy as jnp
@@ -30,7 +28,7 @@ def _coefficients(
     dlog: Float[ArrayLike, ""],
     bias: Float[ArrayLike, ""],
     log_kr: Float[ArrayLike, ""],
-) -> Complex[Array, "{n // 2 + 1}"]:
+) -> Complex[Array, "m"]:
     m = jnp.arange(n // 2 + 1)
     angle = 2j * jnp.pi * m / (n * dlog)
     coeffs = kernel(1 + bias + angle) * jnp.exp(-angle * log_kr)
@@ -44,7 +42,7 @@ def _power_law(
     dlog: Float[ArrayLike, ""],
     bias: Float[ArrayLike, ""],
     sign: int,
-) -> Float[Array, "{n}"]:
+) -> Float[Array, "m"]:
     return jnp.exp(sign * bias * dlog * (jnp.arange(n) - (n - 1) / 2))
 
 

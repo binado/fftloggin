@@ -1,7 +1,5 @@
 """Scalar Mellin kernels for JAX FFTLog transforms."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from functools import partial
 
@@ -9,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.special import loggamma as _jax_loggamma
 from jax.tree_util import register_dataclass
-from jaxtyping import Array, ArrayLike, Bool, Float, Inexact
+from jaxtyping import Array, ArrayLike, Bool, Inexact, Real
 
 __all__ = (
     "BesselJKernel",
@@ -49,7 +47,7 @@ def _loggamma_jvp(primals, tangents):
 
 
 def _bessel_j_mellin(
-    mu: Float[ArrayLike, ""], s: Inexact[ArrayLike, "..."]
+    mu: Real[ArrayLike, ""], s: Inexact[ArrayLike, "..."]
 ) -> Inexact[Array, "..."]:
     s = jnp.asarray(s)
     log_value = (
@@ -65,7 +63,7 @@ class Kernel:
     """
 
     @property
-    def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         return jnp.asarray(-jnp.inf), jnp.asarray(jnp.inf)
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
@@ -80,10 +78,10 @@ class Kernel:
 @dataclass(frozen=True)
 class ShiftedKernel(Kernel):
     base: Kernel
-    nu: Float[ArrayLike, ""]
+    nu: Real[ArrayLike, ""]
 
     @property
-    def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         lower, upper = self.base.domain
         return lower - self.nu, upper - self.nu
 
@@ -102,7 +100,7 @@ class Derivative(Kernel):
             raise ValueError("order must be a positive integer")
 
     @property
-    def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         lower, upper = self.base.domain
         return lower + self.order, upper + self.order
 
@@ -115,10 +113,10 @@ class Derivative(Kernel):
 @partial(register_dataclass, data_fields=("mu",), meta_fields=())
 @dataclass(frozen=True)
 class BesselJKernel(Kernel):
-    mu: Float[ArrayLike, ""]
+    mu: Real[ArrayLike, ""]
 
     @property
-    def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         return -jnp.asarray(self.mu), jnp.asarray(1.5)
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
@@ -128,10 +126,10 @@ class BesselJKernel(Kernel):
 @partial(register_dataclass, data_fields=("ell",), meta_fields=())
 @dataclass(frozen=True)
 class SphericalBesselJKernel(Kernel):
-    ell: Float[ArrayLike, ""]
+    ell: Real[ArrayLike, ""]
 
     @property
-    def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         return -jnp.asarray(self.ell), jnp.asarray(2.0)
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
