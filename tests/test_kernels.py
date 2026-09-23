@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.scipy.special import digamma
+from jaxtyping import TypeCheckError
 from numpy.testing import assert_allclose
 from scipy.special import digamma as scipy_digamma
 from scipy.special import loggamma
@@ -98,7 +99,7 @@ def test_shifted_kernel_matches_shifted_argument():
 
 @pytest.mark.parametrize("order", [0, -1, 1.5])
 def test_derivative_constructor_rejects_invalid_order(order):
-    with pytest.raises(ValueError, match="positive integer"):
+    with pytest.raises((ValueError, TypeCheckError), match="positive integer|order"):
         Derivative(BesselJKernel(0.5), order)
 
 

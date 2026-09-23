@@ -47,6 +47,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "beartype",
     "prek>=0.5.3",
     "ruff>=0.16.0",
     "ty>=0.0.83",

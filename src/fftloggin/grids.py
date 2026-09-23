@@ -1,7 +1,5 @@
 """Functions for paired logarithmic FFTLog coordinate arrays."""
 
-from __future__ import annotations
-
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, Float
 
