@@ -49,6 +49,16 @@ def _loggamma_jvp(primals, tangents):
     return _loggamma(z), _complex_digamma(z) * tangent
 
 
+def _bessel_j_mellin(
+    mu: Float[ArrayLike, ""], s: Inexact[ArrayLike, "..."]
+) -> Inexact[Array, "..."]:
+    s = jnp.asarray(s)
+    log_value = (
+        jnp.log(2.0) * (s - 1) + _loggamma((mu + s) / 2) - _loggamma((mu + 2 - s) / 2)
+    )
+    return jnp.exp(log_value)
+
+
 class Kernel:
     """Base interface for scalar Mellin kernels.
 
@@ -128,13 +138,7 @@ class BesselJKernel(Kernel):
         return -jnp.asarray(self.mu), jnp.asarray(1.5)
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
-        s = jnp.asarray(s)
-        log_value = (
-            jnp.log(2.0) * (s - 1)
-            + _loggamma((self.mu + s) / 2)
-            - _loggamma((self.mu + 2 - s) / 2)
-        )
-        return jnp.exp(log_value)
+        return _bessel_j_mellin(self.mu, s)
 
 
 @partial(register_dataclass, data_fields=("ell",), meta_fields=())
@@ -148,4 +152,4 @@ class SphericalBesselJKernel(Kernel):
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
         # j_ell(x) = sqrt(pi/(2x)) J_(ell+1/2)(x).
-        return jnp.sqrt(jnp.pi / 2) * BesselJKernel(self.ell + 0.5)(s - 0.5)
+        return jnp.sqrt(jnp.pi / 2) * _bessel_j_mellin(self.ell + 0.5, s - 0.5)
