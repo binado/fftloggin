@@ -29,6 +29,11 @@ jobs:
       - name: Run linting
         run: uv run ruff check --exclude notebooks .
 
+      - name: Run kernel tests
+        env:
+          JAX_ENABLE_X64: "1"
+        run: uv run pytest tests/test_kernels.py
+
   benchmark:
     name: benchmark-tests
     runs-on: ubuntu-latest
