@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import warnings
 
-import jax
 import jax.numpy as jnp
+from jaxtyping import Array, ArrayLike, Complex, Float
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .kernels import Kernel
@@ -13,7 +13,7 @@ from .kernels import Kernel
 __all__ = ("forward", "inverse", "lowring_log_kr", "validate_parameters")
 
 
-def _samples(x: jax.Array, name: str) -> jax.Array:
+def _samples(x: Float[ArrayLike, "n"], name: str) -> Float[Array, "n"]:
     x = jnp.asarray(x)
     if x.ndim != 1 or x.shape[0] < 2:
         raise ValueError(
@@ -25,8 +25,12 @@ def _samples(x: jax.Array, name: str) -> jax.Array:
 
 
 def _coefficients(
-    kernel: Kernel, n: int, dlog: jax.Array, bias: jax.Array, log_kr: jax.Array
-) -> jax.Array:
+    kernel: Kernel,
+    n: int,
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""],
+    log_kr: Float[ArrayLike, ""],
+) -> Complex[Array, "{n // 2 + 1}"]:
     m = jnp.arange(n // 2 + 1)
     angle = 2j * jnp.pi * m / (n * dlog)
     coeffs = kernel(1 + bias + angle) * jnp.exp(-angle * log_kr)
@@ -35,18 +39,23 @@ def _coefficients(
     return coeffs
 
 
-def _power_law(n: int, dlog: jax.Array, bias: jax.Array, sign: int) -> jax.Array:
+def _power_law(
+    n: int,
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""],
+    sign: int,
+) -> Float[Array, "{n}"]:
     return jnp.exp(sign * bias * dlog * (jnp.arange(n) - (n - 1) / 2))
 
 
 def forward(
-    a: jax.Array,
+    a: Float[ArrayLike, "n"],
     kernel: Kernel,
     *,
-    dlog: jax.Array,
-    bias: jax.Array = 0.0,
-    log_kr: jax.Array = 0.0,
-) -> jax.Array:
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""] = 0.0,
+    log_kr: Float[ArrayLike, ""] = 0.0,
+) -> Float[Array, "n"]:
     """Transform one real sample array between logarithmically spaced grids.
 
     Parameters other than ``a`` are scalars; map over them with ``jax.vmap``.
@@ -57,17 +66,17 @@ def forward(
     before = _power_law(n, dlog, bias, -1)
     coeffs = _coefficients(kernel, n, dlog, bias, log_kr)
     result = jnp.fft.irfft(jnp.fft.rfft(a * before) * coeffs, n=n)[::-1]
-    return result * before * jnp.exp(-bias * log_kr)
+    return result * before * jnp.exp(-jnp.asarray(bias) * log_kr)
 
 
 def inverse(
-    A: jax.Array,
+    A: Float[ArrayLike, "n"],
     kernel: Kernel,
     *,
-    dlog: jax.Array,
-    bias: jax.Array = 0.0,
-    log_kr: jax.Array = 0.0,
-) -> jax.Array:
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""] = 0.0,
+    log_kr: Float[ArrayLike, ""] = 0.0,
+) -> Float[Array, "n"]:
     """Invert one real sample array from the output grid to the input grid."""
     A = _samples(A, "A")
     n = A.shape[0]
@@ -82,10 +91,10 @@ def inverse(
 def lowring_log_kr(
     kernel: Kernel,
     *,
-    dlog: jax.Array,
-    bias: jax.Array = 0.0,
-    log_kr: jax.Array = 0.0,
-) -> jax.Array:
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""] = 0.0,
+    log_kr: Float[ArrayLike, ""] = 0.0,
+) -> Float[Array, ""]:
     """Snap ``log_kr`` to the nearest low-ringing value.
 
     The snap is piecewise constant in ``log_kr``. Apply it explicitly before
@@ -98,9 +107,9 @@ def lowring_log_kr(
 def validate_parameters(
     kernel: Kernel,
     *,
-    dlog: jax.Array,
-    bias: jax.Array = 0.0,
-    log_kr: jax.Array = 0.0,
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""] = 0.0,
+    log_kr: Float[ArrayLike, ""] = 0.0,
 ) -> None:
     """Validate concrete scalar parameters on the host before tracing.
 
