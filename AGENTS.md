@@ -16,7 +16,8 @@ The only active test in this API cutover is the 216-case Fortran benchmark in
 
 ## Development
 
-Use `uv` for running python and devtools:
+- Use the conventional commits format for commit messages
+- Use `uv` for running python and devtools:
 
 ```bash
 uv sync --all-groups
