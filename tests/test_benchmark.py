@@ -5,7 +5,6 @@ Test FFTLog implementation against Fortran benchmark results.
 import re
 from pathlib import Path
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import numpy.typing as npt
@@ -68,7 +67,7 @@ def get_benchmark_files() -> list[Path]:
 
 @pytest.mark.benchmark
 @pytest.mark.parametrize("benchmark_file", get_benchmark_files(), ids=lambda f: f.name)
-def test_benchmark(benchmark_file: Path):
+def test_benchmark(x64, benchmark_file: Path):
     """
     Test FFTLog against a single benchmark file.
 
@@ -82,9 +81,6 @@ def test_benchmark(benchmark_file: Path):
     7. Evaluates the analytical solution on the k grid
     8. Compares the results against the benchmark values
     """
-    if not jax.config.jax_enable_x64:
-        pytest.fail("Fortran comparisons require JAX_ENABLE_X64=1")
-
     params = parse_benchmark_filename(benchmark_file.name)
 
     # Load benchmark data: k, a_fftlog, a_analytical
