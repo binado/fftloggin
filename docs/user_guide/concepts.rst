@@ -190,6 +190,8 @@ Put together, the biased algorithm of Hamilton §B.4 is what
    ax.set_ylim(-0.65, 1.0)
    ax.axis("off")
 
+.. _what-the-bias-does:
+
 What the bias does
 ------------------
 
