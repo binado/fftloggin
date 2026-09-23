@@ -1,9 +1,31 @@
-## Unreleased
+## 0.5.0 (2026-09-23)
 
 ### Breaking
 
+- replace the `FFTLog` class and its NumPy, SciPy, and pyFFTW backends with a
+  functional JAX API built on `forward`, `inverse`, `lowring_log_kr`, and
+  `get_paired_grids`; the transforms are `jit`, `vmap`, and `grad` compatible
+- remove the `Grid`, `CombinedKernel`, `FFTBackend`, `FFTWorkspace`,
+  `NumPyFFTBackend`, `SciPyFFTBackend`, and `prepare_batch_params` exports
+- replace `get_other_array` with `get_paired_grids` (#61) and `infer_logc` with
+  `infer_log_kr`
 - remove the `Kernel.derive`, `Kernel.shift`, and `ShiftedKernel.shift`
   convenience methods; construct `Derivative` and `ShiftedKernel` explicitly
+  (#75)
+
+### Feat
+
+- add functional JAX FFTLog API (#58)
+- add jaxtyping array annotations (#66)
+- add opt-in runtime type checks via `FFTLOGGIN_RUNTIME_TYPECHECK` (#76)
+
+### Fix
+
+- avoid constructing a Bessel kernel for spherical Bessel calls (#68)
+
+### Docs
+
+- add Read the Docs user documentation and API reference (#78)
 
 ## 0.4.0 (2026-03-05)
 
