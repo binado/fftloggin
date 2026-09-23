@@ -34,6 +34,7 @@ also be registered as JAX pytrees; keep their numeric parameters in scalar
 data leaves.
 
 .. autoclass:: fftloggin.Kernel
+   :no-index:
    :members: domain, __call__, is_in_domain
 
 .. autoclass:: fftloggin.BesselJKernel
