@@ -9,7 +9,12 @@ from numpy.testing import assert_allclose
 from scipy.special import digamma as scipy_digamma
 from scipy.special import loggamma
 
-from fftloggin import BesselJKernel, Derivative, SphericalBesselJKernel
+from fftloggin import (
+    BesselJKernel,
+    Derivative,
+    ShiftedKernel,
+    SphericalBesselJKernel,
+)
 
 VALUE_RTOL = 1e-11
 VALUE_ATOL = 1e-12
@@ -45,8 +50,8 @@ def _centered_difference(func, x):
     params=[
         BesselJKernel(0.5),
         SphericalBesselJKernel(1.0),
-        BesselJKernel(0.5).shift(0.2),
-        BesselJKernel(0.5).derive(1),
+        ShiftedKernel(BesselJKernel(0.5), 0.2),
+        Derivative(BesselJKernel(0.5), 1),
     ],
     ids=["bessel", "spherical", "shifted", "derivative"],
 )
@@ -79,19 +84,16 @@ def test_kernel_values_match_scipy(kind, parameter, s):
 def test_derivative_matches_mellin_identity(order):
     mu = 0.5
     s = np.array([order + 0.3 + 0.2j, order + 0.7 + 0.3j])
-    got = BesselJKernel(mu).derive(order)(s)
+    got = Derivative(BesselJKernel(mu), order)(s)
     expected = _derivative_reference(mu, s, order)
     assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
 
 
-def test_shift_and_nested_shift_match_shifted_argument():
+def test_shifted_kernel_matches_shifted_argument():
     base = BesselJKernel(0.5)
     s = np.array([0.6 + 0.2j, 0.8 + 0.3j])
 
-    assert_allclose(base.shift(0.2)(s), base(s + 0.2), rtol=VALUE_RTOL)
-    assert_allclose(base.shift(0.1).shift(0.2)(s), base(s + 0.3), rtol=VALUE_RTOL)
-    assert base.shift(0) is base
-    assert base.derive(0) is base
+    assert_allclose(ShiftedKernel(base, 0.2)(s), base(s + 0.2), rtol=VALUE_RTOL)
 
 
 @pytest.mark.parametrize("order", [0, -1, 1.5])
@@ -105,8 +107,8 @@ def test_derivative_constructor_rejects_invalid_order(order):
     [
         (BesselJKernel(0.5), -0.5, 1.5),
         (SphericalBesselJKernel(1.0), -1.0, 2.0),
-        (BesselJKernel(0.5).shift(0.25), -0.75, 1.25),
-        (BesselJKernel(0.5).derive(2), 1.5, 3.5),
+        (ShiftedKernel(BesselJKernel(0.5), 0.25), -0.75, 1.25),
+        (Derivative(BesselJKernel(0.5), 2), 1.5, 3.5),
     ],
     ids=["bessel", "spherical", "shifted", "derivative"],
 )
@@ -135,7 +137,7 @@ def test_vmap_over_scalar_kernel_parameters(kind, parameters):
             return BesselJKernel(parameter)(s)
         if kind == "ell":
             return SphericalBesselJKernel(parameter)(s)
-        return BesselJKernel(0.5).shift(parameter)(s)
+        return ShiftedKernel(BesselJKernel(0.5), parameter)(s)
 
     got = jax.vmap(evaluate)(jnp.asarray(parameters))
     expected = jnp.stack([evaluate(parameter) for parameter in parameters])
@@ -205,9 +207,9 @@ def test_spherical_parameter_grad_matches_scipy_difference():
 def test_shift_parameter_grad_matches_scipy_difference():
     nu = 0.2
     s = 0.8 + 0.3j
-    got = jax.grad(lambda parameter: jnp.real(BesselJKernel(0.5).shift(parameter)(s)))(
-        nu
-    )
+    got = jax.grad(
+        lambda parameter: jnp.real(ShiftedKernel(BesselJKernel(0.5), parameter)(s))
+    )(nu)
     expected = _centered_difference(
         lambda parameter: _bessel_reference(0.5, s + parameter), nu
     )
@@ -217,9 +219,9 @@ def test_shift_parameter_grad_matches_scipy_difference():
 def test_derivative_base_parameter_grad_matches_scipy_difference():
     mu = 0.5
     s = 2.3 + 0.3j
-    got = jax.grad(lambda parameter: jnp.real(BesselJKernel(parameter).derive(2)(s)))(
-        mu
-    )
+    got = jax.grad(
+        lambda parameter: jnp.real(Derivative(BesselJKernel(parameter), 2)(s))
+    )(mu)
     expected = _centered_difference(
         lambda parameter: _derivative_reference(parameter, s, 2), mu
     )

@@ -7,7 +7,15 @@ import pytest
 from numpy.testing import assert_allclose
 from scipy.special import poch
 
-from fftloggin import BesselJKernel, forward, get_paired_grids, inverse, lowring_log_kr
+from fftloggin import (
+    BesselJKernel,
+    Derivative,
+    ShiftedKernel,
+    forward,
+    get_paired_grids,
+    inverse,
+    lowring_log_kr,
+)
 
 
 @pytest.fixture
@@ -149,7 +157,8 @@ def test_power_law_matches_analytic_transform(x64, n):
 def test_forward_inverse_round_trip(x64, n, order, bias, kr):
     rng = np.random.RandomState(3491349965)
     a = rng.standard_normal(n)
-    kernel = BesselJKernel(rng.uniform(3, 5)).derive(order)
+    mu = rng.uniform(3, 5)
+    kernel = Derivative(BesselJKernel(mu), order) if order else BesselJKernel(mu)
     transformed = forward(a, kernel, dlog=0.1, bias=bias, log_kr=np.log(kr))
     restored = inverse(transformed, kernel, dlog=0.1, bias=bias, log_kr=np.log(kr))
     assert_allclose(restored, a, rtol=1.5e-7, atol=1e-12)
@@ -244,6 +253,6 @@ def test_shifted_kernel_matches_weighted_input(x64):
     base = BesselJKernel(mu)
     _, k = get_paired_grids(r=r)
 
-    shifted = forward(a, base.shift(nu), dlog=dlog, bias=bias)
+    shifted = forward(a, ShiftedKernel(base, nu), dlog=dlog, bias=bias)
     direct = forward(a * r**nu, base, dlog=dlog, bias=bias + nu)
     assert_allclose(shifted * k**-nu, direct, rtol=1e-7, atol=1e-12)

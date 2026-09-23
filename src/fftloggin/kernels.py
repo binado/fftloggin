@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Self
 
 import jax
 import jax.numpy as jnp
@@ -76,16 +75,6 @@ class Kernel:
         lower, upper = self.domain
         return jnp.all((jnp.real(s) > lower) & (jnp.real(s) < upper))
 
-    def derive(self, order: int = 1) -> Self | Derivative:
-        if order == 0:
-            return self
-        return Derivative(self, order)
-
-    def shift(self, nu: Float[ArrayLike, ""] = 0.0) -> Self | ShiftedKernel:
-        if isinstance(nu, (int, float)) and nu == 0:
-            return self
-        return ShiftedKernel(self, nu)
-
 
 @partial(register_dataclass, data_fields=("base", "nu"), meta_fields=())
 @dataclass(frozen=True)
@@ -100,11 +89,6 @@ class ShiftedKernel(Kernel):
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
         return self.base(s + self.nu)
-
-    def shift(self, nu: Float[ArrayLike, ""] = 0.0) -> Self | ShiftedKernel:
-        if isinstance(nu, (int, float)) and nu == 0:
-            return self
-        return ShiftedKernel(self.base, self.nu + nu)
 
 
 @partial(register_dataclass, data_fields=("base",), meta_fields=("order",))
