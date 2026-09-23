@@ -66,7 +66,11 @@ tutorial = [
     "scipy>=1.17.1",
 ]
 docs = [
+    "camb>=1.6.4",
+    "matplotlib>=3.11.2",
+    "numpy>=2.4.6",
     "pydata-sphinx-theme>=0.21.0",
+    "scipy>=1.17.1",
     "sphinx>=8.2",
     "sphinx-rtd-theme>=3.0",
 ]
