@@ -272,6 +272,8 @@ infinite and the forward transform is singular (and similarly
 ``kernel.domain``, and :func:`~fftloggin.fftlog.validate_parameters` warns if
 a concrete bias falls outside it. :doc:`kernels` explains the correspondence.
 
+.. _low-ringing:
+
 Low ringing
 -----------
 
