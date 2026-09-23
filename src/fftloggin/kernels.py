@@ -71,7 +71,7 @@ class Kernel:
             return self
         return Derivative(self, order)
 
-    def shift(self, nu: Float[ArrayLike, "..."] = 0.0) -> Self | ShiftedKernel:
+    def shift(self, nu: Float[ArrayLike, ""] = 0.0) -> Self | ShiftedKernel:
         if isinstance(nu, (int, float)) and nu == 0:
             return self
         return ShiftedKernel(self, nu)
@@ -81,7 +81,7 @@ class Kernel:
 @dataclass(frozen=True)
 class ShiftedKernel(Kernel):
     base: Kernel
-    nu: Float[ArrayLike, "..."]
+    nu: Float[ArrayLike, ""]
 
     @property
     def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
@@ -91,7 +91,7 @@ class ShiftedKernel(Kernel):
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
         return self.base(s + self.nu)
 
-    def shift(self, nu: Float[ArrayLike, "..."] = 0.0) -> Self | ShiftedKernel:
+    def shift(self, nu: Float[ArrayLike, ""] = 0.0) -> Self | ShiftedKernel:
         if isinstance(nu, (int, float)) and nu == 0:
             return self
         return ShiftedKernel(self.base, self.nu + nu)
@@ -121,7 +121,7 @@ class Derivative(Kernel):
 @partial(register_dataclass, data_fields=("mu",), meta_fields=())
 @dataclass(frozen=True)
 class BesselJKernel(Kernel):
-    mu: Float[ArrayLike, "..."]
+    mu: Float[ArrayLike, ""]
 
     @property
     def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
@@ -140,7 +140,7 @@ class BesselJKernel(Kernel):
 @partial(register_dataclass, data_fields=("ell",), meta_fields=())
 @dataclass(frozen=True)
 class SphericalBesselJKernel(Kernel):
-    ell: Float[ArrayLike, "..."]
+    ell: Float[ArrayLike, ""]
 
     @property
     def domain(self) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
