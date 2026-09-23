@@ -1,6 +1,14 @@
 """Pytest configuration for fftloggin tests."""
 
+import jax
 import pytest
+
+
+@pytest.fixture
+def x64():
+    """Enable 64-bit JAX values only for a numerical reference test."""
+    with jax.enable_x64():
+        yield
 
 
 def pytest_addoption(parser):
