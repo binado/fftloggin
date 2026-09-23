@@ -66,6 +66,7 @@ tutorial = [
     "scipy>=1.17.1",
 ]
 docs = [
+    "pydata-sphinx-theme>=0.21.0",
     "sphinx>=8.2",
     "sphinx-rtd-theme>=3.0",
 ]
