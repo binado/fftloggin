@@ -64,12 +64,15 @@ class Kernel:
 
     @property
     def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
+        """Open interval of real Mellin arguments where the kernel converges."""
         return jnp.asarray(-jnp.inf), jnp.asarray(jnp.inf)
 
     def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
+        """Evaluate the Mellin kernel at ``s``."""
         raise NotImplementedError
 
     def is_in_domain(self, s: Inexact[ArrayLike, "..."]) -> Bool[Array, ""]:
+        """Return whether every real part in ``s`` lies inside ``domain``."""
         lower, upper = self.domain
         return jnp.all((jnp.real(s) > lower) & (jnp.real(s) < upper))
 
@@ -77,6 +80,8 @@ class Kernel:
 @partial(register_dataclass, data_fields=("base", "nu"), meta_fields=())
 @dataclass(frozen=True)
 class ShiftedKernel(Kernel):
+    """Kernel wrapper that evaluates a base kernel at ``s + nu``."""
+
     base: Kernel
     nu: Real[ArrayLike, ""]
 
@@ -92,6 +97,8 @@ class ShiftedKernel(Kernel):
 @partial(register_dataclass, data_fields=("base",), meta_fields=("order",))
 @dataclass(frozen=True)
 class Derivative(Kernel):
+    """Mellin kernel wrapper for a positive-order derivative."""
+
     base: Kernel
     order: int
 
@@ -113,6 +120,11 @@ class Derivative(Kernel):
 @partial(register_dataclass, data_fields=("mu",), meta_fields=())
 @dataclass(frozen=True)
 class BesselJKernel(Kernel):
+    """Mellin kernel for the ordinary Bessel function ``J_mu``.
+
+    Its open convergence strip is ``(-mu, 1.5)``.
+    """
+
     mu: Real[ArrayLike, ""]
 
     @property
@@ -126,6 +138,11 @@ class BesselJKernel(Kernel):
 @partial(register_dataclass, data_fields=("ell",), meta_fields=())
 @dataclass(frozen=True)
 class SphericalBesselJKernel(Kernel):
+    """Mellin kernel for the spherical Bessel function ``j_ell``.
+
+    Its open convergence strip is ``(-ell, 2)``.
+    """
+
     ell: Real[ArrayLike, ""]
 
     @property

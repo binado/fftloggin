@@ -19,9 +19,7 @@ __all__ = (
 
 
 class DomainCheckWarning(UserWarning):
-    """
-    Warning raised when domain validation fails in non-fatal modes.
-    """
+    """Warning emitted when a concrete transform bias is outside a kernel's strip."""
 
 
 class ArgumentOutOfDomainError(ValueError):
