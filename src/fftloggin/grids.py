@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
+from jaxtyping import Array, ArrayLike, Float
 
 __all__ = ("get_array_center", "get_paired_grids", "infer_dlog", "infer_log_kr")
 
 
-def infer_dlog(x: jax.Array, *, rtol: float = 1e-5) -> jax.Array:
+def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, ""]:
     """Infer and eagerly validate the logarithmic spacing of a 1-D grid.
 
     This host-side convenience function is not intended for ``jax.jit``.
@@ -25,7 +25,7 @@ def infer_dlog(x: jax.Array, *, rtol: float = 1e-5) -> jax.Array:
     return dlog
 
 
-def get_array_center(x: jax.Array) -> jax.Array:
+def get_array_center(x: Float[ArrayLike, "n"]) -> Float[Array, ""]:
     """Geometric center of a one-dimensional logarithmic grid."""
     x = jnp.asarray(x)
     return jnp.exp(0.5 * (jnp.log(x[0]) + jnp.log(x[-1])))
@@ -33,10 +33,10 @@ def get_array_center(x: jax.Array) -> jax.Array:
 
 def get_paired_grids(
     *,
-    r: jax.typing.ArrayLike | None = None,
-    k: jax.typing.ArrayLike | None = None,
-    log_kr: jax.typing.ArrayLike = 0.0,
-) -> tuple[jax.Array, jax.Array]:
+    r: Float[ArrayLike, "n"] | None = None,
+    k: Float[ArrayLike, "n"] | None = None,
+    log_kr: Float[ArrayLike, ""] = 0.0,
+) -> tuple[Float[Array, "n"], Float[Array, "n"]]:
     """Return paired ``(r, k)`` grids from exactly one supplied grid.
 
     The missing grid is ``exp(log_kr) / x[::-1]``. This pure operation works
@@ -55,12 +55,12 @@ def get_paired_grids(
 
 
 def infer_log_kr(
-    x: jax.Array,
+    x: Float[ArrayLike, "n"],
     *,
-    ycenter: jax.Array | None = None,
-    ymax: jax.Array | None = None,
-    ymin: jax.Array | None = None,
-) -> jax.Array:
+    ycenter: Float[ArrayLike, ""] | None = None,
+    ymax: Float[ArrayLike, ""] | None = None,
+    ymin: Float[ArrayLike, ""] | None = None,
+) -> Float[Array, ""]:
     """Infer ``log(k_center * r_center)`` from one paired-grid anchor.
 
     Exactly one of ``ycenter``, ``ymax`` or ``ymin`` is required. The choice
@@ -74,4 +74,5 @@ def infer_log_kr(
         return jnp.log(ycenter) + 0.5 * (jnp.log(x[0]) + jnp.log(x[-1]))
     if ymax is not None:
         return jnp.log(ymax) + jnp.log(x[0])
+    assert ymin is not None
     return jnp.log(ymin) + jnp.log(x[-1])

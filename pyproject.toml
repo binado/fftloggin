@@ -32,6 +32,7 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "jax>=0.10.0",
+    "jaxtyping",
 ]
 
 [project.urls]
@@ -67,6 +68,7 @@ norecursedirs = ["legacy"]
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["F821"]
+"src/fftloggin/*.py" = ["F821", "UP037"]
 
 [tool.ty.src]
 include = ["src", "tests"]
