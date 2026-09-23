@@ -28,7 +28,7 @@ import jax.numpy as jnp
 from fftloggin import BesselJKernel, forward, get_paired_grids, infer_dlog
 
 r = jnp.geomspace(1e-2, 1e2, 128)
-a = r * jnp.exp(-r**2 / 2)
+a = r * jnp.exp(-(r**2) / 2)
 dlog = infer_dlog(r)  # eager spacing validation
 kernel = BesselJKernel(mu=0.0)
 log_kr = 0.0
@@ -58,13 +58,13 @@ parameter, use `forward` without snapping.
 
 ```python
 mus = jnp.array([0.0, 1.0, 2.0])
-batched = jax.jit(jax.vmap(
-    lambda mu: forward(a, BesselJKernel(mu), dlog=dlog)
-))(mus)
+batched = jax.jit(jax.vmap(lambda mu: forward(a, BesselJKernel(mu), dlog=dlog)))(mus)
+
 
 def loss(mu):
     prediction = forward(a, BesselJKernel(mu), dlog=dlog)
     return jnp.sum((prediction - A) ** 2)
+
 
 gradient = jax.grad(loss)(0.5)
 ```

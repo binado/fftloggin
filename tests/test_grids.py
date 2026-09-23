@@ -70,9 +70,7 @@ def test_get_paired_grids_works_with_jit_and_vmap():
     r = jnp.array([1.0, 10.0])
     log_krs = jnp.array([0.0, 1.0])
     paired = jax.jit(lambda values: get_paired_grids(r=values))(r)
-    batched = jax.vmap(lambda log_kr: get_paired_grids(r=r, log_kr=log_kr))(
-        log_krs
-    )
+    batched = jax.vmap(lambda log_kr: get_paired_grids(r=r, log_kr=log_kr))(log_krs)
     assert_allclose(paired[0], r)
     assert_allclose(paired[1], [0.1, 1.0])
     assert_allclose(batched[0], jnp.stack((r, r)))
