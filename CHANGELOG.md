@@ -1,3 +1,10 @@
+## Unreleased
+
+### Breaking
+
+- remove the `Kernel.derive`, `Kernel.shift`, and `ShiftedKernel.shift`
+  convenience methods; construct `Derivative` and `ShiftedKernel` explicitly
+
 ## 0.4.0 (2026-03-05)
 
 ### Feat
