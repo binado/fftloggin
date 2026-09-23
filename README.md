@@ -4,6 +4,9 @@ Differentiable FFTLog transforms built on JAX. The core API transforms one
 real, one-dimensional sample array at a time. Use JAX transformations for
 compilation, batching, and differentiation.
 
+Full user guides and the API reference are available on
+[Read the Docs](https://fftloggin.readthedocs.io/en/latest/).
+
 ## Installation
 
 ```bash
