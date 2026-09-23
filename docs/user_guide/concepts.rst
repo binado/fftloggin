@@ -57,4 +57,5 @@ JAX execution
 The transform functions are pure JAX computations and support ``jit``,
 ``vmap`` and ``grad``. Their sample length is static from the input array
 shape. Parameter validation and grid-spacing inference are eager host-side
-helpers; call them outside JAX transformations. See the :doc:`JAX guide <jax>`.
+helpers; call them outside JAX transformations. See the
+:doc:`JAX guide </user_guide/jax>`.

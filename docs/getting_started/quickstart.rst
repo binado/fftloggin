@@ -22,8 +22,8 @@ grid, then constructs its paired wavenumber grid.
 ``infer_dlog`` checks the grid eagerly. ``forward`` expects one-dimensional
 floating-point samples and scalar ``dlog``, ``bias`` and ``log_kr`` values.
 The number of input and output samples is the same; use ``jax.vmap`` to map
-over scalar parameters. The :doc:`JAX guide <jax>` shows batching and
-differentiation.
+over scalar parameters. The :doc:`JAX guide </user_guide/jax>` shows batching
+and differentiation.
 
 ``log_kr`` is the logarithm of the product of the geometric centers of the
 paired grids. ``get_paired_grids`` returns ``(r, k)`` in that order, regardless

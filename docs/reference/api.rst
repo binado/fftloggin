@@ -1,5 +1,5 @@
-API reference
-=============
+Public API
+==========
 
 The following reference is generated from the package's public modules.
 
