@@ -28,4 +28,5 @@ html_theme = "pydata_sphinx_theme"
 html_theme_options = {
     "show_nav_level": 2,
 }
+plot_formats = [("png", 150), ("hires.png", 300), "pdf"]
 html_title = f"{project} {release}"
