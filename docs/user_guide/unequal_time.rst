@@ -65,7 +65,7 @@ The factor :math:`t^{i\omega}` makes the integral a Fourier transform in
 The banded grid
 ---------------
 
-:func:`~fftloggin.cosmology.double_spherical_bessel_table` evaluates
+:func:`~fftloggin.cosmology.double_spherical_bessel_plan` evaluates
 :math:`\mathcal{M}_\ell` at the FFTLog frequencies
 :math:`s_m = 1 + q_{\rm bias} + 2\pi i m / (n\,\Delta)`, the ones
 :func:`~fftloggin.fftlog.forward` uses, and at ratios on the grid's own
@@ -76,9 +76,10 @@ spacing,
    t_j = e^{j\Delta}, \qquad j = -M, \dots, M .
 
 Because :math:`t_j \chi_i = \chi_{i+j}`, every pair lands on the output grid
-and no interpolation is needed.
-:func:`~fftloggin.cosmology.unequal_time_kernel` applies the table to the
-input samples and returns an array of shape ``(n, 2M + 1)`` whose entry
+and no interpolation is needed. The result is a
+:class:`~fftloggin.fftlog.Plan` whose coefficients have one column per ratio.
+Passing it to :func:`~fftloggin.fftlog.forward` transforms the input samples
+and returns an array of shape ``(n, 2M + 1)`` whose entry
 ``[i, M + j]`` is :math:`K_\ell(\chi_i, \chi_{i+j})`: a band of the kernel
 around the diagonal :math:`\chi = \chi'`.
 
@@ -92,7 +93,7 @@ around the diagonal :math:`\chi = \chi'`.
 
 Frequency cutoff
    The Fourier integral above runs over the transform's own frequencies,
-   :math:`|\omega| \le \pi/\Delta`, so the table uses exactly the
+   :math:`|\omega| \le \pi/\Delta`, so the plan uses exactly the
    frequencies the transforms do. The contraction with windows on the same
    grid then equals the bins-first calculation to rounding (see
    :doc:`tutorial_cl`). Individual values of :math:`K_\ell` carry a
@@ -144,20 +145,20 @@ The Parseval formula holds for any two kernels :math:`K_1` and
 
 with :math:`q` in the strip of :math:`M_1` and
 :math:`\operatorname{Re} s - q` in the strip of :math:`M_2`.
-:func:`~fftloggin.cosmology.kernel_product_table` takes any two
+:func:`~fftloggin.cosmology.kernel_product_plan` takes any two
 :class:`~fftloggin.kernels.Kernel` objects, for example derivatives of
 spherical Bessel functions for redshift-space distortions:
 
 .. code-block:: python
 
    from fftloggin import Derivative, SphericalBesselJKernel
-   from fftloggin.cosmology import kernel_product_table
+   from fftloggin.cosmology import kernel_product_plan
 
    j = SphericalBesselJKernel(ell)
-   table = kernel_product_table(j, Derivative(j, 2), n, dlog=dlog, bias=0.5,
-                                half_width=M)
+   pp = kernel_product_plan(j, Derivative(j, 2), n, dlog=dlog, bias=0.5,
+                            half_width=M)
 
-:func:`~fftloggin.cosmology.double_spherical_bessel_table` is the special
+:func:`~fftloggin.cosmology.double_spherical_bessel_plan` is the special
 case of two :math:`j_\ell`. Three things change for a general pair:
 
 - The contour sits in the middle of the interval where both conditions
@@ -167,7 +168,7 @@ case of two :math:`j_\ell`. Three things change for a general pair:
   a carefully chosen bias.
 - The integral :math:`\int dk\, a(k) K_1(k\chi) K_2(k\chi')` is no longer
   symmetric in :math:`\chi \leftrightarrow \chi'`. Including the
-  prefactor :math:`\chi` of :math:`K`, the table for :math:`(K_2, K_1)`
+  prefactor :math:`\chi` of :math:`K`, the plan for :math:`(K_2, K_1)`
   gives :math:`K_{21}(\chi, \chi') = (\chi/\chi')\, K_{12}(\chi', \chi)`,
   so pass the kernels in the order of the windows they multiply.
 - Nothing changes at large :math:`\omega`: :math:`j_\ell''` behaves like
@@ -180,31 +181,32 @@ FFTLog calculation to rounding.
 Differentiation and batching
 ----------------------------
 
-The table depends only on :math:`\ell`, :math:`n`, :math:`\Delta`, the bias
-and the band, not on the input. Compute it once per multipole, outside
-``jax.grad``, and pass it to
-:func:`~fftloggin.cosmology.unequal_time_kernel`, which is differentiable in
-its input. Derivatives with respect to cosmological parameters, for example
-for a Fisher matrix, then flow only through :math:`a(k)` and the windows.
-The order is a data leaf, so ``jax.vmap`` batches tables over :math:`\ell`:
+The plan depends only on :math:`\ell`, :math:`n`, :math:`\Delta`, the bias,
+:math:`\ln(k_c r_c)` and the band, not on the input. It carries these grid
+parameters itself, so :func:`~fftloggin.fftlog.forward` takes no ``dlog``,
+``bias`` or ``log_kr`` with a plan and cannot be called with values that
+disagree with the coefficients. Compute it once per multipole, outside
+``jax.grad``; ``forward`` is differentiable in its input. Derivatives with
+respect to cosmological parameters, for example for a Fisher matrix, then
+flow only through :math:`a(k)` and the windows. The order is a data leaf,
+so ``jax.vmap`` batches plans over :math:`\ell`:
 
 .. code-block:: python
 
    import jax
    import jax.numpy as jnp
-   from fftloggin.cosmology import double_spherical_bessel_table, unequal_time_kernel
+   from fftloggin import forward
+   from fftloggin.cosmology import double_spherical_bessel_plan
 
    make = jax.vmap(
-       lambda ell: double_spherical_bessel_table(
+       lambda ell: double_spherical_bessel_plan(
            ell, n, dlog=dlog, bias=-1.0, half_width=M
        )
    )
-   tables = make(jnp.arange(2.0, 100.0))  # (n_ell, n // 2 + 1, 2 M + 1)
-   kernels = jax.vmap(lambda table: unequal_time_kernel(a, table, dlog=dlog, bias=-1.0))(
-       tables
-   )  # (n_ell, n, 2 M + 1)
+   plans = make(jnp.arange(2.0, 100.0))  # coeffs: (n_ell, n // 2 + 1, 2 M + 1)
+   kernels = jax.vmap(forward, in_axes=(None, 0))(a, plans)  # (n_ell, n, 2 M + 1)
 
-Building a table needs about :math:`n^2 / 2`
+Building a plan needs about :math:`n^2 / 2`
 complex values of temporary memory, so batch large ranges of :math:`\ell` in
 chunks with ``jax.lax.map``.
 
@@ -217,7 +219,7 @@ partner leaves the grid are dropped:
 
 .. code-block:: python
 
-   kern = unequal_time_kernel(a, table, dlog=dlog, bias=-1.0)
+   kern = forward(a, pp)
    i = jnp.arange(M, n - M)
    band = (wb * chi)[i[:, None] + jnp.arange(-M, M + 1)]
    cl = dlog**2 * jnp.einsum("i,it,it->", wa[i], kern[i], band)

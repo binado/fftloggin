@@ -6,8 +6,8 @@ two tomographic bins without the Limber approximation, in two ways:
 
 - **bins first**, one :func:`~fftloggin.fftlog.forward` transform per bin
   followed by an integral over :math:`k`;
-- **k first**, one :func:`~fftloggin.cosmology.unequal_time_kernel` per
-  multipole, contracted with every pair of bins (see :doc:`unequal_time`).
+- **k first**, one unequal-time kernel from
+  :func:`~fftloggin.cosmology.double_spherical_bessel_plan` per multipole, contracted with every pair of bins (see :doc:`unequal_time`).
 
 Both are checked against CAMB's own line-of-sight calculation,
 :meth:`camb.results.CAMBdata.get_source_cls_dict`. The tutorial needs CAMB
@@ -80,8 +80,8 @@ comes from the ratio of linear power spectra on large scales.
 
    import jax
    import jax.numpy as jnp
-   from fftloggin import SphericalBesselJKernel, forward, get_paired_grids
-   from fftloggin.cosmology import double_spherical_bessel_table, unequal_time_kernel
+   from fftloggin import SphericalBesselJKernel, forward, get_paired_grids, plan
+   from fftloggin.cosmology import double_spherical_bessel_plan
 
    jax.config.update("jax_enable_x64", True)  # or export JAX_ENABLE_X64=1
 
@@ -114,8 +114,9 @@ Bins first
 
 For each bin, :math:`F_a(k) = \int d\chi\, w_a(\chi)\, j_\ell(k\chi)` is one
 forward transform, since ``forward`` returns
-:math:`k \int w_a(\chi) j_\ell(k\chi)\, d\chi`. The remaining integral is a
-sum on the :math:`k` grid.
+:math:`k \int w_a(\chi) j_\ell(k\chi)\, d\chi`. All bins share the kernel
+and grid, so a :func:`~fftloggin.fftlog.plan` evaluates the coefficients
+once per multipole. The remaining integral is a sum on the :math:`k` grid.
 
 .. plot::
    :context:
@@ -123,9 +124,8 @@ sum on the :math:`k` grid.
    :include-source: true
 
    def cls_bins_first(ell):
-       kernel = SphericalBesselJKernel(float(ell))
-       f = [np.asarray(forward(w, kernel, dlog=dlog, log_kr=log_kr)) / k
-            for w in windows]
+       p = plan(SphericalBesselJKernel(float(ell)), n, dlog=dlog, log_kr=log_kr)
+       f = [np.asarray(forward(w, p)) / k for w in windows]
        return [2 / np.pi * dlog * np.sum(k**3 * p0 * f[a] * f[b]) for a, b in pairs]
 
 k first
@@ -137,7 +137,7 @@ grid points, :math:`|\ln(\chi'/\chi)| \le 0.96`, which covers both bins.
 With ``bias = 0.5``, :math:`a(k)\, k^{-0.5}` decays at both ends of the
 :math:`k` grid.
 
-The table's convolution uses the same frequencies as the transforms, so the
+The plan's convolution uses the same frequencies as the transforms, so the
 contraction on the grid equals the bins-first sum to rounding.
 
 .. plot::
@@ -150,12 +150,11 @@ contraction on the grid equals the bins-first sum to rounding.
    partners = rows[:, None] + np.arange(-half_width, half_width + 1)
 
    def cls_k_first(ell):
-       table = double_spherical_bessel_table(
-           float(ell), n, dlog=dlog, bias=bias, half_width=half_width
+       pp = double_spherical_bessel_plan(
+           float(ell), n, dlog=dlog, bias=bias, log_kr=log_kr,
+           half_width=half_width,
        )
-       kern = np.asarray(unequal_time_kernel(
-           2 / np.pi * k**2 * p0, table, dlog=dlog, bias=bias, log_kr=log_kr
-       ))[rows]
+       kern = np.asarray(forward(2 / np.pi * k**2 * p0, pp))[rows]
        return [dlog**2 * np.einsum("i,it,it->", windows[a][rows], kern,
                                    (windows[b] * chi)[partners])
                for a, b in pairs]
