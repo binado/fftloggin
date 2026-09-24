@@ -68,6 +68,36 @@ To transform a batch of inputs with one kernel, map over the samples:
 ``dlog``, ``bias`` and ``log_kr`` can be mapped the same way. Every value of
 ``bias`` must lie in the kernel's convergence strip (see :doc:`kernels`).
 
+Reuse coefficients with a plan
+------------------------------
+
+Every call with a kernel evaluates the Gamma functions of the kernel at the
+FFTLog frequencies. When many arrays share one kernel and grid, for example
+tomographic bins or redshift slices, evaluate them once with
+:func:`~fftloggin.fftlog.plan` and pass the resulting
+:class:`~fftloggin.fftlog.Plan` in place of the kernel. What remains is
+two FFTs per array:
+
+.. code-block:: python
+
+   from fftloggin import plan
+
+   p = plan(BesselJKernel(0.0), samples.shape[0], dlog=dlog)
+   results = jax.vmap(forward, in_axes=(0, None))(batch, p)
+
+A plan carries its own ``dlog``, ``bias`` and ``log_kr``, so ``forward`` and
+``inverse`` raise if these keywords are passed alongside it, or if the array
+length differs from the one the plan was built for. Plans are pytrees, so
+they can be arguments of ``jit``-compiled functions, and ``jax.vmap`` over
+the kernel parameter returns a batch of plans.
+
+Gradients do not reach whatever built a precomputed plan. Precompute the plan
+when differentiating with respect to the input samples, for example for a
+Fisher matrix over cosmological parameters. Build it inside the
+differentiated function when differentiating with respect to the kernel
+parameters, ``bias`` or ``log_kr``; this is what ``forward`` does internally
+with a kernel.
+
 Differentiate
 -------------
 

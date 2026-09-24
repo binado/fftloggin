@@ -15,6 +15,7 @@ from fftloggin import (
     get_paired_grids,
     inverse,
     lowring_log_kr,
+    plan,
 )
 
 
@@ -256,3 +257,96 @@ def test_shifted_kernel_matches_weighted_input(x64):
     shifted = forward(a, ShiftedKernel(base, nu), dlog=dlog, bias=bias)
     direct = forward(a * r**nu, base, dlog=dlog, bias=bias + nu)
     assert_allclose(shifted * k**-nu, direct, rtol=1e-7, atol=1e-12)
+
+
+@pytest.fixture
+def smooth_input():
+    n = 32
+    r = jnp.exp(0.1 * (jnp.arange(n) - (n - 1) / 2))
+    return r**1.3 * jnp.exp(-(r**2) / 2)
+
+
+@pytest.mark.parametrize("n", [64, 63])
+@pytest.mark.parametrize(("bias", "log_kr"), [(0.0, 0.0), (0.1, 0.2), (-0.1, -0.5)])
+def test_plan_matches_kernel_transform(x64, n, bias, log_kr):
+    rng = np.random.RandomState(20260924)
+    a = rng.standard_normal(n)
+    kernel = BesselJKernel(0.3)
+    params = {"dlog": 0.1, "bias": bias, "log_kr": log_kr}
+    p = plan(kernel, n, **params)
+    assert_allclose(forward(a, p), forward(a, kernel, **params), rtol=1e-14)
+    assert_allclose(inverse(a, p), inverse(a, kernel, **params), rtol=1e-14)
+
+
+def test_vmap_over_inputs_with_plan(smooth_input):
+    batch = jnp.stack([smooth_input * scale for scale in (0.5, 1.0, 2.0)])
+    p = plan(BesselJKernel(0.3), batch.shape[1], dlog=0.1, bias=0.1)
+    expected = jnp.stack([forward(a, p) for a in batch])
+    actual = jax.jit(jax.vmap(forward, in_axes=(0, None)))(batch, p)
+    assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
+
+
+def test_input_gradient_with_precomputed_plan(x64, smooth_input):
+    weights = jnp.linspace(0.4, 1.2, smooth_input.shape[0])
+    p = plan(BesselJKernel(0.3), smooth_input.shape[0], dlog=0.1, bias=0.1)
+
+    def loss(samples, p):
+        return jnp.sum(forward(samples, p) * weights)
+
+    kernel_loss = jnp.sum(
+        forward(smooth_input, BesselJKernel(0.3), dlog=0.1, bias=0.1) * weights
+    )
+    assert_allclose(jax.jit(loss)(smooth_input, p), kernel_loss, rtol=1e-14)
+    index, step = 9, 1e-5
+    numerical = (
+        loss(smooth_input.at[index].add(step), p)
+        - loss(smooth_input.at[index].add(-step), p)
+    ) / (2 * step)
+    automatic = jax.jit(jax.grad(loss))(smooth_input, p)
+    assert_allclose(automatic[index], numerical, rtol=2e-4, atol=2e-6)
+
+
+@pytest.mark.parametrize("parameter", ["mu", "bias"])
+def test_gradient_through_plan_matches_kernel_path(x64, smooth_input, parameter):
+    n = smooth_input.shape[0]
+    values = {"mu": 0.3, "bias": 0.1}
+
+    def loss(value, use_plan):
+        params = values | {parameter: value}
+        kernel = BesselJKernel(params["mu"])
+        if use_plan:
+            return jnp.sum(
+                forward(smooth_input, plan(kernel, n, dlog=0.1, bias=params["bias"]))
+            )
+        return jnp.sum(forward(smooth_input, kernel, dlog=0.1, bias=params["bias"]))
+
+    point = jnp.asarray(values[parameter])
+    assert_allclose(
+        jax.grad(loss)(point, True), jax.grad(loss)(point, False), rtol=1e-12
+    )
+
+
+@pytest.mark.parametrize("keyword", ["dlog", "bias", "log_kr"])
+@pytest.mark.parametrize("transform", [forward, inverse])
+def test_plan_rejects_grid_keywords(smooth_input, transform, keyword):
+    p = plan(BesselJKernel(0.3), smooth_input.shape[0], dlog=0.1)
+    with pytest.raises(TypeError, match="Plan"):
+        transform(smooth_input, p, **{keyword: 0.1})
+
+
+@pytest.mark.parametrize("transform", [forward, inverse])
+def test_plan_rejects_other_sample_count(smooth_input, transform):
+    p = plan(BesselJKernel(0.3), smooth_input.shape[0] + 1, dlog=0.1)
+    with pytest.raises(ValueError, match="n="):
+        transform(smooth_input, p)
+
+
+@pytest.mark.parametrize("transform", [forward, inverse])
+def test_kernel_requires_dlog(smooth_input, transform):
+    with pytest.raises(TypeError, match="dlog"):
+        transform(smooth_input, BesselJKernel(0.3))
+
+
+def test_plan_rejects_too_few_samples():
+    with pytest.raises(ValueError):
+        plan(BesselJKernel(0.3), 1, dlog=0.1)
