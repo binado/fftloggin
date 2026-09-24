@@ -55,9 +55,12 @@ def double_spherical_bessel_table(
         like ``t**ell`` away from ``t = 1``, so higher orders need a
         narrower band. Cost grows linearly with it.
     oversample : int, optional
-        Refinement of the convolution grid. The truncation error near
-        ``t = 1`` scales like ``(pi*oversample/dlog)**(bias - 1)``. Defaults
-        to one.
+        Refinement of the convolution grid. The truncation error of the
+        pointwise values near ``t = 1`` scales like
+        ``(pi*oversample/dlog)**(bias - 1)``. Keep the default of one when
+        the kernel is contracted on the same grid: the contraction then
+        equals the corresponding single-Bessel FFTLog calculation to
+        rounding.
     contour : scalar, optional
         Real part ``q`` of the convolution contour. Both ``q`` and
         ``1 + bias - q`` must lie in ``(-ell, 2)``. Defaults to

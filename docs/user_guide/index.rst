@@ -15,6 +15,8 @@ everything together on a real cosmology problem.
   spectra beyond Limber.
 - :doc:`tutorial`: the matter correlation function from a CAMB power
   spectrum.
+- :doc:`tutorial_cl`: angular power spectra beyond Limber, checked against
+  CAMB.
 
 .. toctree::
    :maxdepth: 1
@@ -26,3 +28,4 @@ everything together on a real cosmology problem.
    jax
    unequal_time
    tutorial
+   tutorial_cl

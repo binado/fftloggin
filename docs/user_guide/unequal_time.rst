@@ -95,15 +95,25 @@ around the diagonal :math:`\chi = \chi'`.
    error, largest near :math:`t = 1`, scales like
    :math:`(\pi \cdot \texttt{oversample}/\Delta)^{q_{\rm bias} - 1}`.
    Raising ``oversample`` refines the convolution grid in :math:`\ln t` and
-   pushes the cutoff out; it does not change the table's shape. It matters
-   most when the bias cannot be made very negative, typically at low
-   :math:`\ell`. Start at 1 and raise it only if a check near
-   :math:`t = 1` requires it.
+   pushes the cutoff out; it does not change the table's shape.
+
+   Raise it only when you need accurate *pointwise* values of
+   :math:`K_\ell`. When you contract the kernel with windows on the same
+   grid, keep ``oversample=1``: the table then uses the same frequencies as
+   the transforms, and the contraction equals the bins-first calculation to
+   rounding. The exact kernel has structure on scales of
+   :math:`1/k_{\max}`, which the :math:`\chi` grid cannot resolve, so a
+   more accurate kernel makes the grid sum *less* accurate
+   (see :doc:`tutorial_cl`).
 
 Choosing the bias
 -----------------
 
-The FFT makes the convolution periodic in :math:`\ln t` with period
+As for any FFTLog transform, choose the bias so that :math:`a(k)\,k^{-q}`
+decays at both ends of the :math:`k` grid; otherwise the periodic
+continuation adds ringing, which is most visible at low :math:`\ell`.
+
+The FFT also makes the convolution periodic in :math:`\ln t` with period
 :math:`n\Delta`. Its aliasing error decays like
 :math:`\exp(-r\, n\Delta)` with
 :math:`r = \min(\ell + q, \ell + 1 + q_{\rm bias} - q)`, so the contour must
