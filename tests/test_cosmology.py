@@ -9,8 +9,12 @@ from numpy.testing import assert_allclose
 from scipy.integrate import quad
 from scipy.special import loggamma, spherical_jn
 
-from fftloggin import SphericalBesselJKernel, forward, get_paired_grids
-from fftloggin.cosmology import double_spherical_bessel_table, unequal_time_kernel
+from fftloggin import Derivative, SphericalBesselJKernel, forward, get_paired_grids
+from fftloggin.cosmology import (
+    double_spherical_bessel_table,
+    kernel_product_table,
+    unequal_time_kernel,
+)
 
 N = 512
 DLOG = 0.02
@@ -104,20 +108,38 @@ def test_kernel_matches_quadrature(x64, gaussian, ell, bias, offset, row):
     assert_allclose(result[N // 2 + row, offset + HALF_WIDTH], expected, atol=1e-6)
 
 
-@pytest.mark.parametrize(("ell", "bias"), [(2, 0.5), (20, -1.0)])
-def test_contraction_matches_single_bessel_transforms(x64, gaussian, ell, bias):
+def bessel_derivative(ell, order):
+    kernel = SphericalBesselJKernel(float(ell))
+    return kernel if order == 0 else Derivative(kernel, order)
+
+
+@pytest.mark.parametrize(
+    ("ell", "orders", "bias"),
+    [
+        (2, (0, 0), 0.5),
+        (20, (0, 0), -1.0),
+        (10, (0, 2), 0.5),
+        (10, (2, 0), -0.5),
+        (10, (2, 2), 0.5),
+        (10, (1, 2), 0.0),
+    ],
+)
+def test_contraction_matches_single_kernel_transforms(x64, gaussian, ell, orders, bias):
     k, a = gaussian
     chi, _ = get_paired_grids(k=k)
     chi = np.asarray(chi)
     windows = [
         np.exp(-((np.log(chi) - center) ** 2) / (2 * 0.1**2)) for center in (0.0, 0.2)
     ]
-    kernel = SphericalBesselJKernel(float(ell))
-    f = [np.asarray(forward(w, kernel, dlog=DLOG)) / k for w in windows]
+    kernels = [bessel_derivative(ell, order) for order in orders]
+    f = [
+        np.asarray(forward(w, kernel, dlog=DLOG)) / k
+        for w, kernel in zip(windows, kernels, strict=True)
+    ]
     expected = DLOG * np.sum(k * np.asarray(a(np.log(ell))) * f[0] * f[1])
 
-    table = double_spherical_bessel_table(
-        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
+    table = kernel_product_table(
+        kernels[0], kernels[1], N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
     )
     result = np.asarray(
         unequal_time_kernel(a(np.log(ell)), table, dlog=DLOG, bias=bias)
@@ -127,6 +149,45 @@ def test_contraction_matches_single_bessel_transforms(x64, gaussian, ell, bias):
     band = (windows[1] * chi)[partners]
     contracted = DLOG**2 * np.einsum("i,it,it->", windows[0][rows], result[rows], band)
     assert_allclose(contracted, expected, rtol=1e-9)
+
+
+def spherical_jn_second_derivative(ell, x):
+    value = spherical_jn(ell, x)
+    slope = spherical_jn(ell, x, derivative=True)
+    return -2 / x * slope - (1 - ell * (ell + 1) / x**2) * value
+
+
+@pytest.mark.parametrize("offset", [-15, 0, 20])
+@pytest.mark.parametrize("row", [-40, 0, 40])
+def test_mixed_kernel_matches_quadrature(x64, gaussian, offset, row):
+    k, a = gaussian
+    ell, bias = 3, 0.0
+    first = SphericalBesselJKernel(float(ell))
+    table = kernel_product_table(
+        first, Derivative(first, 2), N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
+    )
+    result = unequal_time_kernel(a(0.0), table, dlog=DLOG, bias=bias)
+    chi, _ = get_paired_grids(k=k)
+    chi, t = float(chi[N // 2 + row]), np.exp(offset * DLOG)
+
+    def integrand(q):
+        weight = np.exp(-(np.log(q) ** 2) / (2 * 0.3**2))
+        return (
+            weight
+            * spherical_jn(ell, q * chi)
+            * spherical_jn_second_derivative(ell, q * t * chi)
+        )
+
+    expected = chi * quad(integrand, 0, np.inf, limit=400)[0]
+    assert_allclose(result[N // 2 + row, offset + HALF_WIDTH], expected, atol=1e-6)
+
+
+def test_double_table_matches_kernel_product(x64):
+    kernel = SphericalBesselJKernel(4.0)
+    assert_allclose(
+        double_spherical_bessel_table(4.0, N, dlog=DLOG, bias=-1.0, half_width=5),
+        kernel_product_table(kernel, kernel, N, dlog=DLOG, bias=-1.0, half_width=5),
+    )
 
 
 def test_kernel_supports_jit_vmap_and_grad(x64, gaussian):

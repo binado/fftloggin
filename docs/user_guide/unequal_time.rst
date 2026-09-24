@@ -56,8 +56,8 @@ function, already provided by
 :class:`~fftloggin.kernels.SphericalBesselJKernel`, and :math:`q` is the real
 part of the integration contour. Both :math:`q` and
 :math:`\operatorname{Re} s - q` must lie in the strip :math:`(-\ell, 2)`;
-``fftloggin`` puts the contour in the middle, :math:`q = \operatorname{Re} s / 2`,
-which makes the aliasing error below decay fastest.
+``fftloggin`` puts the contour in the middle of the allowed interval, which
+makes the aliasing error below decay fastest.
 The factor :math:`t^{i\omega}` makes the integral a Fourier transform in
 :math:`\ln t`, so one FFT gives :math:`\mathcal{M}_\ell` at every
 :math:`t` at once, and only gamma functions are evaluated.
@@ -110,9 +110,11 @@ decays at both ends of the :math:`k` grid; otherwise the periodic
 continuation adds ringing, which is most visible at low :math:`\ell`.
 
 The FFT also makes the convolution periodic in :math:`\ln t` with period
-:math:`n\Delta`. Its aliasing error decays like
-:math:`\exp[-(\ell + (1 + q_{\rm bias})/2)\, n\Delta]`, so
-:math:`1 + q_{\rm bias}` must stay well above :math:`-2\ell`. A more
+:math:`n\Delta`. Its aliasing error decays like :math:`\exp(-r\, n\Delta)`,
+where :math:`r` is the half-width of the interval allowed for the contour.
+For two :math:`j_\ell`,
+:math:`r = \min(\ell + 2,\, 2\ell + 1 + q_{\rm bias},\, 3 - q_{\rm bias})/2`,
+so :math:`1 + q_{\rm bias}` must stay well above :math:`-2\ell`. A more
 negative bias speeds up the decay in :math:`\omega` but brings the contour
 closer to the lower edge of its strip at low :math:`\ell`. For a Gaussian test input with :math:`n = 512` and
 :math:`\Delta = 0.02`, the largest absolute errors against direct quadrature
@@ -127,6 +129,51 @@ ell    bias    error
 2      -2      1e-7
 2      -1      8e-10
 =====  ======  =========
+
+Other kernels
+-------------
+
+The Parseval formula holds for any two kernels :math:`K_1` and
+:math:`K_2` with Mellin transforms :math:`M_1` and :math:`M_2`:
+
+.. math::
+
+   \int_0^\infty x^{s-1} K_1(x)\, K_2(tx)\, dx
+   = \frac{1}{2\pi} \int_{-\infty}^{\infty} d\omega\;
+   M_1(q + i\omega)\, M_2(s - q - i\omega)\, t^{-(s - q - i\omega)} ,
+
+with :math:`q` in the strip of :math:`M_1` and
+:math:`\operatorname{Re} s - q` in the strip of :math:`M_2`.
+:func:`~fftloggin.cosmology.kernel_product_table` takes any two
+:class:`~fftloggin.kernels.Kernel` objects, for example derivatives of
+spherical Bessel functions for redshift-space distortions:
+
+.. code-block:: python
+
+   from fftloggin import Derivative, SphericalBesselJKernel
+   from fftloggin.cosmology import kernel_product_table
+
+   j = SphericalBesselJKernel(ell)
+   table = kernel_product_table(j, Derivative(j, 2), n, dlog=dlog, bias=0.5,
+                                half_width=M)
+
+:func:`~fftloggin.cosmology.double_spherical_bessel_table` is the special
+case of two :math:`j_\ell`. Three things change for a general pair:
+
+- The contour sits in the middle of the interval where both conditions
+  hold, and the aliasing error decays with that interval's half-width.
+  :class:`~fftloggin.kernels.Derivative` shifts a strip up by its order, so
+  pairs of derivatives at low :math:`\ell` leave a narrow interval and need
+  a carefully chosen bias.
+- The kernel is no longer symmetric. The table for :math:`(K_2, K_1)`
+  describes :math:`K_{21}(\chi, \chi') = K_{12}(\chi', \chi)`, so pass
+  the kernels in the order of the windows they multiply.
+- Nothing changes at large :math:`\omega`: :math:`j_\ell''` behaves like
+  :math:`-j_\ell` at large argument, and its Mellin transform decays just
+  as fast.
+
+The contraction on the grid still equals the corresponding single-kernel
+FFTLog calculation to rounding.
 
 Differentiation and batching
 ----------------------------
