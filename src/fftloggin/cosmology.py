@@ -8,7 +8,9 @@ hypergeometric functions with complex parameters.
 """
 
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, Complex, Float, Real
+from jax import Array
+from jax.typing import ArrayLike
+from jaxtyping import Complex, Float, Real
 
 from .fftlog import _apply_coefficients, _samples
 from .kernels import Kernel, SphericalBesselJKernel
