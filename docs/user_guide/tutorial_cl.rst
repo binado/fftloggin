@@ -137,12 +137,8 @@ grid points, :math:`|\ln(\chi'/\chi)| \le 0.96`, which covers both bins.
 With ``bias = 0.5``, :math:`a(k)\, k^{-q}` decays at both ends of the
 :math:`k` grid.
 
-``oversample`` stays at 1. With that choice the table's convolution uses the
-same frequencies as the transforms, and the contraction on the grid equals
-the bins-first sum to rounding. A larger ``oversample`` gives more accurate
-pointwise values of :math:`K_\ell`, whose structure on scales of
-:math:`1/k_{\max}` the :math:`\chi` grid cannot resolve, so the sum over the
-grid becomes *less* accurate.
+The table's convolution uses the same frequencies as the transforms, so the
+contraction on the grid equals the bins-first sum to rounding.
 
 .. plot::
    :context:

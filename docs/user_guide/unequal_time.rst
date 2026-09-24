@@ -88,23 +88,17 @@ around the diagonal :math:`\chi = \chi'`.
    like :math:`t^{\ell}` away from the diagonal, so high multipoles need a
    narrower band. Memory and time grow linearly with it.
 
-``oversample``
-   The Fourier integral above is truncated at
-   :math:`|\omega| \le \pi \cdot \texttt{oversample} / \Delta`. The integrand
-   decays like :math:`|\omega|^{\operatorname{Re} s - 3}`, so the truncation
-   error, largest near :math:`t = 1`, scales like
-   :math:`(\pi \cdot \texttt{oversample}/\Delta)^{q_{\rm bias} - 1}`.
-   Raising ``oversample`` refines the convolution grid in :math:`\ln t` and
-   pushes the cutoff out; it does not change the table's shape.
-
-   Raise it only when you need accurate *pointwise* values of
-   :math:`K_\ell`. When you contract the kernel with windows on the same
-   grid, keep ``oversample=1``: the table then uses the same frequencies as
-   the transforms, and the contraction equals the bins-first calculation to
-   rounding. The exact kernel has structure on scales of
-   :math:`1/k_{\max}`, which the :math:`\chi` grid cannot resolve, so a
-   more accurate kernel makes the grid sum *less* accurate
-   (see :doc:`tutorial_cl`).
+Frequency cutoff
+   The Fourier integral above runs over the transform's own frequencies,
+   :math:`|\omega| \le \pi/\Delta`, so the table uses exactly the
+   frequencies the transforms do. The contraction with windows on the same
+   grid then equals the bins-first calculation to rounding (see
+   :doc:`tutorial_cl`). Individual values of :math:`K_\ell` carry a
+   truncation error, largest near :math:`t = 1`, that scales like
+   :math:`(\pi/\Delta)^{q_{\rm bias} - 1}`. A finer convolution would
+   reduce it, but the exact kernel has structure on scales of
+   :math:`1/k_{\max}` that the :math:`\chi` grid cannot resolve, so it
+   would make the sum over the grid *less* accurate.
 
 Choosing the bias
 -----------------
@@ -160,7 +154,7 @@ The order is a data leaf, so ``jax.vmap`` batches tables over :math:`\ell`:
        tables
    )  # (n_ell, n, 2 M + 1)
 
-Building a table needs about :math:`n^2 \cdot \texttt{oversample} / 2`
+Building a table needs about :math:`n^2 / 2`
 complex values of temporary memory, so batch large ranges of :math:`\ell` in
 chunks with ``jax.lax.map``.
 

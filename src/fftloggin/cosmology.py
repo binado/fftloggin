@@ -23,7 +23,6 @@ def double_spherical_bessel_table(
     dlog: Float[ArrayLike, ""],
     bias: Float[ArrayLike, ""] = 0.0,
     half_width: int,
-    oversample: int = 1,
     contour: Float[ArrayLike, ""] | None = None,
 ) -> Complex[Array, "m t"]:
     """Tabulate the Mellin transform of ``j_ell(x) * j_ell(t*x)``.
@@ -54,13 +53,6 @@ def double_spherical_bessel_table(
         span the separations covered by your windows; the kernel falls off
         like ``t**ell`` away from ``t = 1``, so higher orders need a
         narrower band. Cost grows linearly with it.
-    oversample : int, optional
-        Refinement of the convolution grid. The truncation error of the
-        pointwise values near ``t = 1`` scales like
-        ``(pi*oversample/dlog)**(bias - 1)``. Keep the default of one when
-        the kernel is contracted on the same grid: the contraction then
-        equals the corresponding single-Bessel FFTLog calculation to
-        rounding.
     contour : scalar, optional
         Real part ``q`` of the convolution contour. Both ``q`` and
         ``1 + bias - q`` must lie in ``(-ell, 2)``. Defaults to
@@ -77,26 +69,29 @@ def double_spherical_bessel_table(
     once and reused for every input array. The convolution is periodic in
     ``log(t)`` with period ``n * dlog``; its aliasing error decays like
     ``exp(-r * n * dlog)`` with ``r = min(ell + q, ell + 1 + bias - q)``.
-    Keep ``1 + bias`` well inside the strip at low ``ell``. Memory scales as
-    ``n**2 * oversample / 2``.
+    Keep ``1 + bias`` well inside the strip at low ``ell``.
+
+    The convolution uses the transform's own frequencies, so contracting the
+    kernel with windows on the same grid equals the corresponding
+    single-Bessel FFTLog calculation to rounding. Pointwise values of the
+    kernel near ``t = 1`` carry a truncation error that scales like
+    ``(pi/dlog)**(bias - 1)``. Memory scales as ``n**2 / 2``.
     """
-    if half_width < 0 or oversample < 1:
-        raise ValueError("half_width must be >= 0 and oversample >= 1")
+    if half_width < 0:
+        raise ValueError("half_width must be >= 0")
     kernel = SphericalBesselJKernel(ell)
     real_s = 1 + jnp.asarray(bias)
     q = real_s / 2 if contour is None else jnp.asarray(contour)
     omega = 2 * jnp.pi * jnp.arange(n // 2 + 1) / (n * dlog)
     # Convolution frequencies in FFT order, with period n * dlog in log(t).
-    size = n * oversample
-    step = dlog / oversample
-    conv = 2 * jnp.pi * jnp.fft.fftfreq(size, step)
+    conv = 2 * jnp.pi * jnp.fft.fftfreq(n, dlog)
     integrand = kernel(q + 1j * conv) * kernel(
         real_s - q + 1j * (omega[:, None] - conv)
     )
     offsets = jnp.arange(-half_width, half_width + 1)
-    series = jnp.fft.ifft(integrand, axis=-1)[:, (offsets * oversample) % size]
+    series = jnp.fft.ifft(integrand, axis=-1)[:, offsets % n]
     log_t = offsets * dlog
-    table = series * jnp.exp(-(real_s - q + 1j * omega[:, None]) * log_t) / step
+    table = series * jnp.exp(-(real_s - q + 1j * omega[:, None]) * log_t) / dlog
     if n % 2 == 0:
         table = table.at[-1].set(jnp.real(table[-1]))
     return table

@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose
 from scipy.integrate import quad
 from scipy.special import loggamma, spherical_jn
 
-from fftloggin import get_paired_grids
+from fftloggin import SphericalBesselJKernel, forward, get_paired_grids
 from fftloggin.cosmology import double_spherical_bessel_table, unequal_time_kernel
 
 N = 512
@@ -47,13 +47,13 @@ def gaussian():
 
 
 @pytest.mark.parametrize(
-    ("ell", "bias", "oversample", "rtol"),
-    [(2, 0.0, 4, 5e-3), (2, -2.0, 1, 5e-4), (20, -2.0, 4, 1e-4)],
+    ("ell", "bias", "rtol"),
+    [(2, 0.0, 5e-2), (2, -2.0, 5e-4), (20, -2.0, 1e-3)],
 )
 @pytest.mark.parametrize("m", [0, 5, 40])
-def test_table_matches_hypergeometric(x64, ell, bias, oversample, rtol, m):
+def test_table_matches_hypergeometric(x64, ell, bias, rtol, m):
     table = double_spherical_bessel_table(
-        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH, oversample=oversample
+        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
     )
     s = frequency(m, bias)
     offsets = np.arange(-60, 61, 10)
@@ -69,9 +69,7 @@ def test_table_matches_hypergeometric(x64, ell, bias, oversample, rtol, m):
 @pytest.mark.parametrize("ell", [2, 10])
 def test_table_diagonal_matches_gauss_closed_form(x64, ell):
     bias = -2.0
-    table = double_spherical_bessel_table(
-        ell, N, dlog=DLOG, bias=bias, half_width=0, oversample=4
-    )
+    table = double_spherical_bessel_table(ell, N, dlog=DLOG, bias=bias, half_width=0)
     s = frequency(np.arange(N // 2), bias)
     log_value = (
         (s - 1) * np.log(2)
@@ -83,7 +81,7 @@ def test_table_diagonal_matches_gauss_closed_form(x64, ell):
         - np.log(4 * np.pi)
     )
     expected = np.exp(log_value)
-    assert_allclose(table[:-1, 0], expected, atol=1e-5 * np.max(np.abs(expected)))
+    assert_allclose(table[:-1, 0], expected, atol=5e-4 * np.max(np.abs(expected)))
 
 
 @pytest.mark.parametrize(("ell", "bias"), [(1, 0.0), (2, -1.0)])
@@ -92,7 +90,7 @@ def test_table_diagonal_matches_gauss_closed_form(x64, ell):
 def test_kernel_matches_quadrature(x64, gaussian, ell, bias, offset, row):
     k, a = gaussian
     table = double_spherical_bessel_table(
-        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH, oversample=4
+        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
     )
     result = unequal_time_kernel(a(0.0), table, dlog=DLOG, bias=bias)
     chi, _ = get_paired_grids(k=k)
@@ -104,6 +102,31 @@ def test_kernel_matches_quadrature(x64, gaussian, ell, bias, offset, row):
 
     expected = chi * quad(integrand, 0, np.inf, limit=400)[0]
     assert_allclose(result[N // 2 + row, offset + HALF_WIDTH], expected, atol=1e-6)
+
+
+@pytest.mark.parametrize(("ell", "bias"), [(2, 0.5), (20, -1.0)])
+def test_contraction_matches_single_bessel_transforms(x64, gaussian, ell, bias):
+    k, a = gaussian
+    chi, _ = get_paired_grids(k=k)
+    chi = np.asarray(chi)
+    windows = [
+        np.exp(-((np.log(chi) - center) ** 2) / (2 * 0.1**2)) for center in (0.0, 0.2)
+    ]
+    kernel = SphericalBesselJKernel(float(ell))
+    f = [np.asarray(forward(w, kernel, dlog=DLOG)) / k for w in windows]
+    expected = DLOG * np.sum(k * np.asarray(a(np.log(ell))) * f[0] * f[1])
+
+    table = double_spherical_bessel_table(
+        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
+    )
+    result = np.asarray(
+        unequal_time_kernel(a(np.log(ell)), table, dlog=DLOG, bias=bias)
+    )
+    rows = np.arange(HALF_WIDTH, N - HALF_WIDTH)
+    partners = rows[:, None] + np.arange(-HALF_WIDTH, HALF_WIDTH + 1)
+    band = (windows[1] * chi)[partners]
+    contracted = DLOG**2 * np.einsum("i,it,it->", windows[0][rows], result[rows], band)
+    assert_allclose(contracted, expected, rtol=1e-9)
 
 
 def test_kernel_supports_jit_vmap_and_grad(x64, gaussian):
@@ -132,9 +155,6 @@ def test_kernel_supports_jit_vmap_and_grad(x64, gaussian):
         assert_allclose(grad, finite, rtol=1e-6)
 
 
-@pytest.mark.parametrize(("half_width", "oversample"), [(-1, 1), (2, 0)])
-def test_table_rejects_invalid_sizes(half_width, oversample):
+def test_table_rejects_negative_half_width():
     with pytest.raises(ValueError):
-        double_spherical_bessel_table(
-            2, N, dlog=DLOG, half_width=half_width, oversample=oversample
-        )
+        double_spherical_bessel_table(2, N, dlog=DLOG, half_width=-1)
