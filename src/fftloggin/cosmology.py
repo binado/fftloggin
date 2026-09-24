@@ -46,7 +46,14 @@ def double_spherical_bessel_table(
         Power-law bias of the transform. ``1 + bias`` must lie in
         ``(-2*ell, 2)``. Defaults to zero.
     half_width : int
-        Number of ratios ``t`` on each side of ``t = 1``.
+        Number of ratios ``t`` on each side of ``t = 1``. The table covers
+        ``|log(t)| <= half_width * dlog`` in ``2 * half_width + 1`` columns,
+        so the output of ``unequal_time_kernel`` holds ``K(chi, chi')`` for
+        ``chi'`` within ``half_width`` grid points of ``chi``. It sets which
+        pairs are available, not the accuracy of each value. Choose it to
+        span the separations covered by your windows; the kernel falls off
+        like ``t**ell`` away from ``t = 1``, so higher orders need a
+        narrower band. Cost grows linearly with it.
     oversample : int, optional
         Refinement of the convolution grid. The truncation error near
         ``t = 1`` scales like ``(pi*oversample/dlog)**(bias - 1)``. Defaults

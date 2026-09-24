@@ -11,6 +11,8 @@ everything together on a real cosmology problem.
   ``log_kr``.
 - :doc:`kernels`: Mellin transforms, convergence strips, and custom kernels.
 - :doc:`jax`: compiling, batching, and differentiating transforms.
+- :doc:`unequal_time`: double spherical Bessel integrals for angular power
+  spectra beyond Limber.
 - :doc:`tutorial`: the matter correlation function from a CAMB power
   spectrum.
 
@@ -22,4 +24,5 @@ everything together on a real cosmology problem.
    grids
    kernels
    jax
+   unequal_time
    tutorial

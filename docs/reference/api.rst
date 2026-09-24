@@ -21,6 +21,12 @@ Kernels
 .. automodule:: fftloggin.kernels
    :members:
 
+Unequal-time kernels
+--------------------
+
+.. automodule:: fftloggin.cosmology
+   :members:
+
 Exceptions and warnings
 -----------------------
 
