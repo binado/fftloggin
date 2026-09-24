@@ -155,6 +155,13 @@ def test_kernel_supports_jit_vmap_and_grad(x64, gaussian):
         assert_allclose(grad, finite, rtol=1e-6)
 
 
+def test_kernel_rejects_table_for_another_size(gaussian):
+    _, a = gaussian
+    table = double_spherical_bessel_table(2, N // 2, dlog=DLOG, half_width=3)
+    with pytest.raises(ValueError, match="rows"):
+        unequal_time_kernel(a(0.0), table, dlog=DLOG)
+
+
 def test_table_rejects_negative_half_width():
     with pytest.raises(ValueError):
         double_spherical_bessel_table(2, N, dlog=DLOG, half_width=-1)

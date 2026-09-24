@@ -23,7 +23,6 @@ def double_spherical_bessel_table(
     dlog: Float[ArrayLike, ""],
     bias: Float[ArrayLike, ""] = 0.0,
     half_width: int,
-    contour: Float[ArrayLike, ""] | None = None,
 ) -> Complex[Array, "m t"]:
     """Tabulate the Mellin transform of ``j_ell(x) * j_ell(t*x)``.
 
@@ -53,11 +52,6 @@ def double_spherical_bessel_table(
         span the separations covered by your windows; the kernel falls off
         like ``t**ell`` away from ``t = 1``, so higher orders need a
         narrower band. Cost grows linearly with it.
-    contour : scalar, optional
-        Real part ``q`` of the convolution contour. Both ``q`` and
-        ``1 + bias - q`` must lie in ``(-ell, 2)``. Defaults to
-        ``(1 + bias) / 2``.
-
     Returns
     -------
     array
@@ -68,8 +62,8 @@ def double_spherical_bessel_table(
     The table depends only on the order and the grid, so it can be computed
     once and reused for every input array. The convolution is periodic in
     ``log(t)`` with period ``n * dlog``; its aliasing error decays like
-    ``exp(-r * n * dlog)`` with ``r = min(ell + q, ell + 1 + bias - q)``.
-    Keep ``1 + bias`` well inside the strip at low ``ell``.
+    ``exp(-(ell + (1 + bias) / 2) * n * dlog)``, so keep ``1 + bias`` well
+    above ``-2*ell`` at low ``ell``.
 
     The convolution uses the transform's own frequencies, so contracting the
     kernel with windows on the same grid equals the corresponding
@@ -81,7 +75,8 @@ def double_spherical_bessel_table(
         raise ValueError("half_width must be >= 0")
     kernel = SphericalBesselJKernel(ell)
     real_s = 1 + jnp.asarray(bias)
-    q = real_s / 2 if contour is None else jnp.asarray(contour)
+    # Centring the contour in its strip maximizes the aliasing decay rate.
+    q = real_s / 2
     omega = 2 * jnp.pi * jnp.arange(n // 2 + 1) / (n * dlog)
     # Convolution frequencies in FFT order, with period n * dlog in log(t).
     conv = 2 * jnp.pi * jnp.fft.fftfreq(n, dlog)
@@ -146,6 +141,11 @@ def unequal_time_kernel(
     """
     a = _samples(a, "a")
     table = jnp.asarray(table)
+    if table.ndim != 2 or table.shape[0] != a.shape[0] // 2 + 1:
+        raise ValueError(
+            f"table has shape {table.shape}, but {a.shape[0]} samples need "
+            f"{a.shape[0] // 2 + 1} rows; build it with n={a.shape[0]}"
+        )
     omega = 2 * jnp.pi * jnp.arange(table.shape[0]) / (a.shape[0] * dlog)
     coeffs = table * jnp.exp(-1j * omega * log_kr)[:, None]
     return _apply_coefficients(a, coeffs, dlog, bias, log_kr)

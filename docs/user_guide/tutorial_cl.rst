@@ -134,7 +134,7 @@ k first
 The unequal-time kernel takes :math:`a(k) = (2/\pi) k^2 P_0(k)` and is
 contracted with each pair of windows over a band of ``half_width = 100``
 grid points, :math:`|\ln(\chi'/\chi)| \le 0.96`, which covers both bins.
-With ``bias = 0.5``, :math:`a(k)\, k^{-q}` decays at both ends of the
+With ``bias = 0.5``, :math:`a(k)\, k^{-0.5}` decays at both ends of the
 :math:`k` grid.
 
 The table's convolution uses the same frequencies as the transforms, so the
@@ -171,47 +171,46 @@ Comparison
 .. plot::
    :context: close-figs
    :caption: Top: angular power spectra from CAMB (lines) and from the
-             k-first unequal-time kernel (dots). Bottom: fractional
+             k-first unequal-time kernel (dots). Middle: fractional
              difference of each FFTLog method from CAMB; the two methods
-             coincide.
-   :alt: Two-panel plot of angular power spectra against multipole for two
-         auto-spectra and one cross-spectrum, with fractional residuals
-         relative to CAMB below.
+             coincide. Bottom: absolute fractional difference between the
+             k-first and bins-first results.
+   :alt: Three-panel plot against multipole: angular power spectra for two
+         auto-spectra and one cross-spectrum, residuals relative to CAMB,
+         and the tiny difference between the two FFTLog methods.
 
    import matplotlib.pyplot as plt
 
-   fig, (top, bottom) = plt.subplots(
-       2, 1, figsize=(6.5, 5.5), sharex=True, height_ratios=(2, 1)
+   fig, (top, middle, bottom) = plt.subplots(
+       3, 1, figsize=(6.5, 7), sharex=True, height_ratios=(2, 1, 1)
    )
    scale = ells * (ells + 1) / (2 * np.pi)
    labels = ["1 × 1", "1 × 2", "2 × 2"]
    for column, (label, color) in enumerate(zip(labels, ["C0", "C1", "C2"])):
        top.plot(ells, scale * reference[:, column], color=color, label=label)
        top.plot(ells, scale * k_first[:, column], "o", color=color, ms=3)
-       bottom.plot(ells, bins_first[:, column] / reference[:, column] - 1,
+       middle.plot(ells, bins_first[:, column] / reference[:, column] - 1,
                    color=color, lw=2, alpha=0.4)
-       bottom.plot(ells, k_first[:, column] / reference[:, column] - 1,
+       middle.plot(ells, k_first[:, column] / reference[:, column] - 1,
                    "o", color=color, ms=3)
+       bottom.plot(ells, np.abs(k_first[:, column] / bins_first[:, column] - 1),
+                   "o-", color=color, ms=3, lw=1)
    top.set_xscale("log")
    top.set_yscale("log")
    top.set_ylabel(r"$\ell(\ell+1)C_\ell/2\pi$")
    top.legend(title="bins")
-   bottom.axhline(0, color="k", lw=0.8)
-   bottom.set_ylim(-0.12, 0.02)
+   middle.axhline(0, color="k", lw=0.8)
+   middle.set_ylim(-0.12, 0.02)
+   middle.set_ylabel("vs CAMB")
+   bottom.set_yscale("log")
+   bottom.set_ylabel("k first vs\nbins first")
    bottom.set_xlabel(r"$\ell$")
-   bottom.set_ylabel("rel. diff. from CAMB")
-   for ax in (top, bottom):
+   for ax in (top, middle, bottom):
        ax.grid(alpha=0.3)
    fig.tight_layout()
 
-The two FFTLog methods agree to better than :math:`10^{-9}`:
-
-.. plot::
-   :context: close-figs
-   :nofigs:
-   :include-source: true
-
-   print(np.max(np.abs(k_first / bins_first - 1)))
+The two FFTLog methods agree to better than :math:`10^{-9}` at every
+multipole, because on the same grid they compute the same discrete sum.
 
 Both agree with CAMB to about 0.2% for :math:`\ell \gtrsim 20`, where the
 gap is at the level of CAMB's default accuracy settings. Toward

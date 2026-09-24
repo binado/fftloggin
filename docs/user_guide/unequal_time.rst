@@ -55,7 +55,9 @@ where :math:`U_\ell` is the Mellin transform of a single spherical Bessel
 function, already provided by
 :class:`~fftloggin.kernels.SphericalBesselJKernel`, and :math:`q` is the real
 part of the integration contour. Both :math:`q` and
-:math:`\operatorname{Re} s - q` must lie in the strip :math:`(-\ell, 2)`.
+:math:`\operatorname{Re} s - q` must lie in the strip :math:`(-\ell, 2)`;
+``fftloggin`` puts the contour in the middle, :math:`q = \operatorname{Re} s / 2`,
+which makes the aliasing error below decay fastest.
 The factor :math:`t^{i\omega}` makes the integral a Fourier transform in
 :math:`\ln t`, so one FFT gives :math:`\mathcal{M}_\ell` at every
 :math:`t` at once, and only gamma functions are evaluated.
@@ -103,17 +105,16 @@ Frequency cutoff
 Choosing the bias
 -----------------
 
-As for any FFTLog transform, choose the bias so that :math:`a(k)\,k^{-q}`
+As for any FFTLog transform, choose the bias so that :math:`a(k)\,k^{-q_{\rm bias}}`
 decays at both ends of the :math:`k` grid; otherwise the periodic
 continuation adds ringing, which is most visible at low :math:`\ell`.
 
 The FFT also makes the convolution periodic in :math:`\ln t` with period
 :math:`n\Delta`. Its aliasing error decays like
-:math:`\exp(-r\, n\Delta)` with
-:math:`r = \min(\ell + q, \ell + 1 + q_{\rm bias} - q)`, so the contour must
-stay well inside its strip. A more negative bias speeds up the decay in
-:math:`\omega` but brings the contour closer to the lower edge at low
-:math:`\ell`. For a Gaussian test input with :math:`n = 512` and
+:math:`\exp[-(\ell + (1 + q_{\rm bias})/2)\, n\Delta]`, so
+:math:`1 + q_{\rm bias}` must stay well above :math:`-2\ell`. A more
+negative bias speeds up the decay in :math:`\omega` but brings the contour
+closer to the lower edge of its strip at low :math:`\ell`. For a Gaussian test input with :math:`n = 512` and
 :math:`\Delta = 0.02`, the largest absolute errors against direct quadrature
 were:
 
