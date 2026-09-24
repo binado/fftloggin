@@ -16,12 +16,17 @@ if _os.environ.get("FFTLOGGIN_RUNTIME_TYPECHECK") == "1":
     from jaxtyping import install_import_hook as _install_import_hook
 
     _typecheck_import_context = _install_import_hook(
-        ["fftloggin.fftlog", "fftloggin.grids", "fftloggin.kernels"],
+        [
+            "fftloggin.cosmology",
+            "fftloggin.fftlog",
+            "fftloggin.grids",
+            "fftloggin.kernels",
+        ],
         "beartype.beartype",
     )
 
 with _typecheck_import_context:
-    from . import kernels
+    from . import cosmology, kernels
     from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
     from .fftlog import forward, inverse, lowring_log_kr, validate_parameters
     from .grids import get_array_center, get_paired_grids, infer_dlog, infer_log_kr
@@ -41,6 +46,7 @@ __all__ = (
     "Kernel",
     "ShiftedKernel",
     "SphericalBesselJKernel",
+    "cosmology",
     "forward",
     "get_array_center",
     "get_paired_grids",

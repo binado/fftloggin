@@ -46,6 +46,23 @@ def _power_law(
     return jnp.exp(sign * bias * dlog * (jnp.arange(n) - (n - 1) / 2))
 
 
+def _apply_coefficients(
+    a: Float[Array, "n"],
+    coeffs: Complex[Array, "m ..."],
+    dlog: Float[ArrayLike, ""],
+    bias: Float[ArrayLike, ""],
+    log_kr: Float[ArrayLike, ""],
+) -> Float[Array, "n ..."]:
+    """Apply forward coefficients, broadcasting over their trailing axes."""
+    n = a.shape[0]
+    trailing = (1,) * (coeffs.ndim - 1)
+    before = _power_law(n, dlog, bias, -1)
+    spectrum = jnp.fft.rfft(a * before).reshape((-1, *trailing))
+    result = jnp.fft.irfft(spectrum * coeffs, n=n, axis=0)[::-1]
+    before = before.reshape((n, *trailing))
+    return result * before * jnp.exp(-jnp.asarray(bias) * log_kr)
+
+
 def forward(
     a: Float[ArrayLike, "n"],
     kernel: Kernel,
@@ -86,11 +103,8 @@ def forward(
     should be performed outside JAX transformations.
     """
     a = _samples(a, "a")
-    n = a.shape[0]
-    before = _power_law(n, dlog, bias, -1)
-    coeffs = _coefficients(kernel, n, dlog, bias, log_kr)
-    result = jnp.fft.irfft(jnp.fft.rfft(a * before) * coeffs, n=n)[::-1]
-    return result * before * jnp.exp(-jnp.asarray(bias) * log_kr)
+    coeffs = _coefficients(kernel, a.shape[0], dlog, bias, log_kr)
+    return _apply_coefficients(a, coeffs, dlog, bias, log_kr)
 
 
 def inverse(
