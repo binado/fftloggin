@@ -9,12 +9,14 @@ from numpy.testing import assert_allclose
 from scipy.integrate import quad
 from scipy.special import loggamma, spherical_jn
 
-from fftloggin import Derivative, SphericalBesselJKernel, forward, get_paired_grids
-from fftloggin.cosmology import (
-    double_spherical_bessel_table,
-    kernel_product_table,
-    unequal_time_kernel,
+from fftloggin import (
+    Derivative,
+    SphericalBesselJKernel,
+    forward,
+    get_paired_grids,
+    inverse,
 )
+from fftloggin.cosmology import double_spherical_bessel_plan, kernel_product_plan
 
 N = 512
 DLOG = 0.02
@@ -56,9 +58,9 @@ def gaussian():
 )
 @pytest.mark.parametrize("m", [0, 5, 40])
 def test_table_matches_hypergeometric(x64, ell, bias, rtol, m):
-    table = double_spherical_bessel_table(
+    table = double_spherical_bessel_plan(
         ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
-    )
+    ).coeffs
     s = frequency(m, bias)
     offsets = np.arange(-60, 61, 10)
     expected = np.array([reference_mellin(ell, s, np.exp(j * DLOG)) for j in offsets])
@@ -73,7 +75,9 @@ def test_table_matches_hypergeometric(x64, ell, bias, rtol, m):
 @pytest.mark.parametrize("ell", [2, 10])
 def test_table_diagonal_matches_gauss_closed_form(x64, ell):
     bias = -2.0
-    table = double_spherical_bessel_table(ell, N, dlog=DLOG, bias=bias, half_width=0)
+    table = double_spherical_bessel_plan(
+        ell, N, dlog=DLOG, bias=bias, half_width=0
+    ).coeffs
     s = frequency(np.arange(N // 2), bias)
     log_value = (
         (s - 1) * np.log(2)
@@ -93,10 +97,10 @@ def test_table_diagonal_matches_gauss_closed_form(x64, ell):
 @pytest.mark.parametrize("row", [-40, 0, 40])
 def test_kernel_matches_quadrature(x64, gaussian, ell, bias, offset, row):
     k, a = gaussian
-    table = double_spherical_bessel_table(
+    plan = double_spherical_bessel_plan(
         ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
     )
-    result = unequal_time_kernel(a(0.0), table, dlog=DLOG, bias=bias)
+    result = forward(a(0.0), plan)
     chi, _ = get_paired_grids(k=k)
     chi, t = float(chi[N // 2 + row]), np.exp(offset * DLOG)
 
@@ -138,12 +142,10 @@ def test_contraction_matches_single_kernel_transforms(x64, gaussian, ell, orders
     ]
     expected = DLOG * np.sum(k * np.asarray(a(np.log(ell))) * f[0] * f[1])
 
-    table = kernel_product_table(
+    plan = kernel_product_plan(
         kernels[0], kernels[1], N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
     )
-    result = np.asarray(
-        unequal_time_kernel(a(np.log(ell)), table, dlog=DLOG, bias=bias)
-    )
+    result = np.asarray(forward(a(np.log(ell)), plan))
     rows = np.arange(HALF_WIDTH, N - HALF_WIDTH)
     partners = rows[:, None] + np.arange(-HALF_WIDTH, HALF_WIDTH + 1)
     band = (windows[1] * chi)[partners]
@@ -159,10 +161,8 @@ def test_kernel_transposes_with_coordinate_ratio(x64, gaussian, orders):
     chi = np.asarray(get_paired_grids(k=k)[0])
 
     def kernel(one, two):
-        table = kernel_product_table(
-            one, two, N, dlog=DLOG, bias=bias, half_width=width
-        )
-        return np.asarray(unequal_time_kernel(a(0.0), table, dlog=DLOG, bias=bias))
+        plan = kernel_product_plan(one, two, N, dlog=DLOG, bias=bias, half_width=width)
+        return np.asarray(forward(a(0.0), plan))
 
     forward_pair, swapped_pair = kernel(first, second), kernel(second, first)
     rows = np.arange(N // 2 - 40, N // 2 + 41)
@@ -189,10 +189,10 @@ def test_mixed_kernel_matches_quadrature(x64, gaussian, offset, row):
     k, a = gaussian
     ell, bias = 3, 0.0
     first = SphericalBesselJKernel(float(ell))
-    table = kernel_product_table(
+    plan = kernel_product_plan(
         first, Derivative(first, 2), N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
     )
-    result = unequal_time_kernel(a(0.0), table, dlog=DLOG, bias=bias)
+    result = forward(a(0.0), plan)
     chi, _ = get_paired_grids(k=k)
     chi, t = float(chi[N // 2 + row]), np.exp(offset * DLOG)
 
@@ -208,47 +208,77 @@ def test_mixed_kernel_matches_quadrature(x64, gaussian, offset, row):
     assert_allclose(result[N // 2 + row, offset + HALF_WIDTH], expected, atol=1e-6)
 
 
-def test_double_table_matches_kernel_product(x64):
+def test_double_plan_matches_kernel_product(x64):
     kernel = SphericalBesselJKernel(4.0)
     assert_allclose(
-        double_spherical_bessel_table(4.0, N, dlog=DLOG, bias=-1.0, half_width=5),
-        kernel_product_table(kernel, kernel, N, dlog=DLOG, bias=-1.0, half_width=5),
+        double_spherical_bessel_plan(
+            4.0, N, dlog=DLOG, bias=-1.0, log_kr=0.3, half_width=5
+        ).coeffs,
+        kernel_product_plan(
+            kernel, kernel, N, dlog=DLOG, bias=-1.0, log_kr=0.3, half_width=5
+        ).coeffs,
     )
 
 
-def test_kernel_supports_jit_vmap_and_grad(x64, gaussian):
+def test_plan_supports_jit_vmap_and_grad(x64, gaussian):
     _, a = gaussian
     ells = jnp.array([2.0, 3.0])
-    make = jax.vmap(
-        lambda ell: double_spherical_bessel_table(
+    plans = jax.vmap(
+        lambda ell: double_spherical_bessel_plan(
             ell, N, dlog=DLOG, bias=-2.0, half_width=5
         )
-    )
-    tables = make(ells)
+    )(ells)
 
     @jax.jit
-    def total(center, table):
-        kernel = unequal_time_kernel(a(center), table, dlog=DLOG, bias=-2.0)
-        return jnp.sum(kernel[:, 5])
+    def total(center, plan):
+        return jnp.sum(forward(a(center), plan)[:, 5])
 
-    for ell, table in zip(ells, tables, strict=True):
-        single = double_spherical_bessel_table(
+    batched = jax.vmap(total, in_axes=(None, 0))(0.1, plans)
+    for i, ell in enumerate(ells):
+        single = double_spherical_bessel_plan(
             float(ell), N, dlog=DLOG, bias=-2.0, half_width=5
         )
-        assert_allclose(table, single, rtol=1e-12)
-        grad = jax.grad(total)(0.1, table)
+        assert_allclose(plans.coeffs[i], single.coeffs, rtol=1e-12)
+        assert_allclose(batched[i], total(0.1, single), rtol=1e-12)
+        grad = jax.grad(total)(0.1, single)
         step = 1e-4
-        finite = (total(0.1 + step, table) - total(0.1 - step, table)) / (2 * step)
+        finite = (total(0.1 + step, single) - total(0.1 - step, single)) / (2 * step)
         assert_allclose(grad, finite, rtol=1e-6)
 
 
-def test_kernel_rejects_table_for_another_size(gaussian):
+@pytest.mark.parametrize("log_kr", [-0.4, 0.7])
+def test_log_kr_shifts_output_grid(x64, gaussian, log_kr):
+    k, a = gaussian
+    ell, bias, offset, row = 2, -1.0, 10, 30
+    plan = double_spherical_bessel_plan(
+        ell, N, dlog=DLOG, bias=bias, log_kr=log_kr, half_width=HALF_WIDTH
+    )
+    result = forward(a(0.0), plan)
+    chi, _ = get_paired_grids(k=k, log_kr=log_kr)
+    chi, t = float(chi[N // 2 + row]), np.exp(offset * DLOG)
+
+    def integrand(q):
+        weight = np.exp(-(np.log(q) ** 2) / (2 * 0.3**2))
+        return weight * spherical_jn(ell, q * chi) * spherical_jn(ell, q * t * chi)
+
+    expected = chi * quad(integrand, 0, np.inf, limit=400)[0]
+    assert_allclose(result[N // 2 + row, offset + HALF_WIDTH], expected, atol=1e-6)
+
+
+def test_forward_rejects_plan_for_another_size(gaussian):
     _, a = gaussian
-    table = double_spherical_bessel_table(2, N // 2, dlog=DLOG, half_width=3)
-    with pytest.raises(ValueError, match="rows"):
-        unequal_time_kernel(a(0.0), table, dlog=DLOG)
+    plan = double_spherical_bessel_plan(2, N // 2, dlog=DLOG, half_width=3)
+    with pytest.raises(ValueError, match="n="):
+        forward(a(0.0), plan)
 
 
-def test_table_rejects_negative_half_width():
+def test_inverse_rejects_kernel_pair_plan(gaussian):
+    _, a = gaussian
+    plan = double_spherical_bessel_plan(2, N, dlog=DLOG, half_width=3)
+    with pytest.raises(ValueError, match="single-kernel"):
+        inverse(a(0.0), plan)
+
+
+def test_plan_rejects_negative_half_width():
     with pytest.raises(ValueError):
-        double_spherical_bessel_table(2, N, dlog=DLOG, half_width=-1)
+        double_spherical_bessel_plan(2, N, dlog=DLOG, half_width=-1)
