@@ -41,8 +41,8 @@ def kernel_product_table(
     first, second : Kernel
         Mellin kernels of the two factors, for example
         ``SphericalBesselJKernel(ell)`` or ``Derivative(SphericalBesselJKernel(ell), 2)``.
-        The table for ``(second, first)`` holds the same kernel with ``chi``
-        and ``chi'`` swapped.
+        Swapping them swaps the roles of ``chi`` and ``chi'``; see
+        ``unequal_time_kernel`` for the resulting relation.
     n : int
         Number of samples of the transformed array.
     dlog : scalar
@@ -142,8 +142,12 @@ def unequal_time_kernel(
     Entry ``[i, j]`` is ``chi_i * integral(a(k) * K1(k*chi_i) *
     K2(k*t_j*chi_i), k)`` with ``t_j`` the ratios of ``table``. Since the
     ratios share the grid spacing, ``t_j * chi_i = chi_(i + j - half_width)``
-    and the result is a band of the matrix ``K(chi, chi')``, which is symmetric
-    when both kernels are equal.
+    and the result is a band of the matrix ``K(chi, chi') = chi * I(chi, chi')``
+    with ``I(chi, chi') = integral(a(k) * K1(k*chi) * K2(k*chi'), k)``.
+    Only the first coordinate multiplies the integral, so ``K`` is not
+    symmetric even for equal kernels: ``I`` is, which gives
+    ``K(chi, chi') = (chi / chi') * K(chi', chi)``. Swapping the kernels
+    gives ``K_21(chi, chi') = (chi / chi') * K_12(chi', chi)``.
 
     Parameters
     ----------

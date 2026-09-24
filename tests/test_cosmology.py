@@ -151,6 +151,32 @@ def test_contraction_matches_single_kernel_transforms(x64, gaussian, ell, orders
     assert_allclose(contracted, expected, rtol=1e-9)
 
 
+@pytest.mark.parametrize("orders", [(0, 0), (0, 2)])
+def test_kernel_transposes_with_coordinate_ratio(x64, gaussian, orders):
+    k, a = gaussian
+    ell, bias, width = 3, 0.0, 10
+    first, second = (bessel_derivative(ell, order) for order in orders)
+    chi = np.asarray(get_paired_grids(k=k)[0])
+
+    def kernel(one, two):
+        table = kernel_product_table(
+            one, two, N, dlog=DLOG, bias=bias, half_width=width
+        )
+        return np.asarray(unequal_time_kernel(a(0.0), table, dlog=DLOG, bias=bias))
+
+    forward_pair, swapped_pair = kernel(first, second), kernel(second, first)
+    rows = np.arange(N // 2 - 40, N // 2 + 41)
+    for j in (-7, 0, 5):
+        # K_21(chi_i, chi_(i+j)) = (chi_i / chi_(i+j)) * K_12(chi_(i+j), chi_i)
+        assert_allclose(
+            swapped_pair[rows, width + j],
+            chi[rows] / chi[rows + j] * forward_pair[rows + j, width - j],
+            # Pointwise values carry the table's truncation error; a missing
+            # coordinate ratio would be off by up to 15% here.
+            atol=1e-3 * np.max(np.abs(forward_pair[rows])),
+        )
+
+
 def spherical_jn_second_derivative(ell, x):
     value = spherical_jn(ell, x)
     slope = spherical_jn(ell, x, derivative=True)

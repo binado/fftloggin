@@ -165,9 +165,11 @@ case of two :math:`j_\ell`. Three things change for a general pair:
   :class:`~fftloggin.kernels.Derivative` shifts a strip up by its order, so
   pairs of derivatives at low :math:`\ell` leave a narrow interval and need
   a carefully chosen bias.
-- The kernel is no longer symmetric. The table for :math:`(K_2, K_1)`
-  describes :math:`K_{21}(\chi, \chi') = K_{12}(\chi', \chi)`, so pass
-  the kernels in the order of the windows they multiply.
+- The integral :math:`\int dk\, a(k) K_1(k\chi) K_2(k\chi')` is no longer
+  symmetric in :math:`\chi \leftrightarrow \chi'`. Including the
+  prefactor :math:`\chi` of :math:`K`, the table for :math:`(K_2, K_1)`
+  gives :math:`K_{21}(\chi, \chi') = (\chi/\chi')\, K_{12}(\chi', \chi)`,
+  so pass the kernels in the order of the windows they multiply.
 - Nothing changes at large :math:`\omega`: :math:`j_\ell''` behaves like
   :math:`-j_\ell` at large argument, and its Mellin transform decays just
   as fast.
