@@ -41,8 +41,10 @@ with _typecheck_import_context:
         BesselJKernel,
         Derivative,
         Kernel,
-        ShiftedKernel,
+        PowerLaw,
         SphericalBesselJKernel,
+        Transform,
+        TransformedKernel,
     )
 
 __all__ = (
@@ -52,8 +54,10 @@ __all__ = (
     "DomainCheckWarning",
     "Kernel",
     "Plan",
-    "ShiftedKernel",
+    "PowerLaw",
     "SphericalBesselJKernel",
+    "Transform",
+    "TransformedKernel",
     "cosmology",
     "forward",
     "get_array_center",

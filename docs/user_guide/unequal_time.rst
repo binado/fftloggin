@@ -155,8 +155,8 @@ spherical Bessel functions for redshift-space distortions:
    from fftloggin.cosmology import kernel_product_plan
 
    j = SphericalBesselJKernel(ell)
-   pp = kernel_product_plan(j, Derivative(j, 2), n, dlog=dlog, bias=0.5,
-                            half_width=M)
+   pp = kernel_product_plan(j, j.transform(Derivative(2)), n, dlog=dlog,
+                            bias=0.5, half_width=M)
 
 :func:`~fftloggin.cosmology.double_spherical_bessel_plan` is the special
 case of two :math:`j_\ell`. Three things change for a general pair:

@@ -67,14 +67,14 @@ assert bool(jnp.isfinite(gradient))
 def test_runtime_checks_accept_integer_kernels_and_derivative_domains():
     _run_python(
         """
-from fftloggin import BesselJKernel, Derivative, ShiftedKernel
+from fftloggin import BesselJKernel, Derivative, PowerLaw
 
-kernel = Derivative(BesselJKernel(0), 1)
+kernel = BesselJKernel(0).transform(Derivative(1))
 lower, upper = kernel.domain
 assert float(lower) == 1.0
 assert float(upper) == 2.5
 
-shifted = ShiftedKernel(BesselJKernel(0), 1)
+shifted = BesselJKernel(0).transform(PowerLaw(1))
 shift_lower, shift_upper = shifted.domain
 assert float(shift_lower) == -1.0
 assert float(shift_upper) == 0.5

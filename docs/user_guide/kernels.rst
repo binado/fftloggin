@@ -106,12 +106,6 @@ Built-in kernels
    * - ``SphericalBesselJKernel(ell)``
      - :math:`j_\ell(t) = (\pi/2t)^{1/2} J_{\ell+1/2}(t)`
      - :math:`(-\ell,\ 2)`
-   * - ``ShiftedKernel(base, nu)``
-     - :math:`t^{\nu} K(t)`
-     - base strip shifted by :math:`-\nu`
-   * - ``Derivative(base, order=n)``
-     - :math:`K^{(n)}(t)`
-     - base strip shifted by :math:`+n`
 
 The spherical Bessel kernel follows from the identity Hamilton quotes in
 §B.1. Its Mellin transform is
@@ -119,7 +113,29 @@ The spherical Bessel kernel follows from the identity Hamilton quotes in
 three-dimensional Fourier transforms of isotropic functions, such as the
 power spectrum multipoles in :doc:`tutorial`.
 
-The two wrappers use the standard Mellin rules:
+Transforming kernels
+--------------------
+
+A :class:`~fftloggin.kernels.Transform` is a linear operation on a kernel.
+``kernel.transform(op)`` returns a
+:class:`~fftloggin.kernels.TransformedKernel`, itself a kernel, that works
+anywhere a kernel does.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Transform
+     - Kernel
+     - Strip in :math:`s`
+   * - ``PowerLaw(nu)``
+     - :math:`t^{\nu} K(t)`
+     - base strip shifted by :math:`-\nu`
+   * - ``Derivative(n)``
+     - :math:`K^{(n)}(t)`
+     - base strip shifted by :math:`+n`
+
+They use the standard Mellin rules:
 
 .. math::
 
@@ -130,12 +146,33 @@ The two wrappers use the standard Mellin rules:
    \mathcal{M}\!\left[K^{(n)}\right](s)
    = (-1)^n (s - 1)(s - 2)\cdots(s - n)\; \mathcal{M}[K](s - n).
 
-``ShiftedKernel`` absorbs a power of :math:`kr` into the kernel, which is
+``PowerLaw`` absorbs a power of :math:`kr` into the kernel, which is
 useful when an integrand carries a factor such as :math:`(kr)^2`.
 ``Derivative`` gives the transform with :math:`K'(kr)` in place of
 :math:`K(kr)`, which appears when differentiating a transform with respect
-to :math:`k` or :math:`r`. Both wrappers are frozen JAX pytrees and can wrap
-any kernel, including each other.
+to :math:`k` or :math:`r`.
+
+Several transforms apply in pipeline order: ``kernel.transform(a, b)`` equals
+``kernel.transform(a).transform(b)``. Transforms do not commute in general:
+
+.. code-block:: python
+
+   from fftloggin import BesselJKernel, Derivative, PowerLaw
+
+   j = BesselJKernel(1.0)
+   j.transform(PowerLaw(2), Derivative(1))  # d/dt [t**2 J_1(t)]
+   j.transform(Derivative(1), PowerLaw(2))  # t**2 J_1'(t)
+
+The result is a ``TransformedKernel``, not a ``BesselJKernel``: it keeps the
+original kernel in ``.base`` and the transform in ``.op``. Transforms are
+frozen JAX pytrees, and ``PowerLaw.nu`` is a data field, so it can be
+batched with ``jax.vmap`` and differentiated with ``jax.grad``.
+
+A custom transform subclasses :class:`~fftloggin.kernels.Transform`: its
+``__call__(kernel, s)`` returns the transformed Mellin transform using
+``kernel`` evaluated at any arguments it needs, and ``domain(lower, upper)``
+maps the base strip. Register it as a pytree, as in the custom kernel
+example below.
 
 Writing a custom kernel
 -----------------------
