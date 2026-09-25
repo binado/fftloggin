@@ -74,7 +74,7 @@ def test_band_matches_two_dimensional_transform(x64, ells, orders, bias, log_kr)
     )
     full = full / chi[None, :]
 
-    band = np.asarray(forward(a, product_plan(first, second, half_width=n - 1)))
+    band = np.asarray(forward(a, product_plan(first, second, max_offset=n - 1)))
     rows, offsets = np.meshgrid(np.arange(n), np.arange(-(n - 1), n), indexing="ij")
     inside = (rows + offsets >= 0) & (rows + offsets < n)
     expected = full[rows[inside], (rows + offsets)[inside]]
@@ -108,7 +108,7 @@ def test_contraction_matches_single_kernel_transforms(x64, gaussian, ell, orders
     expected = DLOG * np.sum(k * np.asarray(a(np.log(ell))) * f[0] * f[1])
 
     pp = product_plan(
-        *split_plans(kernels[0], kernels[1], N, bias), half_width=HALF_WIDTH
+        *split_plans(kernels[0], kernels[1], N, bias), max_offset=HALF_WIDTH
     )
     result = np.asarray(forward(a(np.log(ell)), pp))
     rows = np.arange(HALF_WIDTH, N - HALF_WIDTH)
@@ -126,7 +126,7 @@ def test_kernel_transposes_with_coordinate_ratio(x64, gaussian, orders):
     chi = np.asarray(get_paired_grids(k=k)[0])
 
     def kernel(one, two):
-        pp = product_plan(*split_plans(one, two, N, bias), half_width=width)
+        pp = product_plan(*split_plans(one, two, N, bias), max_offset=width)
         return np.asarray(forward(a(0.0), pp))
 
     forward_pair, swapped_pair = kernel(first, second), kernel(second, first)
@@ -155,7 +155,7 @@ def test_mixed_kernel_matches_quadrature(x64, gaussian, offset, row):
     first = bessel(ell)
     pp = product_plan(
         *split_plans(first, first.transform(Derivative(2)), N, bias),
-        half_width=HALF_WIDTH,
+        max_offset=HALF_WIDTH,
     )
     result = forward(a(0.0), pp)
     chi, _ = get_paired_grids(k=k)
@@ -180,7 +180,7 @@ def test_product_plan_supports_jit_vmap_and_grad(x64, gaussian):
     def make(ell):
         kernel = SphericalBesselJKernel(ell)
         one = plan(kernel, N, dlog=DLOG, bias=-0.5)
-        return product_plan(one, one, half_width=width)
+        return product_plan(one, one, max_offset=width)
 
     ells = jnp.array([2.0, 3.0])
     plans = jax.jit(jax.vmap(make))(ells)
@@ -204,15 +204,109 @@ def test_product_plan_supports_jit_vmap_and_grad(x64, gaussian):
 def test_product_plan_has_combined_bias():
     one = plan(bessel(2), N, dlog=DLOG, bias=-0.25)
     two = plan(bessel(2), N, dlog=DLOG, bias=0.5)
-    pp = product_plan(one, two, half_width=3)
+    pp = product_plan(one, two, max_offset=3)
     assert pp.coeffs.shape == (N // 2 + 1, 7)
     assert_allclose(pp.bias, 1.25)
 
 
-def test_product_plan_rejects_negative_half_width():
+def test_product_plan_accepts_kernels(x64):
+    n, dlog, log_kr, width = 48, 0.04, 0.3, 6
+    first, second = bessel(2), bessel(3, order=1)
+    first_bias, second_bias = -0.4, 0.2
+    expected = product_plan(
+        plan(first, n, dlog=dlog, bias=first_bias, log_kr=log_kr),
+        plan(second, n, dlog=dlog, bias=second_bias, log_kr=log_kr),
+        max_offset=width,
+    )
+    actual = product_plan(
+        first,
+        second,
+        n=n,
+        dlog=dlog,
+        first_bias=first_bias,
+        second_bias=second_bias,
+        log_kr=log_kr,
+        max_offset=width,
+    )
+
+    assert_allclose(actual.coeffs, expected.coeffs, rtol=1e-13, atol=1e-13)
+    assert_allclose(actual.bias, expected.bias)
+    a = jnp.exp(-(jnp.linspace(-2, 2, n) ** 2))
+    assert_allclose(forward(a, actual), forward(a, expected), rtol=1e-13, atol=1e-13)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"dlog": DLOG, "first_bias": 0.0, "second_bias": 0.0},
+        {"n": N, "first_bias": 0.0, "second_bias": 0.0},
+        {"n": N, "dlog": DLOG, "second_bias": 0.0},
+        {"n": N, "dlog": DLOG, "first_bias": 0.0},
+    ],
+)
+def test_product_plan_kernel_inputs_require_grid_and_bias(kwargs):
+    with pytest.raises(TypeError):
+        product_plan(bessel(2), bessel(3), max_offset=3, **kwargs)
+
+
+def test_product_plan_rejects_mixed_kernel_and_plan_inputs():
     one = plan(bessel(2), N, dlog=DLOG)
-    with pytest.raises(ValueError, match="half_width"):
-        product_plan(one, one, half_width=-1)
+    with pytest.raises(TypeError, match="both be Kernels or both be Plans"):
+        product_plan(bessel(2), one, max_offset=3)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"n": N},
+        {"dlog": DLOG},
+        {"first_bias": 0.0},
+        {"second_bias": 0.0},
+        {"log_kr": 0.0},
+    ],
+)
+def test_product_plan_plan_inputs_reject_grid_and_bias_parameters(kwargs):
+    one = plan(bessel(2), N, dlog=DLOG)
+    with pytest.raises(TypeError, match="only accepted with Kernel inputs"):
+        product_plan(one, one, max_offset=3, **kwargs)
+
+
+def test_product_plan_kernel_inputs_support_jit_vmap_and_grad(x64):
+    width = 4
+
+    def make(ell):
+        first = SphericalBesselJKernel(ell)
+        second = SphericalBesselJKernel(ell + 1)
+        return product_plan(
+            first,
+            second,
+            n=32,
+            dlog=0.05,
+            first_bias=-0.4,
+            second_bias=0.2,
+            max_offset=width,
+        )
+
+    ells = jnp.array([2.0, 3.0])
+    batched = jax.jit(jax.vmap(make))(ells)
+    assert batched.coeffs.shape == (2, 17, 2 * width + 1)
+    for i, ell in enumerate(ells):
+        assert_allclose(batched.coeffs[i], make(ell).coeffs, rtol=1e-12, atol=1e-12)
+
+    weights = jnp.ones((17, 2 * width + 1))
+
+    @jax.jit
+    def coefficient_sum(ell):
+        return jnp.real(jnp.sum(make(ell).coeffs * weights))
+
+    derivative = jax.grad(coefficient_sum)(2.5)
+    assert jnp.isfinite(derivative)
+
+
+def test_product_plan_rejects_negative_max_offset():
+    one = plan(bessel(2), N, dlog=DLOG)
+    with pytest.raises(ValueError, match="max_offset"):
+        product_plan(one, one, max_offset=-1)
 
 
 def test_product_plan_rejects_other_sample_count():
@@ -220,19 +314,19 @@ def test_product_plan_rejects_other_sample_count():
         product_plan(
             plan(bessel(2), N, dlog=DLOG),
             plan(bessel(2), N // 2, dlog=DLOG),
-            half_width=3,
+            max_offset=3,
         )
 
 
 def test_product_plan_rejects_band_plans():
     one = plan(bessel(2), N, dlog=DLOG)
-    band = product_plan(one, one, half_width=3)
+    band = product_plan(one, one, max_offset=3)
     with pytest.raises(ValueError, match="single-kernel"):
-        product_plan(band, one, half_width=3)
+        product_plan(band, one, max_offset=3)
 
 
 def test_inverse_rejects_product_plan(gaussian):
     _, a = gaussian
     one = plan(bessel(2), N, dlog=DLOG)
     with pytest.raises(ValueError, match="single-kernel"):
-        inverse(a(0.0), product_plan(one, one, half_width=3))
+        inverse(a(0.0), product_plan(one, one, max_offset=3))

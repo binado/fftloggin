@@ -88,7 +88,7 @@ and returns an array of shape ``(n, 2M + 1)`` whose entry
 ``[i, M + j]`` is :math:`K_\ell(\chi_i, \chi_{i+j})`: a band of the kernel
 around the diagonal :math:`\chi = \chi'`.
 
-``half_width``
+``max_offset``
    The number :math:`M` of ratios on each side of :math:`t = 1`. It decides
    which pairs :math:`(\chi, \chi')` are available, namely
    :math:`|\ln(\chi'/\chi)| \le M\Delta`, not how accurate each value is.
@@ -146,7 +146,7 @@ second derivative for redshift-space distortions:
    j = SphericalBesselJKernel(ell)
    p1 = plan(j, n, dlog=dlog, bias=-0.25)
    p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
-   pp = product_plan(p1, p2, half_width=M)
+   pp = product_plan(p1, p2, max_offset=M)
 
 :func:`~fftloggin.cosmology.double_spherical_bessel_plan` is the special
 case of two :math:`j_\ell` with the bias split described above. For a general
@@ -189,7 +189,7 @@ so ``jax.vmap`` batches plans over :math:`\ell`:
 
    make = jax.vmap(
        lambda ell: double_spherical_bessel_plan(
-           ell, n, dlog=dlog, bias=-1.0, half_width=M
+           ell, n, dlog=dlog, bias=-1.0, max_offset=M
        )
    )
    plans = make(jnp.arange(2.0, 100.0))  # coeffs: (n_ell, n // 2 + 1, 2 M + 1)

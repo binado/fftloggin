@@ -41,7 +41,7 @@ def gaussian():
 def test_table_diagonal_matches_gauss_closed_form(x64, ell):
     bias = -2.0
     table = double_spherical_bessel_plan(
-        ell, N, dlog=DLOG, bias=bias, half_width=0
+        ell, N, dlog=DLOG, bias=bias, max_offset=0
     ).coeffs
     s = frequency(np.arange(N // 2), bias)
     log_value = (
@@ -63,7 +63,7 @@ def test_table_diagonal_matches_gauss_closed_form(x64, ell):
 def test_kernel_matches_quadrature(x64, gaussian, ell, bias, offset, row):
     k, a = gaussian
     plan = double_spherical_bessel_plan(
-        ell, N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
+        ell, N, dlog=DLOG, bias=bias, max_offset=HALF_WIDTH
     )
     result = forward(a(0.0), plan)
     chi, _ = get_paired_grids(k=k)
@@ -86,9 +86,9 @@ def test_double_plan_is_product_of_centred_plans(x64):
     two = plan(kernel, N, dlog=DLOG, bias=bias - q, log_kr=log_kr)
     assert_allclose(
         double_spherical_bessel_plan(
-            ell, N, dlog=DLOG, bias=bias, log_kr=log_kr, half_width=5
+            ell, N, dlog=DLOG, bias=bias, log_kr=log_kr, max_offset=5
         ).coeffs,
-        product_plan(one, two, half_width=5).coeffs,
+        product_plan(one, two, max_offset=5).coeffs,
         rtol=1e-12,
     )
 
@@ -98,7 +98,7 @@ def test_plan_supports_jit_vmap_and_grad(x64, gaussian):
     ells = jnp.array([2.0, 3.0])
     plans = jax.vmap(
         lambda ell: double_spherical_bessel_plan(
-            ell, N, dlog=DLOG, bias=-2.0, half_width=5
+            ell, N, dlog=DLOG, bias=-2.0, max_offset=5
         )
     )(ells)
 
@@ -109,7 +109,7 @@ def test_plan_supports_jit_vmap_and_grad(x64, gaussian):
     batched = jax.vmap(total, in_axes=(None, 0))(0.1, plans)
     for i, ell in enumerate(ells):
         single = double_spherical_bessel_plan(
-            float(ell), N, dlog=DLOG, bias=-2.0, half_width=5
+            float(ell), N, dlog=DLOG, bias=-2.0, max_offset=5
         )
         # Batched FFTs round differently; compare against the peak.
         scale = np.max(np.abs(single.coeffs))
@@ -126,7 +126,7 @@ def test_log_kr_shifts_output_grid(x64, gaussian, log_kr):
     k, a = gaussian
     ell, bias, offset, row = 2, -1.0, 10, 30
     plan = double_spherical_bessel_plan(
-        ell, N, dlog=DLOG, bias=bias, log_kr=log_kr, half_width=HALF_WIDTH
+        ell, N, dlog=DLOG, bias=bias, log_kr=log_kr, max_offset=HALF_WIDTH
     )
     result = forward(a(0.0), plan)
     chi, _ = get_paired_grids(k=k, log_kr=log_kr)
@@ -142,18 +142,18 @@ def test_log_kr_shifts_output_grid(x64, gaussian, log_kr):
 
 def test_forward_rejects_plan_for_another_size(gaussian):
     _, a = gaussian
-    plan = double_spherical_bessel_plan(2, N // 2, dlog=DLOG, half_width=3)
+    plan = double_spherical_bessel_plan(2, N // 2, dlog=DLOG, max_offset=3)
     with pytest.raises(ValueError, match="n="):
         forward(a(0.0), plan)
 
 
 def test_inverse_rejects_kernel_pair_plan(gaussian):
     _, a = gaussian
-    plan = double_spherical_bessel_plan(2, N, dlog=DLOG, half_width=3)
+    plan = double_spherical_bessel_plan(2, N, dlog=DLOG, max_offset=3)
     with pytest.raises(ValueError, match="single-kernel"):
         inverse(a(0.0), plan)
 
 
-def test_plan_rejects_negative_half_width():
+def test_plan_rejects_negative_max_offset():
     with pytest.raises(ValueError):
-        double_spherical_bessel_plan(2, N, dlog=DLOG, half_width=-1)
+        double_spherical_bessel_plan(2, N, dlog=DLOG, max_offset=-1)

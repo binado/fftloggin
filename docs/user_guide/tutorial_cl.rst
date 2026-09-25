@@ -132,7 +132,7 @@ k first
 -------
 
 The unequal-time kernel takes :math:`a(k) = (2/\pi) k^2 P_0(k)` and is
-contracted with each pair of windows over a band of ``half_width = 100``
+contracted with each pair of windows over a band with ``max_offset = 100``
 grid points, :math:`|\ln(\chi'/\chi)| \le 0.96`, which covers both bins.
 With ``bias = 0.5``, :math:`a(k)\, k^{-0.5}` decays at both ends of the
 :math:`k` grid.
@@ -146,14 +146,14 @@ rounding.
    :nofigs:
    :include-source: true
 
-   bias, half_width = 0.5, 100
-   rows = np.arange(half_width, n - half_width)
-   partners = rows[:, None] + np.arange(-half_width, half_width + 1)
+   bias, max_offset = 0.5, 100
+   rows = np.arange(max_offset, n - max_offset)
+   partners = rows[:, None] + np.arange(-max_offset, max_offset + 1)
 
    def cls_k_first(ell):
        pp = double_spherical_bessel_plan(
            float(ell), n, dlog=dlog, bias=bias, log_kr=log_kr,
-           half_width=half_width,
+           max_offset=max_offset,
        )
        kern = np.asarray(forward(2 / np.pi * k**2 * p0, pp))[rows]
        return [dlog**2 * np.einsum("i,it,it->", windows[a][rows], kern,
