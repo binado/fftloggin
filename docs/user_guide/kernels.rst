@@ -134,6 +134,9 @@ anywhere a kernel does.
    * - ``Derivative(n)``
      - :math:`K^{(n)}(t)`
      - base strip shifted by :math:`+n`
+   * - ``Scale(c)``
+     - :math:`K(c\,t)`, :math:`c > 0`
+     - base strip
 
 They use the standard Mellin rules:
 
@@ -144,13 +147,19 @@ They use the standard Mellin rules:
 .. math::
 
    \mathcal{M}\!\left[K^{(n)}\right](s)
-   = (-1)^n (s - 1)(s - 2)\cdots(s - n)\; \mathcal{M}[K](s - n).
+   = (-1)^n (s - 1)(s - 2)\cdots(s - n)\; \mathcal{M}[K](s - n),
+
+.. math::
+
+   \mathcal{M}\!\left[K(c\,\cdot)\right](s) = c^{-s}\, \mathcal{M}[K](s).
 
 ``PowerLaw`` absorbs a power of :math:`kr` into the kernel, which is
 useful when an integrand carries a factor such as :math:`(kr)^2`.
 ``Derivative`` gives the transform with :math:`K'(kr)` in place of
 :math:`K(kr)`, which appears when differentiating a transform with respect
-to :math:`k` or :math:`r`.
+to :math:`k` or :math:`r`. ``Scale`` evaluates the kernel at a rescaled
+argument, which is equivalent to shifting the output grid by
+:math:`\ln c` and dividing by :math:`c`.
 
 Several transforms apply in pipeline order: ``kernel.transform(a, b)`` equals
 ``kernel.transform(a).transform(b)``. Transforms do not commute in general:

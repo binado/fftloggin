@@ -14,6 +14,7 @@ from fftloggin import (
     BesselJKernel,
     Derivative,
     PowerLaw,
+    Scale,
     SphericalBesselJKernel,
     TransformedKernel,
 )
@@ -54,9 +55,10 @@ def _centered_difference(func, x):
         SphericalBesselJKernel(1.0),
         BesselJKernel(0.5).transform(PowerLaw(0.2)),
         BesselJKernel(0.5).transform(Derivative(1)),
+        BesselJKernel(0.5).transform(Scale(1.7)),
         BesselJKernel(0.5).transform(PowerLaw(0.2), Derivative(1)),
     ],
-    ids=["bessel", "spherical", "power-law", "derivative", "composed"],
+    ids=["bessel", "spherical", "power-law", "derivative", "scale", "composed"],
 )
 def kernel(request):
     return request.param
@@ -100,13 +102,24 @@ def test_power_law_matches_shifted_argument():
     assert_allclose(got, base(s + 0.2), rtol=VALUE_RTOL)
 
 
+@pytest.mark.parametrize("factor", [0.5, 1.0, 3.0])
+def test_scale_matches_mellin_identity(factor):
+    mu = 0.5
+    s = np.array([0.6 + 0.2j, 0.8 + 0.3j])
+    got = BesselJKernel(mu).transform(Scale(factor))(s)
+    expected = factor**-s * _bessel_reference(mu, s)
+    assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
+
+
 @pytest.mark.parametrize("order", [0, -1, 1.5])
 def test_derivative_constructor_rejects_invalid_order(order):
     with pytest.raises((ValueError, TypeCheckError), match="positive integer|order"):
         Derivative(order)
 
 
-@pytest.mark.parametrize("op", [PowerLaw(0.2), Derivative(2)], ids=["power", "deriv"])
+@pytest.mark.parametrize(
+    "op", [PowerLaw(0.2), Derivative(2), Scale(2.0)], ids=["power", "deriv", "scale"]
+)
 def test_transform_wraps_base_kernel(op):
     base = BesselJKernel(0.5)
     transformed = base.transform(op)
@@ -174,6 +187,7 @@ def test_transform_order_follows_pipeline(order):
         (BesselJKernel(0.5).transform(PowerLaw(0.25)), -0.75, 1.25),
         (BesselJKernel(0.5).transform(Derivative(2)), 1.5, 3.5),
         (BesselJKernel(0).transform(Derivative(1)), 1.0, 2.5),
+        (BesselJKernel(0.5).transform(Scale(2.0)), -0.5, 1.5),
         (BesselJKernel(0.5).transform(PowerLaw(0.25), Derivative(2)), 1.25, 3.25),
     ],
     ids=[
@@ -183,6 +197,7 @@ def test_transform_order_follows_pipeline(order):
         "power-law",
         "derivative",
         "integer-derivative",
+        "scale",
         "composed",
     ],
 )
@@ -201,6 +216,7 @@ def test_domain_has_open_bounds_and_uses_real_part(kernel, lower, upper):
         ("mu", [0.1, 0.5, 1.0]),
         ("ell", [0.0, 1.0, 2.0]),
         ("nu", [0.1, 0.2, 0.3]),
+        ("factor", [0.5, 1.0, 2.0]),
     ],
 )
 def test_vmap_over_scalar_kernel_parameters(kind, parameters):
@@ -211,7 +227,9 @@ def test_vmap_over_scalar_kernel_parameters(kind, parameters):
             return BesselJKernel(parameter)(s)
         if kind == "ell":
             return SphericalBesselJKernel(parameter)(s)
-        return BesselJKernel(0.5).transform(PowerLaw(parameter))(s)
+        if kind == "nu":
+            return BesselJKernel(0.5).transform(PowerLaw(parameter))(s)
+        return BesselJKernel(0.5).transform(Scale(parameter))(s)
 
     got = jax.vmap(evaluate)(jnp.asarray(parameters))
     expected = jnp.stack([evaluate(parameter) for parameter in parameters])
@@ -286,6 +304,18 @@ def test_power_law_parameter_grad_matches_scipy_difference():
     )(nu)
     expected = _centered_difference(
         lambda parameter: _bessel_reference(0.5, s + parameter), nu
+    )
+    assert_allclose(got, expected, rtol=GRAD_RTOL, atol=GRAD_ATOL)
+
+
+def test_scale_factor_grad_matches_scipy_difference():
+    factor = 1.7
+    s = 0.8 + 0.3j
+    got = jax.grad(
+        lambda parameter: jnp.real(BesselJKernel(0.5).transform(Scale(parameter))(s))
+    )(factor)
+    expected = _centered_difference(
+        lambda parameter: parameter**-s * _bessel_reference(0.5, s), factor
     )
     assert_allclose(got, expected, rtol=GRAD_RTOL, atol=GRAD_ATOL)
 

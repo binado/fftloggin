@@ -14,6 +14,7 @@ __all__ = (
     "Derivative",
     "Kernel",
     "PowerLaw",
+    "Scale",
     "SphericalBesselJKernel",
     "Transform",
     "TransformedKernel",
@@ -153,6 +154,23 @@ class Derivative(Transform):
         s = jnp.asarray(s)
         factor = jnp.prod(s[..., None] - jnp.arange(1, self.order + 1), axis=-1)
         return (-1) ** self.order * factor * kernel(s - self.order)
+
+
+@partial(register_dataclass, data_fields=("factor",), meta_fields=())
+@dataclass(frozen=True)
+class Scale(Transform):
+    """Rescale the kernel's argument, ``K(factor * x)``.
+
+    ``factor`` must be positive. The strip is unchanged.
+    """
+
+    factor: Real[ArrayLike, ""]
+
+    def __call__(
+        self, kernel: Kernel, s: Inexact[ArrayLike, "..."]
+    ) -> Inexact[Array, "..."]:
+        s = jnp.asarray(s)
+        return kernel(s) * jnp.exp(-s * jnp.log(self.factor))
 
 
 @partial(register_dataclass, data_fields=("base", "op"), meta_fields=())

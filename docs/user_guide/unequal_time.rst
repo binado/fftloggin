@@ -145,6 +145,11 @@ The Parseval formula holds for any two kernels :math:`K_1` and
 
 with :math:`q` in the strip of :math:`M_1` and
 :math:`\operatorname{Re} s - q` in the strip of :math:`M_2`.
+This is the Mellin convolution of :math:`K_1` with the rescaled kernel
+:math:`K_2(t\,\cdot)`, whose transform is
+:math:`t^{-s} M_2(s)` (see :class:`~fftloggin.kernels.Scale`). The plan
+evaluates it for every :math:`t` on the grid with one FFT over
+:math:`\ln t`.
 :func:`~fftloggin.cosmology.kernel_product_plan` takes any two
 :class:`~fftloggin.kernels.Kernel` objects, for example derivatives of
 spherical Bessel functions for redshift-space distortions:
