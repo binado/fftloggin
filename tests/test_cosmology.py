@@ -114,7 +114,7 @@ def test_kernel_matches_quadrature(x64, gaussian, ell, bias, offset, row):
 
 def bessel_derivative(ell, order):
     kernel = SphericalBesselJKernel(float(ell))
-    return kernel if order == 0 else Derivative(kernel, order)
+    return kernel if order == 0 else kernel.transform(Derivative(order))
 
 
 @pytest.mark.parametrize(
@@ -190,7 +190,12 @@ def test_mixed_kernel_matches_quadrature(x64, gaussian, offset, row):
     ell, bias = 3, 0.0
     first = SphericalBesselJKernel(float(ell))
     plan = kernel_product_plan(
-        first, Derivative(first, 2), N, dlog=DLOG, bias=bias, half_width=HALF_WIDTH
+        first,
+        first.transform(Derivative(2)),
+        N,
+        dlog=DLOG,
+        bias=bias,
+        half_width=HALF_WIDTH,
     )
     result = forward(a(0.0), plan)
     chi, _ = get_paired_grids(k=k)

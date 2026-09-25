@@ -51,7 +51,8 @@ def kernel_product_plan(
     ----------
     first, second : Kernel
         Mellin kernels of the two factors, for example
-        ``SphericalBesselJKernel(ell)`` or ``Derivative(SphericalBesselJKernel(ell), 2)``.
+        ``SphericalBesselJKernel(ell)`` or
+        ``SphericalBesselJKernel(ell).transform(Derivative(2))``.
         Swapping them swaps the roles of ``chi`` and ``chi'``.
     n : int
         Number of samples of the transformed array.

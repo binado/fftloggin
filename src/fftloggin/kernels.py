@@ -13,8 +13,11 @@ __all__ = (
     "BesselJKernel",
     "Derivative",
     "Kernel",
-    "ShiftedKernel",
+    "PowerLaw",
+    "Scale",
     "SphericalBesselJKernel",
+    "Transform",
+    "TransformedKernel",
 )
 
 
@@ -76,45 +79,117 @@ class Kernel:
         lower, upper = self.domain
         return jnp.all((jnp.real(s) > lower) & (jnp.real(s) < upper))
 
+    def transform(self, op: "Transform", *ops: "Transform") -> "TransformedKernel":
+        """Apply transforms to the kernel in pipeline order.
 
-@partial(register_dataclass, data_fields=("base", "nu"), meta_fields=())
+        ``k.transform(a, b)`` equals ``k.transform(a).transform(b)``: ``a``
+        acts on the kernel first. For example,
+        ``k.transform(PowerLaw(2), Derivative(1))`` is
+        ``d/dx [x**2 K(x)]``, not ``x**2 K'(x)``.
+        """
+        kernel = TransformedKernel(self, op)
+        for other in ops:
+            kernel = TransformedKernel(kernel, other)
+        return kernel
+
+
+class Transform:
+    """Base interface for linear operations on a kernel.
+
+    A transform acts on the kernel's Mellin transform pointwise in ``s`` and
+    maps its convergence strip. Apply it with ``Kernel.transform``. Custom
+    transforms passed to ``jax.jit`` must also be registered as pytrees.
+    """
+
+    def domain(
+        self, lower: Real[ArrayLike, "..."], upper: Real[ArrayLike, "..."]
+    ) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
+        """Map the base kernel's strip to the transformed kernel's strip."""
+        return jnp.asarray(lower), jnp.asarray(upper)
+
+    def __call__(
+        self, kernel: Kernel, s: Inexact[ArrayLike, "..."]
+    ) -> Inexact[Array, "..."]:
+        """Evaluate the Mellin transform of the transformed ``kernel`` at ``s``."""
+        raise NotImplementedError
+
+
+@partial(register_dataclass, data_fields=("nu",), meta_fields=())
 @dataclass(frozen=True)
-class ShiftedKernel(Kernel):
-    """Kernel wrapper that evaluates a base kernel at ``s + nu``."""
+class PowerLaw(Transform):
+    """Multiply the kernel by a power law, ``x**nu * K(x)``."""
 
-    base: Kernel
     nu: Real[ArrayLike, ""]
 
-    @property
-    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
-        lower, upper = self.base.domain
-        return lower - self.nu, upper - self.nu
+    def domain(
+        self, lower: Real[ArrayLike, "..."], upper: Real[ArrayLike, "..."]
+    ) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
+        return jnp.asarray(lower) - self.nu, jnp.asarray(upper) - self.nu
 
-    def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
-        return self.base(s + self.nu)
+    def __call__(
+        self, kernel: Kernel, s: Inexact[ArrayLike, "..."]
+    ) -> Inexact[Array, "..."]:
+        return kernel(s + self.nu)
 
 
-@partial(register_dataclass, data_fields=("base",), meta_fields=("order",))
+@partial(register_dataclass, data_fields=(), meta_fields=("order",))
 @dataclass(frozen=True)
-class Derivative(Kernel):
-    """Mellin kernel wrapper for a positive-order derivative."""
+class Derivative(Transform):
+    """Differentiate the kernel ``order`` times, ``d^n K / dx^n``."""
 
-    base: Kernel
     order: int
 
     def __post_init__(self) -> None:
         if not isinstance(self.order, int) or self.order < 1:
             raise ValueError("order must be a positive integer")
 
-    @property
-    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
-        lower, upper = self.base.domain
-        return lower + self.order, upper + self.order
+    def domain(
+        self, lower: Real[ArrayLike, "..."], upper: Real[ArrayLike, "..."]
+    ) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
+        return jnp.asarray(lower) + self.order, jnp.asarray(upper) + self.order
 
-    def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
+    def __call__(
+        self, kernel: Kernel, s: Inexact[ArrayLike, "..."]
+    ) -> Inexact[Array, "..."]:
         s = jnp.asarray(s)
         factor = jnp.prod(s[..., None] - jnp.arange(1, self.order + 1), axis=-1)
-        return (-1) ** self.order * factor * self.base(s - self.order)
+        return (-1) ** self.order * factor * kernel(s - self.order)
+
+
+@partial(register_dataclass, data_fields=("factor",), meta_fields=())
+@dataclass(frozen=True)
+class Scale(Transform):
+    """Rescale the kernel's argument, ``K(factor * x)``.
+
+    ``factor`` must be positive. The strip is unchanged.
+    """
+
+    factor: Real[ArrayLike, ""]
+
+    def __call__(
+        self, kernel: Kernel, s: Inexact[ArrayLike, "..."]
+    ) -> Inexact[Array, "..."]:
+        s = jnp.asarray(s)
+        return kernel(s) * jnp.exp(-s * jnp.log(self.factor))
+
+
+@partial(register_dataclass, data_fields=("base", "op"), meta_fields=())
+@dataclass(frozen=True)
+class TransformedKernel(Kernel):
+    """Kernel obtained by applying ``op`` to ``base``.
+
+    Build it with ``Kernel.transform``.
+    """
+
+    base: Kernel
+    op: Transform
+
+    @property
+    def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
+        return self.op.domain(*self.base.domain)
+
+    def __call__(self, s: Inexact[ArrayLike, "..."]) -> Inexact[Array, "..."]:
+        return self.op(self.base, s)
 
 
 @partial(register_dataclass, data_fields=("mu",), meta_fields=())
