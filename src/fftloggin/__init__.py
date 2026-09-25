@@ -34,6 +34,7 @@ with _typecheck_import_context:
         inverse,
         lowring_log_kr,
         plan,
+        product_plan,
         validate_parameters,
     )
     from .grids import get_array_center, get_paired_grids, infer_dlog, infer_log_kr
@@ -70,5 +71,6 @@ __all__ = (
     "kernels",
     "lowring_log_kr",
     "plan",
+    "product_plan",
     "validate_parameters",
 )

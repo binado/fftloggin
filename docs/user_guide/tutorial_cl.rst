@@ -137,8 +137,9 @@ grid points, :math:`|\ln(\chi'/\chi)| \le 0.96`, which covers both bins.
 With ``bias = 0.5``, :math:`a(k)\, k^{-0.5}` decays at both ends of the
 :math:`k` grid.
 
-The plan's convolution uses the same frequencies as the transforms, so the
-contraction on the grid equals the bins-first sum to rounding.
+The plan multiplies the discrete kernels of two single-kernel transforms on
+the same grid, so the contraction on the grid equals the bins-first sum to
+rounding.
 
 .. plot::
    :context:

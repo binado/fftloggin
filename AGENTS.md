@@ -1,9 +1,9 @@
 # Repository guidance
 
 `fftloggin` implements one-dimensional FFTLog transforms using JAX. Public
-entry points are `forward`, `inverse`, `plan`, `lowring_log_kr`, the coordinate
-functions in `src/fftloggin/grids.py`, and the unequal-time (double spherical
-Bessel) plan constructors `kernel_product_plan` and
+entry points are `forward`, `inverse`, `plan`, `product_plan`,
+`lowring_log_kr`, the coordinate functions in `src/fftloggin/grids.py`, and the
+unequal-time (double spherical Bessel) plan constructor
 `double_spherical_bessel_plan` in `src/fftloggin/cosmology.py`. Kernel
 instances are frozen JAX pytrees with scalar data leaves. A `Plan` is a frozen
 pytree holding precomputed coefficients and their grid parameters, with the
