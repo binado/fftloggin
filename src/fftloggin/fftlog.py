@@ -17,6 +17,7 @@ __all__ = (
     "inverse",
     "lowring_log_kr",
     "plan",
+    "product_plan",
     "validate_parameters",
 )
 
@@ -96,9 +97,8 @@ def _invert_coefficients(
 class Plan:
     """FFTLog coefficients for a fixed grid, reusable across input arrays.
 
-    Build one with ``plan`` or with the constructors in
-    ``fftloggin.cosmology`` and pass it to ``forward`` or ``inverse`` in
-    place of a kernel. A plan is a pytree: ``coeffs``, ``dlog``, ``bias`` and
+    Build one with ``plan``, combine two with ``product_plan``, and pass it
+    to ``forward`` or ``inverse`` in place of a kernel. A plan is a pytree: ``coeffs``, ``dlog``, ``bias`` and
     ``log_kr`` are array leaves, while the sample count ``n`` is static.
     Plans built under ``jax.vmap`` carry a leading batch axis on every leaf;
     map ``forward`` over them with ``in_axes=(None, 0)``.
@@ -176,6 +176,99 @@ def plan(
         dlog=jnp.asarray(dlog),
         bias=jnp.asarray(bias),
         log_kr=jnp.asarray(log_kr),
+        n=n,
+    )
+
+
+def product_plan(first: Plan, second: Plan, *, half_width: int) -> Plan:
+    """Combine two single-kernel plans into a band of their kernel product.
+
+    ``forward(a, product_plan(first, second, half_width=M))`` returns an
+    array ``K`` of shape ``(n, 2 * M + 1)`` whose entry ``[i, M + d]`` is
+    ``chi_i * integral(a(k) * K1(k*chi_i) * K2(k*chi_(i+d)), k)``, where
+    ``K1`` and ``K2`` are the kernels of ``first`` and ``second``. Column
+    ``M + d`` holds the ratio ``chi_(i+d) / chi_i = exp(d * dlog)``, so ``K``
+    is a band of the matrix ``chi * I(chi, chi')`` around its diagonal.
+    Swapping the plans gives ``K_21(chi, chi') = (chi / chi') * K_12(chi',
+    chi)``.
+
+    Parameters
+    ----------
+    first, second : Plan
+        Single-kernel plans for ``K1`` and ``K2``, built for the same ``n``,
+        ``dlog`` and ``log_kr``. Each ``1 + bias`` must lie in the Mellin
+        strip of its own kernel.
+    half_width : int
+        Number ``M`` of ratios on each side of ``chi' = chi``. It sets which
+        pairs are available, not the accuracy of each value.
+
+    Returns
+    -------
+    Plan
+        Plan with coefficients of shape ``(n // 2 + 1, 2 * half_width + 1)``
+        and bias ``first.bias + second.bias + 1``, the bias the input
+        ``a(k)`` sees.
+
+    Raises
+    ------
+    ValueError
+        If ``half_width`` is negative, the plans were built for different
+        sample counts, or either plan holds more than one column.
+
+    Notes
+    -----
+    Each plan is a discrete FFTLog transform, whose matrix ``M1`` depends
+    only on the sum of the input and output indices. The full kernel
+    ``M1 @ diag(a / (k * dlog)) @ M2.T`` is a two-dimensional FFTLog
+    transform of ``a`` lifted onto the diagonal, and its band at offset ``d``
+    is a one-dimensional transform whose discrete kernel is the product of
+    the two plans' discrete kernels, shifted by ``d``. Building the band
+    takes one FFT per ratio and ``O(n * half_width)`` memory, and no Mellin
+    kernel evaluations beyond those of the two plans.
+
+    The band equals the full two-dimensional transform at every entry whose
+    partner lies on the grid, so contracting it with windows on the same grid
+    equals transforming each window with its own plan, to rounding. Rows
+    whose partner leaves the grid wrap around periodically and should be
+    dropped.
+
+    ``dlog`` and ``log_kr`` are taken from ``first`` and are not compared
+    with ``second``, since they may be traced values. The low-ringing
+    ``log_kr`` of each kernel generally differs, so choose one shared value.
+    Only ``forward`` accepts the result; ``inverse`` rejects it.
+
+    Examples
+    --------
+    Band of ``chi * integral(a(k) * j_ell(k*chi) * j_ell''(k*chi'), k)``::
+
+        j = SphericalBesselJKernel(ell)
+        p1 = plan(j, n, dlog=dlog, bias=-0.25)
+        p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
+        band = forward(a, product_plan(p1, p2, half_width=m))
+    """
+    if half_width < 0:
+        raise ValueError("half_width must be >= 0")
+    if first.n != second.n:
+        raise ValueError(
+            f"plans were built for different sample counts: {first.n} and {second.n}"
+        )
+    if first.coeffs.ndim != 1 or second.coeffs.ndim != 1:
+        raise ValueError("product_plan combines only single-kernel plans")
+    n = first.n
+    # Real-space kernels of the two discrete transforms.
+    first_kernel = jnp.fft.irfft(first.coeffs, n)
+    second_kernel = jnp.fft.irfft(second.coeffs, n)
+    offsets = jnp.arange(-half_width, half_width + 1)
+    shifted = second_kernel[(jnp.arange(n)[:, None] - offsets) % n]
+    spectrum = jnp.fft.rfft(first_kernel[:, None] * shifted, axis=0)
+    # Move the second plan's power law and the output coordinate from
+    # chi_(i+d) back to chi_i.
+    scale = jnp.exp(-(second.bias + 1) * offsets * first.dlog) / first.dlog
+    return Plan(
+        coeffs=spectrum * scale,
+        dlog=first.dlog,
+        bias=first.bias + second.bias + 1,
+        log_kr=first.log_kr,
         n=n,
     )
 

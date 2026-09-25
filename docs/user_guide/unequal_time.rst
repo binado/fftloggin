@@ -43,30 +43,35 @@ hypergeometric function of :math:`t^2` with complex parameters. For the large
 imaginary parts FFTLog needs, the terms of that series grow to tens of orders
 of magnitude above its sum, so it is unusable in double precision.
 
-``fftloggin`` avoids the hypergeometric function. By the Parseval formula for
-Mellin transforms, applied to :math:`j_\ell(x)` and :math:`j_\ell(tx)`,
+``fftloggin`` never evaluates :math:`\mathcal{M}_\ell` directly. On the
+paired grids, one FFTLog transform with the kernel :math:`j_\ell` is a matrix
+:math:`M` whose entries depend only on the sum of the output index :math:`i`
+and the input index :math:`m`. The kernel on the grid is then
 
 .. math::
 
-   \mathcal{M}_\ell(s, t) = \frac{1}{2\pi} \int_{-\infty}^{\infty} d\omega\;
-   U_\ell(q + i\omega)\, U_\ell(s - q - i\omega)\, t^{-(s - q - i\omega)} ,
+   K_\ell(\chi_i, \chi_j) = \frac{1}{\chi_j}
+   \Big[ M\, \operatorname{diag}\!\Big(\frac{a_m}{k_m \Delta}\Big) M^{\mathsf T}
+   \Big]_{ij} ,
 
-where :math:`U_\ell` is the Mellin transform of a single spherical Bessel
-function, already provided by
-:class:`~fftloggin.kernels.SphericalBesselJKernel`, and :math:`q` is the real
-part of the integration contour. Both :math:`q` and
-:math:`\operatorname{Re} s - q` must lie in the strip :math:`(-\ell, 2)`;
-``fftloggin`` puts the contour in the middle of the allowed interval, which
-makes the aliasing error below decay fastest.
-The factor :math:`t^{i\omega}` makes the integral a Fourier transform in
-:math:`\ln t`, so one FFT gives :math:`\mathcal{M}_\ell` at every
-:math:`t` at once, and only gamma functions are evaluated.
+a two-dimensional FFTLog transform of :math:`a` placed on the diagonal. Along
+the diagonal :math:`j = i + d`, its entries form a one-dimensional FFTLog
+transform whose discrete kernel is the product of the two transforms' discrete
+kernels, shifted by :math:`d`. The band therefore costs one FFT per ratio, and
+only the gamma functions of two single-kernel transforms are evaluated. Its
+coefficients are :math:`\mathcal{M}_\ell` band-limited to the grid.
+
+The two transforms share the bias. With :math:`q` in the middle of the
+interval where both :math:`q` and :math:`1 + q_{\rm bias} - q` lie in the
+strip :math:`(-\ell, 2)` of :math:`j_\ell`, they use the biases :math:`q - 1`
+and :math:`q_{\rm bias} - q`, which keeps each as far from the edges of its
+strip as possible.
 
 The banded grid
 ---------------
 
-:func:`~fftloggin.cosmology.double_spherical_bessel_plan` evaluates
-:math:`\mathcal{M}_\ell` at the FFTLog frequencies
+:func:`~fftloggin.cosmology.double_spherical_bessel_plan` builds the
+band-limited :math:`\mathcal{M}_\ell` at the FFTLog frequencies
 :math:`s_m = 1 + q_{\rm bias} + 2\pi i m / (n\,\Delta)`, the ones
 :func:`~fftloggin.fftlog.forward` uses, and at ratios on the grid's own
 spacing,
@@ -91,17 +96,14 @@ around the diagonal :math:`\chi = \chi'`.
    like :math:`t^{\ell}` away from the diagonal, so high multipoles need a
    narrower band. Memory and time grow linearly with it.
 
-Frequency cutoff
-   The Fourier integral above runs over the transform's own frequencies,
-   :math:`|\omega| \le \pi/\Delta`, so the plan uses exactly the
-   frequencies the transforms do. The contraction with windows on the same
-   grid then equals the bins-first calculation to rounding (see
-   :doc:`tutorial_cl`). Individual values of :math:`K_\ell` carry a
-   truncation error, largest near :math:`t = 1`, that scales like
-   :math:`(\pi/\Delta)^{q_{\rm bias} - 1}`. A finer convolution would
-   reduce it, but the exact kernel has structure on scales of
-   :math:`1/k_{\max}` that the :math:`\chi` grid cannot resolve, so it
-   would make the sum over the grid *less* accurate.
+Exactness on the grid
+   The band equals the two-dimensional transform above at every entry whose
+   partner lies on the grid, so the contraction with windows on the same grid
+   equals the bins-first calculation to rounding (see :doc:`tutorial_cl`).
+   Rows whose partner leaves the grid wrap around periodically and must be
+   dropped. Individual values of :math:`K_\ell` carry a truncation error,
+   largest near :math:`t = 1`, because the exact kernel has structure on
+   scales of :math:`1/k_{\max}` that the :math:`\chi` grid cannot resolve.
 
 Choosing the bias
 -----------------
@@ -110,14 +112,12 @@ As for any FFTLog transform, choose the bias so that :math:`a(k)\,k^{-q_{\rm bia
 decays at both ends of the :math:`k` grid; otherwise the periodic
 continuation adds ringing, which is most visible at low :math:`\ell`.
 
-The FFT also makes the convolution periodic in :math:`\ln t` with period
-:math:`n\Delta`. Its aliasing error decays like :math:`\exp(-r\, n\Delta)`,
-where :math:`r` is the half-width of the interval allowed for the contour.
-For two :math:`j_\ell`,
+Each of the two transforms also needs its own bias inside the strip of
+:math:`j_\ell`. With the split above, the distance to the nearest edge is
 :math:`r = \min(\ell + 2,\, 2\ell + 1 + q_{\rm bias},\, 3 - q_{\rm bias})/2`,
-so :math:`1 + q_{\rm bias}` must stay well above :math:`-2\ell`. A more
-negative bias speeds up the decay in :math:`\omega` but brings the contour
-closer to the lower edge of its strip at low :math:`\ell`. For a Gaussian test input with :math:`n = 512` and
+so :math:`1 + q_{\rm bias}` must stay well above :math:`-2\ell`: a more
+negative bias brings both transforms closer to the lower edge of their strips
+at low :math:`\ell`. For a Gaussian test input with :math:`n = 512` and
 :math:`\Delta = 0.02`, the largest absolute errors against direct quadrature
 were:
 
@@ -134,51 +134,35 @@ ell    bias    error
 Other kernels
 -------------
 
-The Parseval formula holds for any two kernels :math:`K_1` and
-:math:`K_2` with Mellin transforms :math:`M_1` and :math:`M_2`:
-
-.. math::
-
-   \int_0^\infty x^{s-1} K_1(x)\, K_2(tx)\, dx
-   = \frac{1}{2\pi} \int_{-\infty}^{\infty} d\omega\;
-   M_1(q + i\omega)\, M_2(s - q - i\omega)\, t^{-(s - q - i\omega)} ,
-
-with :math:`q` in the strip of :math:`M_1` and
-:math:`\operatorname{Re} s - q` in the strip of :math:`M_2`.
-This is the Mellin convolution of :math:`K_1` with the rescaled kernel
-:math:`K_2(t\,\cdot)`, whose transform is
-:math:`t^{-s} M_2(s)` (see :class:`~fftloggin.kernels.Scale`). The plan
-evaluates it for every :math:`t` on the grid with one FFT over
-:math:`\ln t`.
-:func:`~fftloggin.cosmology.kernel_product_plan` takes any two
-:class:`~fftloggin.kernels.Kernel` objects, for example derivatives of
-spherical Bessel functions for redshift-space distortions:
+Nothing in the construction is specific to :math:`j_\ell`.
+:func:`~fftloggin.fftlog.product_plan` combines any two single-kernel plans
+built on the same grid, for example a spherical Bessel function and its
+second derivative for redshift-space distortions:
 
 .. code-block:: python
 
-   from fftloggin import Derivative, SphericalBesselJKernel
-   from fftloggin.cosmology import kernel_product_plan
+   from fftloggin import Derivative, SphericalBesselJKernel, plan, product_plan
 
    j = SphericalBesselJKernel(ell)
-   pp = kernel_product_plan(j, j.transform(Derivative(2)), n, dlog=dlog,
-                            bias=0.5, half_width=M)
+   p1 = plan(j, n, dlog=dlog, bias=-0.25)
+   p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
+   pp = product_plan(p1, p2, half_width=M)
 
 :func:`~fftloggin.cosmology.double_spherical_bessel_plan` is the special
-case of two :math:`j_\ell`. Three things change for a general pair:
+case of two :math:`j_\ell` with the bias split described above. For a general
+pair:
 
-- The contour sits in the middle of the interval where both conditions
-  hold, and the aliasing error decays with that interval's half-width.
+- Each plan's :math:`1 + q` must lie in its own kernel's strip, and the bias
+  seen by :math:`a(k)` is the sum of the two biases plus one.
   :class:`~fftloggin.kernels.Derivative` shifts a strip up by its order, so
-  pairs of derivatives at low :math:`\ell` leave a narrow interval and need
-  a carefully chosen bias.
+  pairs of derivatives at low :math:`\ell` need carefully chosen biases.
 - The integral :math:`\int dk\, a(k) K_1(k\chi) K_2(k\chi')` is no longer
   symmetric in :math:`\chi \leftrightarrow \chi'`. Including the
   prefactor :math:`\chi` of :math:`K`, the plan for :math:`(K_2, K_1)`
   gives :math:`K_{21}(\chi, \chi') = (\chi/\chi')\, K_{12}(\chi', \chi)`,
-  so pass the kernels in the order of the windows they multiply.
-- Nothing changes at large :math:`\omega`: :math:`j_\ell''` behaves like
-  :math:`-j_\ell` at large argument, and its Mellin transform decays just
-  as fast.
+  so pass the plans in the order of the windows they multiply.
+- The plans must share ``n``, ``dlog`` and ``log_kr``. The low-ringing
+  ``log_kr`` of each kernel generally differs, so choose one shared value.
 
 The contraction on the grid still equals the corresponding single-kernel
 FFTLog calculation to rounding.
@@ -210,10 +194,6 @@ so ``jax.vmap`` batches plans over :math:`\ell`:
    )
    plans = make(jnp.arange(2.0, 100.0))  # coeffs: (n_ell, n // 2 + 1, 2 M + 1)
    kernels = jax.vmap(forward, in_axes=(None, 0))(a, plans)  # (n_ell, n, 2 M + 1)
-
-Building a plan needs about :math:`n^2 / 2`
-complex values of temporary memory, so batch large ranges of :math:`\ell` in
-chunks with ``jax.lax.map``.
 
 From kernel to power spectrum
 -----------------------------
