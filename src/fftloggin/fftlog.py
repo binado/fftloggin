@@ -180,10 +180,20 @@ def plan(
     )
 
 
-def product_plan(first: Plan, second: Plan, *, half_width: int) -> Plan:
-    """Combine two single-kernel plans into a band of their kernel product.
+def product_plan(
+    first: Plan | Kernel,
+    second: Plan | Kernel,
+    *,
+    max_offset: int,
+    n: int | None = None,
+    dlog: Float[ArrayLike, ""] | None = None,
+    first_bias: Float[ArrayLike, ""] | None = None,
+    second_bias: Float[ArrayLike, ""] | None = None,
+    log_kr: Float[ArrayLike, ""] | None = None,
+) -> Plan:
+    """Combine two kernels or single-kernel plans into a product-kernel band.
 
-    ``forward(a, product_plan(first, second, half_width=M))`` returns an
+    ``forward(a, product_plan(first, second, max_offset=M))`` returns an
     array ``K`` of shape ``(n, 2 * M + 1)`` whose entry ``[i, M + d]`` is
     ``chi_i * integral(a(k) * K1(k*chi_i) * K2(k*chi_(i+d)), k)``, where
     ``K1`` and ``K2`` are the kernels of ``first`` and ``second``. Column
@@ -194,26 +204,43 @@ def product_plan(first: Plan, second: Plan, *, half_width: int) -> Plan:
 
     Parameters
     ----------
-    first, second : Plan
-        Single-kernel plans for ``K1`` and ``K2``, built for the same ``n``,
-        ``dlog`` and ``log_kr``. Each ``1 + bias`` must lie in the Mellin
-        strip of its own kernel.
-    half_width : int
+    first, second : Kernel or Plan
+        Either two kernels or two single-kernel plans for ``K1`` and ``K2``.
+        Plans must be built for the same ``n``, ``dlog`` and ``log_kr``. For
+        kernels, also provide ``n``, ``dlog`` and each kernel's bias. Each
+        ``1 + bias`` must lie in the Mellin strip of its kernel.
+    max_offset : int
         Number ``M`` of ratios on each side of ``chi' = chi``. It sets which
         pairs are available, not the accuracy of each value.
+    n : int, optional
+        Number of samples for kernel inputs. Required when passing kernels;
+        static under JAX transformations because it determines coefficient
+        array shapes.
+    dlog : scalar, optional
+        Logarithmic grid spacing for kernel inputs. Required when passing
+        kernels.
+    first_bias, second_bias : scalar, optional
+        Biases for the first and second kernel inputs. Both are required when
+        passing kernels; their values determine the combined output bias.
+    log_kr : scalar, optional
+        Shared logarithm of the product of the geometric centers of the paired
+        grids for kernel inputs. Defaults to zero.
 
     Returns
     -------
     Plan
-        Plan with coefficients of shape ``(n // 2 + 1, 2 * half_width + 1)``
+        Plan with coefficients of shape ``(n // 2 + 1, 2 * max_offset + 1)``
         and bias ``first.bias + second.bias + 1``, the bias the input
         ``a(k)`` sees.
 
     Raises
     ------
     ValueError
-        If ``half_width`` is negative, the plans were built for different
+        If ``max_offset`` is negative, the plans were built for different
         sample counts, or either plan holds more than one column.
+    TypeError
+        If a kernel input is missing a required grid or bias parameter, the
+        inputs mix kernels and plans, or plan inputs are given grid parameters.
 
     Notes
     -----
@@ -223,7 +250,7 @@ def product_plan(first: Plan, second: Plan, *, half_width: int) -> Plan:
     transform of ``a`` lifted onto the diagonal, and its band at offset ``d``
     is a one-dimensional transform whose discrete kernel is the product of
     the two plans' discrete kernels, shifted by ``d``. Building the band
-    takes one FFT per ratio and ``O(n * half_width)`` memory, and no Mellin
+    takes one FFT per ratio and ``O(n * max_offset)`` memory, and no Mellin
     kernel evaluations beyond those of the two plans.
 
     The band equals the full two-dimensional transform at every entry whose
@@ -239,15 +266,62 @@ def product_plan(first: Plan, second: Plan, *, half_width: int) -> Plan:
 
     Examples
     --------
+    Build a product plan directly from kernels::
+
+        band = product_plan(
+            kernel1, kernel2, n=n, dlog=dlog,
+            first_bias=-0.25, second_bias=0.5, max_offset=m,
+        )
+
     Band of ``chi * integral(a(k) * j_ell(k*chi) * j_ell''(k*chi'), k)``::
 
         j = SphericalBesselJKernel(ell)
         p1 = plan(j, n, dlog=dlog, bias=-0.25)
         p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
-        band = forward(a, product_plan(p1, p2, half_width=m))
+        band = forward(a, product_plan(p1, p2, max_offset=m))
     """
-    if half_width < 0:
-        raise ValueError("half_width must be >= 0")
+    if max_offset < 0:
+        raise ValueError("max_offset must be >= 0")
+    first_is_plan = isinstance(first, Plan)
+    second_is_plan = isinstance(second, Plan)
+    if first_is_plan != second_is_plan:
+        raise TypeError("product_plan inputs must both be Kernels or both be Plans")
+    if first_is_plan:
+        if any(
+            value is not None for value in (n, dlog, first_bias, second_bias, log_kr)
+        ):
+            raise TypeError(
+                "grid and bias parameters are only accepted with Kernel inputs"
+            )
+    else:
+        if not isinstance(first, Kernel) or not isinstance(second, Kernel):
+            raise TypeError("product_plan inputs must both be Kernels or both be Plans")
+        if n is None or dlog is None:
+            raise TypeError(
+                "n and dlog are required when product_plan receives Kernels"
+            )
+        if first_bias is None or second_bias is None:
+            raise TypeError(
+                "first_bias and second_bias are required when product_plan receives Kernels"
+            )
+        first = plan(
+            first,
+            n,
+            dlog=dlog,
+            bias=first_bias,
+            log_kr=0.0 if log_kr is None else log_kr,
+        )
+        second = plan(
+            second,
+            n,
+            dlog=dlog,
+            bias=second_bias,
+            log_kr=0.0 if log_kr is None else log_kr,
+        )
+
+    # The type checks above narrow these to Plan; they are also deliberately
+    # eager so the public overload reports useful errors before array work.
+    assert isinstance(first, Plan) and isinstance(second, Plan)
     if first.n != second.n:
         raise ValueError(
             f"plans were built for different sample counts: {first.n} and {second.n}"
@@ -258,7 +332,7 @@ def product_plan(first: Plan, second: Plan, *, half_width: int) -> Plan:
     # Real-space kernels of the two discrete transforms.
     first_kernel = jnp.fft.irfft(first.coeffs, n)
     second_kernel = jnp.fft.irfft(second.coeffs, n)
-    offsets = jnp.arange(-half_width, half_width + 1)
+    offsets = jnp.arange(-max_offset, max_offset + 1)
     shifted = second_kernel[(jnp.arange(n)[:, None] - offsets) % n]
     spectrum = jnp.fft.rfft(first_kernel[:, None] * shifted, axis=0)
     # Move the second plan's power law and the output coordinate from
