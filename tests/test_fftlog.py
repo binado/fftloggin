@@ -304,6 +304,45 @@ def test_vmap_over_inputs_with_plan(smooth_input):
     assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
 
 
+@pytest.mark.parametrize("layout", ["kernels", "inputs", "outer", "paired"])
+def test_vmap_batches_inputs_and_kernels(smooth_input, layout):
+    mus = jnp.array([0.0, 1.0, 2.0])
+    batch = jnp.stack([smooth_input * scale for scale in (0.5, 1.0, 2.0)])
+    n = batch.shape[1]
+    params = {"dlog": 0.1, "bias": 0.1}
+
+    def single(a, mu):
+        return forward(a, BesselJKernel(mu), **params)
+
+    kernels = BesselJKernel(mus)
+    plans = jax.vmap(lambda k: plan(k, n, **params))(kernels)
+    p = plan(BesselJKernel(mus[1]), n, **params)
+    transform = jax.vmap(forward, in_axes=(0, None))
+    cases = {
+        "kernels": (
+            lambda: jax.vmap(lambda k: forward(batch[0], k, **params))(kernels),
+            [single(batch[0], mu) for mu in mus],
+        ),
+        "inputs": (
+            lambda: transform(batch, p),
+            [single(a, mus[1]) for a in batch],
+        ),
+        "outer": (
+            lambda: jax.vmap(transform, in_axes=(None, 0))(batch, plans),
+            [[single(a, mu) for a in batch] for mu in mus],
+        ),
+        "paired": (
+            lambda: jax.vmap(forward)(batch, plans),
+            [single(a, mu) for a, mu in zip(batch, mus)],
+        ),
+    }
+    batched, looped = cases[layout]
+    expected = jnp.array(looped)
+    actual = jax.jit(batched)()
+    assert actual.shape == expected.shape
+    assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
+
+
 def test_input_gradient_with_precomputed_plan(x64, smooth_input):
     weights = jnp.linspace(0.4, 1.2, smooth_input.shape[0])
     p = plan(BesselJKernel(0.3), smooth_input.shape[0], dlog=0.1, bias=0.1)

@@ -65,6 +65,8 @@ To transform a batch of inputs with one kernel, map over the samples:
        lambda a: forward(a, BesselJKernel(0.0), dlog=dlog)
    )(batch)
 
+For batches of inputs and kernels together, see :doc:`batching`.
+
 ``dlog``, ``bias`` and ``log_kr`` can be mapped the same way. Every value of
 ``bias`` must lie in the kernel's convergence strip (see :doc:`kernels`).
 
