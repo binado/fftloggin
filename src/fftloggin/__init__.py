@@ -37,7 +37,13 @@ with _typecheck_import_context:
         product_plan,
         validate_parameters,
     )
-    from .grids import get_array_center, get_paired_grids, infer_dlog, infer_log_kr
+    from .grids import (
+        Padding,
+        get_array_center,
+        get_paired_grids,
+        infer_dlog,
+        infer_log_kr,
+    )
     from .kernels import (
         BesselJKernel,
         Derivative,
@@ -55,6 +61,7 @@ __all__ = (
     "Derivative",
     "DomainCheckWarning",
     "Kernel",
+    "Padding",
     "Plan",
     "PowerLaw",
     "Scale",

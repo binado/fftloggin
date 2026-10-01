@@ -1,9 +1,20 @@
 """Functions for paired logarithmic FFTLog coordinate arrays."""
 
+from dataclasses import dataclass
+from functools import partial
+
+import jax
 import jax.numpy as jnp
+from jax.tree_util import register_dataclass
 from jaxtyping import Array, ArrayLike, Float
 
-__all__ = ("get_array_center", "get_paired_grids", "infer_dlog", "infer_log_kr")
+__all__ = (
+    "Padding",
+    "get_array_center",
+    "get_paired_grids",
+    "infer_dlog",
+    "infer_log_kr",
+)
 
 
 def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, ""]:
@@ -17,7 +28,9 @@ def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, 
         Positive, finite, one-dimensional grid with at least two points.
     rtol : float, optional
         Relative tolerance for checking uniform spacing in log space.
-        Defaults to ``1e-5``.
+        Defaults to ``1e-5``. An absolute allowance for the rounding of
+        ``log(x)`` at the precision of ``x`` is added, so float32 grids
+        such as ``jnp.logspace`` output pass.
 
     Returns
     -------
@@ -38,7 +51,9 @@ def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, 
         raise ValueError("grid values must be finite and positive")
     logx = jnp.log(x)
     dlog = (logx[-1] - logx[0]) / (x.shape[0] - 1)
-    if not bool(jnp.allclose(jnp.diff(logx), dlog, rtol=rtol)):
+    # Rounding of log(x) grows with |log(x)|, not with the spacing.
+    atol = 64 * jnp.finfo(logx.dtype).eps * jnp.max(jnp.abs(logx))
+    if not bool(jnp.allclose(jnp.diff(logx), dlog, rtol=rtol, atol=atol)):
         raise ValueError("x must be uniformly spaced in the logarithm")
     return dlog
 
@@ -148,3 +163,142 @@ def infer_log_kr(
         return jnp.log(ymax) + jnp.log(x[0])
     assert ymin is not None
     return jnp.log(ymin) + jnp.log(x[-1])
+
+
+@partial(register_dataclass, data_fields=(), meta_fields=("width",))
+@dataclass(frozen=True)
+class Padding:
+    """Symmetric padding of logarithmic grids and their samples.
+
+    FFTLog treats its input as periodic, so the samples at one end of the
+    array leak into the output at the other end. Padding moves the periodic
+    images apart: pad the samples, transform them with a plan built for the
+    padded length, and crop the result back to the original grid.
+
+    Parameters
+    ----------
+    width : int
+        Number of points added at each end. It is static under JAX
+        transformations because it sets array shapes.
+
+    Raises
+    ------
+    TypeError
+        If ``width`` is not an integer.
+    ValueError
+        If ``width`` is negative.
+
+    Notes
+    -----
+    The padding is the same on both sides, so the padded grid keeps the
+    geometric centre and the spacing of the original one. ``dlog``, ``bias``
+    and ``log_kr``, including a value from ``lowring_log_kr``, carry over
+    unchanged, and cropping the paired output grid gives back
+    ``get_paired_grids(r=x, log_kr=log_kr)``.
+
+    Padding suppresses the wrap-around between the two ends of the array,
+    which dominates the error near the ends of the output. It does not remove
+    ringing from a step or a kink inside the input: zeros next to a step are
+    still a step. For inputs that vanish beyond the grid, the ``width``
+    output points dropped at each end by ``crop`` are valid transform values
+    on the extended output grid.
+
+    Map over a stack of arrays with ``axis`` or ``jax.vmap(padding)``, and
+    over other collections with ``jax.tree.map(padding, ...)``.
+
+    Examples
+    --------
+    Zero-pad a window that vanishes beyond the grid::
+
+        padding = Padding(n // 2)
+        padded = padding(window)
+        p = plan(kernel, padded.shape[0], dlog=dlog, bias=bias, log_kr=log_kr)
+        result = padding.crop(forward(padded, p))  # on get_paired_grids(r=chi)
+
+    Evaluate a window that does not vanish at the grid ends on the extended
+    grid instead of padding it with zeros::
+
+        chi_ext = padding.grid(chi)
+        p = plan(kernel, chi_ext.size, dlog=dlog, bias=bias, log_kr=log_kr)
+        result = padding.crop(forward(window(chi_ext), p))
+    """
+
+    width: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.width, int) or isinstance(self.width, bool):
+            raise TypeError("width must be an integer")
+        if self.width < 0:
+            raise ValueError("width must be non-negative")
+
+    def __call__(
+        self, a: Float[ArrayLike, "..."], *, axis: int = 0
+    ) -> Float[Array, "..."]:
+        """Pad ``a`` with ``width`` zeros at each end of ``axis``.
+
+        Parameters
+        ----------
+        a : array_like
+            Samples to pad.
+        axis : int, optional
+            Sample axis. Defaults to the first axis.
+
+        Returns
+        -------
+        array
+            Padded samples, ``2 * width`` longer along ``axis``.
+        """
+        a = jnp.asarray(a)
+        pad_width = [(0, 0)] * a.ndim
+        pad_width[axis] = (self.width, self.width)
+        return jnp.pad(a, pad_width)
+
+    def crop(self, a: Float[ArrayLike, "..."], *, axis: int = 0) -> Float[Array, "..."]:
+        """Drop ``width`` points from each end of ``axis``.
+
+        Parameters
+        ----------
+        a : array_like
+            Padded samples or transform output, such as the result of
+            ``forward`` with a plan built for the padded length.
+        axis : int, optional
+            Sample axis. Defaults to the first axis, which also holds the
+            samples of a product-plan output.
+
+        Returns
+        -------
+        array
+            Cropped array, ``2 * width`` shorter along ``axis``.
+        """
+        a = jnp.asarray(a)
+        return jax.lax.slice_in_dim(
+            a, self.width, a.shape[axis] - self.width, axis=axis
+        )
+
+    def grid(self, x: Float[ArrayLike, "n"]) -> Float[Array, "m"]:
+        """Extend a logarithmic grid by ``width`` points at each end.
+
+        The spacing is taken from the endpoints of ``x`` without checking
+        that the grid is uniform in its logarithm, so this works under
+        ``jit``. Check concrete grids with ``infer_dlog`` first.
+
+        Parameters
+        ----------
+        x : array_like
+            Positive grid, uniformly spaced in its logarithm, with at least
+            two points.
+
+        Returns
+        -------
+        array
+            Grid with ``2 * width`` more points, the same logarithmic spacing
+            and the same geometric centre. Its middle points equal ``x``.
+        """
+        x = jnp.asarray(x)
+        n = x.shape[0]
+        log_first = jnp.log(x[0])
+        dlog = (jnp.log(x[-1]) - log_first) / (n - 1)
+        index = jnp.arange(-self.width, n + self.width, dtype=dlog.dtype)
+        extended = jnp.exp(log_first + dlog * index)
+        # Keep the original samples exact, without exp(log(x)) rounding.
+        return jax.lax.dynamic_update_slice_in_dim(extended, x, self.width, axis=0)

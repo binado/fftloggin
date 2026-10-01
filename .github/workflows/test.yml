@@ -71,6 +71,9 @@ jobs:
           JAX_ENABLE_X64: "1"
         run: uv run pytest
 
+      - name: Run tests in default (float32) precision
+        run: uv run pytest
+
   benchmark:
     name: benchmark-tests
     needs: [check]
