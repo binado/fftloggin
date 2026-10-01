@@ -127,10 +127,46 @@ transform:
    samples = r * jnp.exp(-r**2 / 2)
    result = forward(samples, kernel, dlog=dlog, log_kr=log_kr)
 
+Padding
+-------
+
+FFTLog treats its input as periodic, so samples at one end of the array leak
+into the output at the other end. The error is largest near the ends of the
+output grid. :class:`~fftloggin.grids.Padding` moves the periodic images apart:
+pad the samples, transform with a plan built for the padded length, and crop
+the result back.
+
+.. code-block:: python
+
+   from fftloggin import Padding, plan
+
+   padding = Padding(r.size // 2)
+   padded = padding(samples)                       # zeros at both ends
+   p = plan(kernel, padded.shape[0], dlog=dlog, log_kr=log_kr)
+   result = padding.crop(forward(padded, p))       # on get_paired_grids(r=r)
+
+The padding is the same at both ends, so the padded grid keeps the spacing and
+the centre of ``r``. ``dlog``, ``bias`` and ``log_kr``, including a low-ringing
+value, carry over unchanged, and the cropped result lies on the original paired
+grid.
+
+Zero padding suits inputs that vanish beyond the grid. If the input does not,
+such as a lensing window at small :math:`\chi`, zeros would introduce a step of
+their own. Evaluate the input on the extended grid instead:
+
+.. code-block:: python
+
+   chi_ext = padding.grid(chi)
+   p = plan(kernel, chi_ext.size, dlog=dlog, log_kr=log_kr)
+   result = padding.crop(forward(window(chi_ext), p))
+
+Padding only removes wrap-around between the two ends. Ringing from a step or
+a kink inside the input, such as a window with a sharp edge, remains.
+
 Helpers inside JAX
 ------------------
 
-``get_paired_grids``, ``infer_log_kr`` and
+``get_paired_grids``, ``infer_log_kr``, ``Padding`` and
 :func:`~fftloggin.grids.get_array_center` are pure JAX and work under ``jit``
 and ``vmap``. ``infer_dlog`` checks concrete values in Python and must run
 outside JAX transformations. If you already know ``dlog`` from how the grid
