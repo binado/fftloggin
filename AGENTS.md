@@ -41,6 +41,8 @@ JAX_ENABLE_X64=1 uv run pytest tests/test_benchmark.py --run-benchmarks
 and output arrays with `jax.Array`
 
 ### Tests
+- Tests must pass with and without `JAX_ENABLE_X64=1`; reference and
+finite-difference comparisons request the `x64` fixture
 - Use pytest fixtures,
 - Use `pytest.mark.parametrize` decorator
 - Don't test internal behavior or private methods

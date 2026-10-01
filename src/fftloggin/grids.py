@@ -28,7 +28,9 @@ def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, 
         Positive, finite, one-dimensional grid with at least two points.
     rtol : float, optional
         Relative tolerance for checking uniform spacing in log space.
-        Defaults to ``1e-5``.
+        Defaults to ``1e-5``. An absolute allowance for the rounding of
+        ``log(x)`` at the precision of ``x`` is added, so float32 grids
+        such as ``jnp.logspace`` output pass.
 
     Returns
     -------
@@ -49,7 +51,9 @@ def infer_dlog(x: Float[ArrayLike, "n"], *, rtol: float = 1e-5) -> Float[Array, 
         raise ValueError("grid values must be finite and positive")
     logx = jnp.log(x)
     dlog = (logx[-1] - logx[0]) / (x.shape[0] - 1)
-    if not bool(jnp.allclose(jnp.diff(logx), dlog, rtol=rtol)):
+    # Rounding of log(x) grows with |log(x)|, not with the spacing.
+    atol = 64 * jnp.finfo(logx.dtype).eps * jnp.max(jnp.abs(logx))
+    if not bool(jnp.allclose(jnp.diff(logx), dlog, rtol=rtol, atol=atol)):
         raise ValueError("x must be uniformly spaced in the logarithm")
     return dlog
 

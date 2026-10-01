@@ -3,9 +3,15 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from numpy.testing import assert_allclose
 
-from fftloggin.grids import get_array_center, get_paired_grids, infer_log_kr
+from fftloggin.grids import (
+    get_array_center,
+    get_paired_grids,
+    infer_dlog,
+    infer_log_kr,
+)
 
 
 def test_get_array_center_typical_values():
@@ -106,3 +112,20 @@ def test_infer_log_kr_ycenter_avoids_float32_product_overflow():
     expected = 2 * np.log(np.float64(1e20))
     assert np.isfinite(log_kr)
     assert_allclose(log_kr, expected, rtol=1e-5)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize(("start", "stop", "n"), [(-4, 0, 128), (-5, 5, 4096)])
+def test_infer_dlog_accepts_logspace_at_its_precision(x64, dtype, start, stop, n):
+    x = jnp.logspace(start, stop, n, dtype=dtype)
+    dlog = infer_dlog(x)
+    assert dlog.dtype == dtype
+    assert_allclose(dlog, (stop - start) * np.log(10.0) / (n - 1), rtol=1e-5)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+def test_infer_dlog_rejects_nonuniform_grid(x64, dtype):
+    x = jnp.logspace(-4, 0, 128, dtype=dtype)
+    x = x.at[64].multiply(jnp.exp(0.1 * infer_dlog(x)))
+    with pytest.raises(ValueError, match="uniformly spaced"):
+        infer_dlog(x)

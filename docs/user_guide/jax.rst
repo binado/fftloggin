@@ -131,6 +131,25 @@ to the nearest low-ringing value, so its derivative is zero almost everywhere.
 If ``log_kr`` is a fit parameter, snap it once before the fit, or pass the
 raw parameter to the transform and accept a little ringing.
 
+Precision
+---------
+
+JAX computes in float32 unless 64-bit mode is on, and ``fftloggin`` never
+changes that setting. Outputs keep the precision of their inputs. In float32
+the rounding error is about :math:`10^{-6}` of the peak for single-kernel
+transforms and about :math:`10^{-5}` for product plans, which is usually well
+below the FFTLog discretisation and ringing errors. Float32 is also much
+faster on most GPUs.
+
+Turn on 64-bit mode for reference comparisons and finite-difference gradient
+checks, or when the input spans a very wide dynamic range:
+
+.. code-block:: python
+
+   import jax
+
+   jax.config.update("jax_enable_x64", True)  # or JAX_ENABLE_X64=1
+
 Eager helpers
 -------------
 
