@@ -43,6 +43,7 @@ with _typecheck_import_context:
         get_paired_grids,
         infer_dlog,
         infer_log_kr,
+        taper,
     )
     from .kernels import (
         BesselJKernel,
@@ -79,5 +80,6 @@ __all__ = (
     "lowring_log_kr",
     "plan",
     "product_plan",
+    "taper",
     "validate_parameters",
 )
