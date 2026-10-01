@@ -1,12 +1,13 @@
-"""Functions for paired logarithmic FFTLog coordinate arrays."""
+"""Paired logarithmic FFTLog grids and the treatment of their edges."""
 
 from dataclasses import dataclass
 from functools import partial
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
 from jax.tree_util import register_dataclass
-from jaxtyping import Array, ArrayLike, Float
+from jaxtyping import Array, ArrayLike, Float, Real
 
 __all__ = (
     "Padding",
@@ -14,6 +15,7 @@ __all__ = (
     "get_paired_grids",
     "infer_dlog",
     "infer_log_kr",
+    "taper",
 )
 
 
@@ -302,3 +304,110 @@ class Padding:
         extended = jnp.exp(log_first + dlog * index)
         # Keep the original samples exact, without exp(log(x)) rounding.
         return jax.lax.dynamic_update_slice_in_dim(extended, x, self.width, axis=0)
+
+
+def _taper_ramp(
+    t: Float[Array, "n"], shape: Literal["cosine", "planck"]
+) -> Float[Array, "n"]:
+    """Rise from 0 at ``t <= 0`` to 1 at ``t >= 1``."""
+    t = jnp.clip(t, 0.0, 1.0)
+    if shape == "cosine":
+        return jnp.sin(0.5 * jnp.pi * t) ** 2
+    # Evaluate the Planck ramp only inside (0, 1) so gradients stay finite at
+    # the ends, where 1/t and 1/(1 - t) diverge.
+    inside = (t > 0) & (t < 1)
+    t_inside = jnp.where(inside, t, 0.5)
+    ramp = jax.nn.sigmoid(1 / (1 - t_inside) - 1 / t_inside)
+    return jnp.where(inside, ramp, jnp.where(t >= 1, 1.0, 0.0))
+
+
+def taper(
+    x: Float[ArrayLike, "n"],
+    width: Real[ArrayLike, ""],
+    *,
+    lo: Real[ArrayLike, ""] | None = None,
+    hi: Real[ArrayLike, ""] | None = None,
+    side: Literal["lo", "hi", "both"] = "both",
+    shape: Literal["cosine", "planck"] = "cosine",
+) -> Float[Array, "n"]:
+    """Weights that take samples smoothly to zero at the edges of their support.
+
+    Multiply samples on ``x`` by these weights to remove a step or a kink at an
+    edge of their support, which FFTLog would otherwise turn into ringing.
+
+    Parameters
+    ----------
+    x : array_like
+        Positive grid of the samples. It need not be uniform in its logarithm.
+    width : scalar
+        Length of each ramp in ``log(x)``, assumed positive. A width in
+        ``log(x)`` keeps the smoothing scale independent of the sample count.
+    lo, hi : scalar, optional
+        Edges of the support, in the units of ``x``. They default to ``x[0]``
+        and ``x[-1]``. Give them explicitly when the support ends inside the
+        grid.
+    side : {"lo", "hi", "both"}, optional
+        Edges to taper. Defaults to both.
+    shape : {"cosine", "planck"}, optional
+        Ramp shape in ``t``, the distance from the edge in units of ``width``:
+        ``"cosine"`` is ``sin(pi * t / 2)**2``, continuous with its first
+        derivative; ``"planck"`` is the Planck-taper ramp
+        ``1 / (1 + exp(1/t - 1/(1 - t)))``, smooth to all orders.
+        Defaults to ``"cosine"``.
+
+    Returns
+    -------
+    array
+        Weights with the shape of ``x``: 0 at and beyond a tapered edge, rising
+        to 1 at a distance ``width`` in ``log(x)`` inside it. With ``"both"``
+        they are the product of the two ramps.
+
+    Raises
+    ------
+    ValueError
+        If ``side`` or ``shape`` is unknown, or if ``lo`` or ``hi`` is given
+        for an edge that ``side`` does not taper.
+
+    Notes
+    -----
+    Tapering changes the input, so it trades ringing for a bias in the
+    transform. Keep ``width`` small compared with the scale over which the
+    samples vary.
+
+    The weights are a function of ``x`` and the edges only, so they commute
+    with ``Padding``. With the default edges, taper on the grid whose ends are
+    the edges of the support: the unpadded grid for zero padding. On an
+    extended grid, the ends lie beyond the support, so pass the edges
+    explicitly.
+
+    Examples
+    --------
+    Smooth the upper edge of a number-count bin, then zero-pad it::
+
+        w = window(chi) * taper(chi, 0.05, hi=chi_max, side="hi")
+        result = padding.crop(forward(padding(w), p))
+
+    Evaluate a lensing window, which does not vanish at small ``chi``, on the
+    extended grid and smooth only its kink at ``chi_star``::
+
+        chi_ext = padding.grid(chi)
+        w = window(chi_ext) * taper(chi_ext, 0.05, hi=chi_star, side="hi")
+        result = padding.crop(forward(w, p))
+    """
+    if side not in ("lo", "hi", "both"):
+        raise ValueError(f"side must be 'lo', 'hi' or 'both', got {side!r}")
+    if shape not in ("cosine", "planck"):
+        raise ValueError(f"shape must be 'cosine' or 'planck', got {shape!r}")
+    if lo is not None and side == "hi":
+        raise ValueError("lo is given but side='hi' does not taper the lower edge")
+    if hi is not None and side == "lo":
+        raise ValueError("hi is given but side='lo' does not taper the upper edge")
+    logx = jnp.log(jnp.asarray(x))
+    weights = jnp.ones_like(logx)
+    if side in ("lo", "both"):
+        log_lo = logx[0] if lo is None else jnp.log(lo)
+        weights = weights * _taper_ramp((logx - log_lo) / width, shape)
+    if side in ("hi", "both"):
+        log_hi = logx[-1] if hi is None else jnp.log(hi)
+        weights = weights * _taper_ramp((log_hi - logx) / width, shape)
+    return weights

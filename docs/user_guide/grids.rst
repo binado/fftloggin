@@ -163,10 +163,41 @@ their own. Evaluate the input on the extended grid instead:
 Padding only removes wrap-around between the two ends. Ringing from a step or
 a kink inside the input, such as a window with a sharp edge, remains.
 
+Tapering
+--------
+
+:func:`~fftloggin.grids.taper` returns weights that take the samples smoothly
+to zero at the edges of their support. Each ramp has a length ``width`` in
+:math:`\ln x`, so the smoothing scale does not depend on the number of
+samples. Multiply the weights into the samples before padding:
+
+.. code-block:: python
+
+   from fftloggin import taper
+
+   w = window(chi) * taper(chi, 0.05, hi=chi_max, side="hi")
+   result = padding.crop(forward(padding(w), p))
+
+The edges default to the ends of the grid passed in, which is right for the
+unpadded grid. On an extended grid, the ends lie beyond the support, so pass
+the edge where the samples are not smooth. For example, smooth only the kink
+of the CMB-lensing window at :math:`\chi_*`:
+
+.. code-block:: python
+
+   chi_ext = padding.grid(chi)
+   w = window(chi_ext) * taper(chi_ext, 0.05, hi=chi_star, side="hi")
+   result = padding.crop(forward(w, p))
+
+``shape="cosine"`` (the default) is continuous with its first derivative;
+``shape="planck"`` is smooth to all orders. Tapering changes the input, so it
+trades ringing for a bias in the result. Keep ``width`` small compared with
+the scale over which the samples vary.
+
 Helpers inside JAX
 ------------------
 
-``get_paired_grids``, ``infer_log_kr``, ``Padding`` and
+``get_paired_grids``, ``infer_log_kr``, ``Padding``, ``taper`` and
 :func:`~fftloggin.grids.get_array_center` are pure JAX and work under ``jit``
 and ``vmap``. ``infer_dlog`` checks concrete values in Python and must run
 outside JAX transformations. If you already know ``dlog`` from how the grid
