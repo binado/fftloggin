@@ -1,6 +1,6 @@
 [project]
 name = "fftloggin"
-version = "0.5.0"
+version = "0.6.0"
 description = "Differentiable FFTLog transforms built on JAX"
 readme = "README.md"
 license = "MIT"
