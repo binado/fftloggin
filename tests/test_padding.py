@@ -1,16 +1,20 @@
 """Tests for symmetric padding of logarithmic grids and samples."""
 
+import math
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
+from scipy.fft import next_fast_len
 from scipy.special import j1
 
 from fftloggin import (
     BesselJKernel,
     Padding,
     SphericalBesselJKernel,
+    fast_size,
     forward,
     get_array_center,
     get_paired_grids,
@@ -143,3 +147,153 @@ def test_crop_keeps_product_plan_columns(r, dlog):
         j, j, n=n, dlog=dlog, first_bias=-0.25, second_bias=-0.25, max_offset=3
     )
     assert padding.crop(forward(padded, band)).shape == (r.shape[0], 7)
+
+
+def _smooth_upto(limit, radices):
+    values = {1}
+    for radix in radices:
+        grown = set()
+        for value in values:
+            product = value
+            while product <= limit:
+                grown.add(product)
+                product *= radix
+        values = grown
+    return values
+
+
+def _next_smooth(n, radices, parity=None):
+    odd_radices = tuple(radix for radix in radices if radix != 2)
+    search = odd_radices if parity == "odd" else radices
+    limit = max(n, 2)
+    while True:
+        candidates = [
+            value
+            for value in _smooth_upto(limit, search)
+            if value >= n
+            and (parity is None or value % 2 == (0 if parity == "even" else 1))
+        ]
+        if candidates:
+            return min(candidates)
+        limit *= 2
+
+
+@pytest.mark.parametrize(
+    "n", [1, 2, 3, 7, 8, 11, 37, 2048, 2050, 2498, 2664, 9992, 10007]
+)
+@pytest.mark.parametrize("radices", [(2, 3, 5, 7), (2, 3, 5), (2, 3, 5, 7, 11)])
+@pytest.mark.parametrize("parity", [None, "even", "odd"])
+def test_fast_size_is_minimal_smooth_length(n, radices, parity):
+    result = fast_size(n, radices=radices, parity=parity)
+    assert result >= n
+    if parity == "even":
+        assert result % 2 == 0
+    elif parity == "odd":
+        assert result % 2 == 1
+    assert result == _next_smooth(n, radices, parity)
+
+
+@pytest.mark.parametrize("radices", [(2, 3, 5, 7), (2, 3, 5), (3, 5, 7)])
+@pytest.mark.parametrize("parity", [None, "even", "odd"])
+def test_fast_size_matches_enumeration_up_to_few_thousand(radices, parity):
+    if parity == "even" and 2 not in radices:
+        with pytest.raises(ValueError, match="even parity"):
+            fast_size(8, radices=radices, parity=parity)
+        return
+    max_n = 2000
+    search = (
+        tuple(radix for radix in radices if radix != 2)
+        if parity == "odd"
+        else radices
+    )
+    smooth = sorted(
+        value
+        for value in _smooth_upto(max_n * 4, search)
+        if parity is None or value % 2 == (0 if parity == "even" else 1)
+    )
+    assert smooth[-1] >= max_n
+    for n in range(1, max_n + 1):
+        expected = next(value for value in smooth if value >= n)
+        assert fast_size(n, radices=radices, parity=parity) == expected
+
+
+@pytest.mark.parametrize("n", [1, 2, 37, 2048, 2050, 2498, 2664, 9992, 10007, 93059])
+def test_fast_size_matches_scipy_for_pocketfft_radices(n):
+    assert fast_size(n, radices=(2, 3, 5)) == next_fast_len(n, real=True)
+    assert fast_size(n, radices=(2, 3, 5, 7, 11)) == next_fast_len(n, real=False)
+
+
+def test_fast_size_ignores_duplicate_radices():
+    assert fast_size(10, radices=(2, 2, 3, 3)) == fast_size(10, radices=(2, 3))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"n": True}, TypeError),
+        ({"n": 1.5}, TypeError),
+        ({"n": "8"}, TypeError),
+        ({"n": 0}, ValueError),
+        ({"n": -1}, ValueError),
+        ({"n": 8, "radices": [2, 3, 5, 7]}, TypeError),
+        ({"n": 8, "radices": ()}, ValueError),
+        ({"n": 8, "radices": (1, 2)}, ValueError),
+        ({"n": 8, "radices": (4,)}, ValueError),
+        ({"n": 8, "radices": (2, True)}, TypeError),
+        ({"n": 8, "parity": "even", "radices": (3, 5, 7)}, ValueError),
+        ({"n": 8, "parity": "odd", "radices": (2,)}, ValueError),
+        ({"n": 8, "parity": "both"}, ValueError),
+    ],
+)
+def test_fast_size_rejects_invalid_arguments(kwargs, error):
+    with pytest.raises(error):
+        fast_size(**kwargs)
+
+
+def test_fast_padding_grows_fifteen_percent_pad_of_2048():
+    padding = Padding.fast(2048, math.ceil(0.15 * 2048))
+    assert padding.width == 320
+    assert 2048 + 2 * padding.width == 2688
+
+
+def test_fast_padding_is_zero_when_length_is_already_smooth():
+    assert Padding.fast(2048).width == 0
+    assert Padding.fast(2187).width == 0
+
+
+@pytest.mark.parametrize("n", [11, 128, 2048, 2049])
+@pytest.mark.parametrize("min_width", [0, 10, 308])
+def test_fast_padding_length_matches_fast_size_parity(n, min_width):
+    padding = Padding.fast(n, min_width)
+    parity = "even" if n % 2 == 0 else "odd"
+    assert padding.width >= min_width
+    assert n + 2 * padding.width == fast_size(
+        n + 2 * min_width, parity=parity
+    )
+
+
+def test_fast_padding_preserves_grid_centre(r, dlog):
+    n = int(r.shape[0])
+    padding = Padding.fast(n, min_width=10)
+    extended = padding.grid(r)
+    assert extended.shape == (n + 2 * padding.width,)
+    assert_array_equal(extended[padding.width : padding.width + n], r)
+    assert_allclose(jnp.diff(jnp.log(extended)), dlog, rtol=1e-4)
+    assert_allclose(get_array_center(extended), get_array_center(r), rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"n": True}, TypeError),
+        ({"n": 8, "min_width": True}, TypeError),
+        ({"n": 8, "min_width": 1.5}, TypeError),
+        ({"n": 0}, ValueError),
+        ({"n": 8, "min_width": -1}, ValueError),
+        ({"n": 8, "radices": (3, 5, 7)}, ValueError),
+        ({"n": 9, "radices": (2,)}, ValueError),
+    ],
+)
+def test_fast_padding_rejects_invalid_arguments(kwargs, error):
+    with pytest.raises(error):
+        Padding.fast(**kwargs)

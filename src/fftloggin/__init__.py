@@ -39,6 +39,7 @@ with _typecheck_import_context:
     )
     from .grids import (
         Padding,
+        fast_size,
         get_array_center,
         get_paired_grids,
         infer_dlog,
@@ -70,6 +71,7 @@ __all__ = (
     "Transform",
     "TransformedKernel",
     "cosmology",
+    "fast_size",
     "forward",
     "get_array_center",
     "get_paired_grids",

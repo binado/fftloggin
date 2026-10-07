@@ -150,6 +150,13 @@ the centre of ``r``. ``dlog``, ``bias`` and ``log_kr``, including a low-ringing
 value, carry over unchanged, and the cropped result lies on the original paired
 grid.
 
+A width that is a fraction of ``n``, such as ``ceil(0.15 * n)``, often gives a
+padded length with a large prime factor, which makes XLA's FFT several times
+slower. :meth:`~fftloggin.grids.Padding.fast` grows the width until
+``n + 2 * width`` factors over 2, 3, 5 and 7, the radices of a fast real FFT.
+The pad stays symmetric, so the centre and ``dlog`` do not change.
+:func:`~fftloggin.grids.fast_size` is the same search without the padding.
+
 Zero padding suits inputs that vanish beyond the grid. If the input does not,
 such as a lensing window at small :math:`\chi`, zeros would introduce a step of
 their own. Evaluate the input on the extended grid instead:
@@ -276,6 +283,7 @@ Helpers inside JAX
 
 ``get_paired_grids``, ``infer_log_kr``, ``Padding``, ``taper`` and
 :func:`~fftloggin.grids.get_array_center` are pure JAX and work under ``jit``
-and ``vmap``. ``infer_dlog`` checks concrete values in Python and must run
-outside JAX transformations. If you already know ``dlog`` from how the grid
+and ``vmap``. ``infer_dlog``, :func:`~fftloggin.grids.fast_size` and
+:meth:`~fftloggin.grids.Padding.fast` check concrete values in Python and must
+run outside JAX transformations. If you already know ``dlog`` from how the grid
 was built, pass it directly instead.

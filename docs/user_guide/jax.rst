@@ -153,16 +153,19 @@ checks, or when the input spans a very wide dynamic range:
 Eager helpers
 -------------
 
-Two helpers check concrete values and must run *outside* ``jit``, ``vmap``
+These helpers check concrete values and must run *outside* ``jit``, ``vmap``
 and ``grad``:
 
 - :func:`~fftloggin.grids.infer_dlog` checks that a grid is uniformly spaced
   in :math:`\ln r`;
+- :func:`~fftloggin.grids.fast_size` and :meth:`~fftloggin.grids.Padding.fast`
+  choose an FFT length whose prime factors are 2, 3, 5 and 7;
 - :func:`~fftloggin.fftlog.validate_parameters` checks that ``dlog``,
   ``bias`` and ``log_kr`` are finite, and warns when the bias lies outside the
   kernel's strip.
 
-Both turn JAX arrays into Python booleans to decide whether to raise, which
-is impossible for traced values. Calling them under ``jit`` raises
-``TracerBoolConversionError``. The transforms themselves never run these
-checks, so call them once on concrete inputs, then trace freely.
+``infer_dlog`` and ``validate_parameters`` turn JAX arrays into Python
+booleans to decide whether to raise, which is impossible for traced values.
+Calling them under ``jit`` raises ``TracerBoolConversionError``. The
+transforms themselves never run these checks, so call them once on concrete
+inputs, then trace freely.
