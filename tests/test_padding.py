@@ -202,9 +202,7 @@ def test_fast_size_matches_enumeration_up_to_few_thousand(radices, parity):
         return
     max_n = 2000
     search = (
-        tuple(radix for radix in radices if radix != 2)
-        if parity == "odd"
-        else radices
+        tuple(radix for radix in radices if radix != 2) if parity == "odd" else radices
     )
     smooth = sorted(
         value
@@ -267,9 +265,7 @@ def test_fast_padding_length_matches_fast_size_parity(n, min_width):
     padding = Padding.fast(n, min_width)
     parity = "even" if n % 2 == 0 else "odd"
     assert padding.width >= min_width
-    assert n + 2 * padding.width == fast_size(
-        n + 2 * min_width, parity=parity
-    )
+    assert n + 2 * padding.width == fast_size(n + 2 * min_width, parity=parity)
 
 
 def test_fast_padding_preserves_grid_centre(r, dlog):
