@@ -127,7 +127,7 @@ class SphericalBesselJKernel(Kernel):
 @partial(
     register_dataclass,
     data_fields=("values",),
-    meta_fields=("evaluate", "bounds", "condition", "assumptions"),
+    meta_fields=("evaluate", "bounds", "condition", "parameter_names"),
 )
 @dataclass(frozen=True, eq=False)
 class GeneratedKernel(Kernel):
@@ -141,7 +141,7 @@ class GeneratedKernel(Kernel):
     evaluate: Callable[..., jax.typing.ArrayLike]
     bounds: Callable[..., tuple[jax.typing.ArrayLike, jax.typing.ArrayLike]]
     condition: Callable[..., jax.typing.ArrayLike]
-    assumptions: tuple
+    parameter_names: tuple[str, ...]
 
     @property
     def domain(self) -> tuple[jax.Array, jax.Array]:
@@ -157,10 +157,7 @@ class GeneratedKernel(Kernel):
         return super().is_in_domain(s) & jnp.all(self.condition(s, *self.values))
 
     def validate_parameters(self) -> None:
-        for value, (name, checks) in zip(self.values, self.assumptions, strict=True):
+        for value, name in zip(self.values, self.parameter_names, strict=True):
             value = jnp.asarray(value)
             if value.ndim != 0 or not bool(jnp.isfinite(value)):
                 raise ValueError(f"{name} must be a finite scalar")
-            for label, check in checks:
-                if not bool(check(value)):
-                    raise ValueError(f"{name} violates assumption {label}")

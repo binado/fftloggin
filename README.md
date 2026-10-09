@@ -97,8 +97,10 @@ evaluate = jax.jit(lambda rate, s: factory(rate=rate)(s))
 Factories expose their Mellin `expression`, `parameters`, `strip`, and
 `conditions`. Use `from_mellin` with an explicit strip for known formulas.
 Differentiate real-space expressions with `sp.diff` before generation.
-Generated kernels support the existing transform API and JAX transformations.
-Call `validate_parameters` eagerly to enforce parameter assumptions.
+Generated kernels support the existing transform API. Call
+`validate_parameters` eagerly to check parameter finiteness; symbolic
+assumptions are caller responsibility. `factory.check_jax(sample, ...)`
+explicitly exercises JIT, batching, and gradients for supplied values.
 Built-in kernels and numerical subclasses do not require or import SymPy.
 The former `Coordinate`, `KernelExpression`, and custom `diff` API is removed;
 see the kernel guide for migration details.

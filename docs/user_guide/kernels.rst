@@ -139,8 +139,10 @@ bound positionally or by symbol name. There are no implicit defaults. Binding
 accepts numeric scalars, including traced values. Generated kernels are frozen
 JAX pytrees; their scalar parameter values can be differentiated and batched.
 Call ``kernel.validate_parameters()`` or the standalone ``validate_parameters``
-outside tracing to enforce finiteness and parameter assumptions such as
-positivity. Auxiliary convergence conditions are checked by ``is_in_domain``.
+outside tracing to check that parameters are finite. Symbolic assumptions such
+as positivity are metadata for SymPy and are not enforced at runtime; callers
+must supply values that satisfy them. Auxiliary convergence conditions are
+checked by ``is_in_domain``.
 
 The factory exposes ``expression`` (the Mellin formula), ``parameters``,
 ``strip`` and ``conditions``. ``from_expression`` retains the strip and
@@ -164,10 +166,13 @@ Gamma products and ratios with integer powers are evaluated in combined log
 space using differentiable complex log-gamma. Branch-sensitive logarithms and
 fractional powers are preserved. Common subexpression elimination is enabled
 by default; pass ``cse=False`` to disable it. ``functions={"name": jax_callable}``
-adds numerical implementations for symbolic function names. These callables
-must support the JAX transformations used by the caller. Unsupported numerical
-functions, undeclared symbols and unresolved transforms fail during generation.
-There is no numerical fallback to SymPy or NumPy.
+adds numerical implementations for symbolic function names. SymPy's JAX backend
+handles standard operations; custom callables must support the JAX
+transformations used by the caller. Undeclared symbols and unresolved
+transforms, integrals and derivatives fail during generation. Call
+``factory.check_jax(sample, ...)`` to eagerly exercise JIT, batching, and
+gradients for specific values. This check does not verify numerical accuracy or
+convergence and does not guarantee compatibility for other values or shapes.
 
 Differentiate before factory creation:
 

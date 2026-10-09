@@ -14,7 +14,9 @@
 ### Feat
 
 - Generate frozen JAX kernel pytrees with compiled convergence bounds,
-  auxiliary conditions and eager parameter assumption validation.
+  auxiliary conditions and eager parameter finiteness validation. Symbolic
+  assumptions are caller responsibility; factories can explicitly probe JAX
+  compatibility with `check_jax`.
 - Evaluate integer gamma products and ratios in combined log space, with
   differentiable complex log-gamma and optional CSE and JAX function mappings.
 

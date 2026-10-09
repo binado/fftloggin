@@ -12,8 +12,6 @@ import jax.numpy as jnp
 
 try:
     import sympy as sp
-    from sympy.core.relational import Relational
-    from sympy.functions.elementary.piecewise import ExprCondPair
     from sympy.integrals.transforms import IntegralTransform, IntegralTransformError
     from sympy.printing.numpy import JaxPrinter
 except ImportError as error:
@@ -38,31 +36,7 @@ def _complex_loggamma(z: jax.typing.ArrayLike) -> jax.Array:
 _FUNCTIONS = {
     "gamma": _gamma,
     "loggamma": _complex_loggamma,
-    "Abs": jnp.abs,
-    "re": jnp.real,
-    "im": jnp.imag,
-    "arg": jnp.angle,
     "conjugate": jnp.conj,
-    "exp": jnp.exp,
-    "log": jnp.log,
-    "sin": jnp.sin,
-    "cos": jnp.cos,
-    "tan": jnp.tan,
-    "asin": jnp.arcsin,
-    "acos": jnp.arccos,
-    "atan": jnp.arctan,
-    "atan2": jnp.arctan2,
-    "sinh": jnp.sinh,
-    "cosh": jnp.cosh,
-    "tanh": jnp.tanh,
-    "asinh": jnp.arcsinh,
-    "acosh": jnp.arccosh,
-    "atanh": jnp.arctanh,
-    "sign": jnp.sign,
-    "floor": jnp.floor,
-    "ceiling": jnp.ceil,
-    "Min": jnp.minimum,
-    "Max": jnp.maximum,
 }
 
 
@@ -109,11 +83,9 @@ def _check(expression, allowed):
         raise ValueError(
             f"undeclared symbols: {expression.free_symbols - set(allowed)}"
         )
-    if expression.has(
-        IntegralTransform, sp.Integral, sp.Derivative, sp.Sum, sp.Product
-    ):
+    if expression.has(IntegralTransform, sp.Integral, sp.Derivative):
         raise ValueError(
-            "unevaluated transforms, integrals, derivatives or sums are unsupported"
+            "unevaluated transforms, integrals or derivatives are unsupported"
         )
 
 
@@ -145,32 +117,9 @@ def _compile(expression, arguments, functions, cse):
     expressions = expression if isinstance(expression, tuple) else (expression,)
     for expr in expressions:
         _check(expr, arguments)
-        for node in sp.preorder_traversal(expr):
-            if (
-                isinstance(node, sp.Function) and not isinstance(node, sp.Piecewise)
-            ) or node.func in (sp.Min, sp.Max):
-                if node.func.__name__ not in functions:
-                    raise ValueError(
-                        f"unsupported numerical function: {node.func.__name__}"
-                    )
-            elif node != sp.I and not isinstance(
-                node,
-                (
-                    sp.Symbol,
-                    sp.Number,
-                    sp.NumberSymbol,
-                    sp.Add,
-                    sp.Mul,
-                    sp.Pow,
-                    Relational,
-                    sp.logic.boolalg.Boolean,
-                    sp.Piecewise,
-                    ExprCondPair,
-                ),
-            ):
-                raise ValueError(f"unsupported numerical expression: {node}")
-    # Explicit printer mappings prevent undefined functions from invoking Python
-    # or SymPy evaluation, and override the backend's real-only special functions.
+    # Explicit user function names prevent undefined functions from invoking
+    # attached SymPy implementations; numerical operations come from SymPy's
+    # JAX backend.
     printer = _Printer({"user_functions": {name: name for name in functions}})
     try:
         return sp.lambdify(
@@ -187,57 +136,13 @@ def _compile(expression, arguments, functions, cse):
         raise ValueError(f"unsupported numerical expression: {expression}") from error
 
 
-def _assumptions(parameter):
-    if (
-        parameter.is_finite is False
-        or parameter.is_complex is False
-        or parameter.is_commutative is False
-    ):
-        raise ValueError("parameters must admit finite numerical scalar values")
-    predicates = {
-        "real": lambda v: jnp.imag(v) == 0,
-        "imaginary": lambda v: (jnp.real(v) == 0) & (jnp.imag(v) != 0),
-        "positive": lambda v: (jnp.imag(v) == 0) & (jnp.real(v) > 0),
-        "negative": lambda v: (jnp.imag(v) == 0) & (jnp.real(v) < 0),
-        "nonnegative": lambda v: (jnp.imag(v) == 0) & (jnp.real(v) >= 0),
-        "nonpositive": lambda v: (jnp.imag(v) == 0) & (jnp.real(v) <= 0),
-        "nonzero": lambda v: (jnp.imag(v) == 0) & (v != 0),
-        "zero": lambda v: v == 0,
-        "integer": lambda v: (
-            (jnp.imag(v) == 0) & (jnp.real(v) == jnp.floor(jnp.real(v)))
-        ),
-        "even": lambda v: (jnp.imag(v) == 0) & (jnp.real(v) % 2 == 0),
-        "odd": lambda v: (jnp.imag(v) == 0) & (jnp.real(v) % 2 == 1),
-    }
-    checks = []
-    for name, predicate in predicates.items():
-        assumed = parameter.assumptions0.get(name)
-        if assumed is True:
-            checks.append((name, predicate))
-        elif assumed is False:
-            checks.append((f"not {name}", lambda v, fn=predicate: ~fn(v)))
-    unsupported = {
-        "prime",
-        "composite",
-        "irrational",
-        "rational",
-        "algebraic",
-        "transcendental",
-    }
-    # Derived assumptions (e.g. integer implies rational) need no extra checks.
-    explicit = parameter._assumptions_orig
-    if unsupported.intersection(explicit):
-        raise ValueError("unsupported parameter assumptions")
-    return parameter.name, tuple(checks)
-
-
 @dataclass(frozen=True)
 class KernelFactory:
     """Reusable factory with inspectable symbolic formula and convergence data.
 
     Bind every declared parameter positionally or by its symbol name. Binding
     checks scalar numeric shape/dtype; call ``kernel.validate_parameters()``
-    eagerly to check finiteness and symbolic assumptions.
+    eagerly to check finiteness. Callers are responsible for symbolic assumptions.
     """
 
     expression: object
@@ -249,9 +154,9 @@ class KernelFactory:
         repr=False
     )
     _condition: Callable[..., jax.typing.ArrayLike] = field(repr=False)
-    _assumptions: tuple = field(repr=False)
+    parameter_names: tuple[str, ...] = field(repr=False)
 
-    def __call__(self, *args, **kwargs) -> GeneratedKernel:
+    def _bind(self, args, kwargs) -> GeneratedKernel:
         if len(args) > len(self.parameters):
             raise TypeError("too many positional parameters")
         bound = dict(zip((p.name for p in self.parameters), args))
@@ -277,7 +182,55 @@ class KernelFactory:
             self._evaluate,
             self._bounds,
             self._condition,
-            self._assumptions,
+            self.parameter_names,
+        )
+
+    def __call__(self, *args, **kwargs) -> GeneratedKernel:
+        return self._bind(args, kwargs)
+
+    def check_jax(self, s: jax.typing.ArrayLike, /, *args, **kwargs) -> None:
+        """Eagerly exercise JIT, batching, and gradients for supplied values."""
+        kernel = self._bind(args, kwargs)
+        sample = jnp.asarray(s)
+        batch = sample[None] if sample.ndim == 0 else sample
+
+        def stage(name, operation):
+            try:
+                result = operation()
+                jax.tree.map(
+                    lambda value: (
+                        value.block_until_ready()
+                        if callable(getattr(value, "block_until_ready", None))
+                        else value
+                    ),
+                    result,
+                )
+            except Exception as error:
+                raise ValueError(f"JAX compatibility check failed at {name}") from error
+
+        stage("jit", lambda: jax.jit(lambda k, z: k(z))(kernel, sample))
+        stage(
+            "vmap",
+            lambda: jax.jit(jax.vmap(lambda z, k: k(z), in_axes=(0, None)))(
+                batch, kernel
+            ),
+        )
+
+        def loss(values, z):
+            candidate = GeneratedKernel(
+                values,
+                kernel.evaluate,
+                kernel.bounds,
+                kernel.condition,
+                kernel.parameter_names,
+            )
+            return jnp.real(jnp.sum(candidate(z)))
+
+        stage(
+            "grad",
+            lambda: jax.jit(jax.grad(loss, argnums=(0, 1), allow_int=True))(
+                kernel.values, sample
+            ),
         )
 
 
@@ -315,7 +268,6 @@ def from_mellin(
     evaluate = _compile(_log_products(expression), (s, *parameters), mappings, cse)
     bounds = _compile(strip, parameters, mappings, cse)
     condition = _compile(conditions, (s, *parameters), mappings, cse)
-    assumptions = tuple(_assumptions(p) for p in parameters)
     return KernelFactory(
         expression,
         parameters,
@@ -324,7 +276,7 @@ def from_mellin(
         evaluate,
         bounds,
         condition,
-        assumptions,
+        tuple(p.name for p in parameters),
     )
 
 

@@ -171,6 +171,63 @@ def test_dynamic_binding_pytrees_grad_and_nested_vmap(x64):
     assert all(bool(jnp.isfinite(v)) for v in jax.tree.leaves(differentiated))
 
 
+@pytest.mark.parametrize("samples", [0.8 + 0.3j, [0.8 + 0.3j, 1.1 + 0.5j]])
+def test_check_jax_successful_paths(samples):
+    _, s, rate = (sp.Symbol("x"), sp.Symbol("s"), sp.Symbol("rate"))
+    factory = from_mellin(sp.gamma(s) * rate, s, parameters=(rate,), strip=(0, 2))
+    assert factory.check_jax(samples, 2) is None
+    assert factory.check_jax(samples, rate=2) is None
+
+
+def test_check_jax_accepts_integer_parameter():
+    _, s, rate = sp.Symbol("x"), sp.Symbol("s"), sp.Symbol("rate")
+    factory = from_mellin(rate * s, s, parameters=(rate,), strip=(0, 2))
+    assert factory.check_jax(jnp.array([0.8, 1.1]), 2) is None
+
+
+def test_check_jax_identifies_jit_failure():
+    from sympy.utilities.lambdify import implemented_function
+
+    _, s, _ = sp.Symbol("x"), sp.Symbol("s"), sp.Symbol("rate")
+    f = implemented_function("python_only", lambda z: float(z))
+    factory = from_mellin(
+        f(s), s, strip=(0, 2), functions={"python_only": lambda z: float(z)}
+    )
+    with pytest.raises(ValueError, match="jit"):
+        factory.check_jax(1.0)
+
+
+def test_check_jax_identifies_vmap_failure():
+    from jax import ShapeDtypeStruct
+
+    def callback(z):
+        return jax.pure_callback(
+            lambda x: np.asarray(x), ShapeDtypeStruct(z.shape, z.dtype), z
+        )
+
+    _, s, _ = sp.Symbol("x"), sp.Symbol("s"), sp.Symbol("rate")
+    f = cast(Callable[..., sp.Expr], sp.Function("callback"))
+    factory = from_mellin(f(s), s, strip=(0, 2), functions={"callback": callback})
+    with pytest.raises(ValueError, match="vmap"):
+        factory.check_jax(1.0)
+
+
+def test_check_jax_identifies_grad_failure():
+    @jax.custom_jvp
+    def no_jvp(z):
+        return jnp.sin(z)
+
+    @no_jvp.defjvp
+    def no_jvp_rule(primals, tangents):
+        raise NotImplementedError("derivative unavailable")
+
+    _, s, _ = sp.Symbol("x"), sp.Symbol("s"), sp.Symbol("rate")
+    f = cast(Callable[..., sp.Expr], sp.Function("no_jvp"))
+    factory = from_mellin(f(s), s, strip=(0, 2), functions={"no_jvp": no_jvp})
+    with pytest.raises(ValueError, match="grad"):
+        factory.check_jax(1.0)
+
+
 def test_all_fftlog_entrypoints(x64):
     generated, direct = bessel_kernel(0.5), BesselJKernel(0.5)
     n, dlog = 32, 0.2
@@ -197,7 +254,7 @@ def test_all_fftlog_entrypoints(x64):
 
 
 @pytest.mark.parametrize(
-    "kind", ["undeclared", "integral", "derivative", "transform", "function", "sum"]
+    "kind", ["undeclared", "integral", "derivative", "transform", "function"]
 )
 def test_generation_rejects_unresolved_or_unsupported(symbols, kind):
     x, s, _ = symbols
@@ -208,7 +265,6 @@ def test_generation_rejects_unresolved_or_unsupported(symbols, kind):
         "derivative": sp.Derivative(f(s), s),
         "transform": sp.MellinTransform(f(x), x, s),
         "function": sp.besselj(0, s),
-        "sum": sp.Sum(s**x, (x, 1, 3)),
     }
     with pytest.raises(ValueError):
         from_mellin(expressions[kind], s, strip=(0, 1))
@@ -253,23 +309,13 @@ def test_binding_errors(symbols, args, kwargs):
 
 @pytest.mark.parametrize(
     "assumption,value",
-    [
-        ("positive", -1),
-        ("real", 1j),
-        ("integer", 1.5),
-        ("even", 3),
-        ("odd", 2),
-        ("nonzero", 0),
-        ("negative", 1),
-        ("imaginary", 1),
-    ],
+    [("positive", -1), ("real", 1j), ("integer", 1.5), ("prime", 2)],
 )
-def test_eager_assumption_validation(symbols, assumption, value):
+def test_symbolic_assumptions_are_caller_responsibility(symbols, assumption, value):
     _, s, _ = symbols
     a = sp.Symbol("a", **{assumption: True})
     kernel = from_mellin(a * s, s, parameters=(a,), strip=(0, 2))(value)
-    with pytest.raises(ValueError, match="assumption"):
-        validate_parameters(kernel, dlog=0.1)
+    kernel.validate_parameters()
 
 
 @pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
@@ -314,7 +360,6 @@ def test_piecewise_and_parameter_dependent_min_max_strips(symbols):
         "complex_strip",
         "bad_conditions",
         "bad_mapping",
-        "unsupported_assumption",
         "coordinate",
     ],
 )
@@ -333,8 +378,6 @@ def test_generation_metadata_errors(symbols, kind):
         options["conditions"] = s + 1
     elif kind == "bad_mapping":
         options["functions"] = {"custom": 1}
-    elif kind == "unsupported_assumption":
-        options["parameters"] = (sp.Symbol("a", prime=True),)
     elif kind == "coordinate":
         s = 1
     with pytest.raises((ValueError, TypeError)):
