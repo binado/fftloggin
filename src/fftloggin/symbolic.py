@@ -111,12 +111,6 @@ class _Printer(JaxPrinter):
     def _print_Or(self, expr: sp.Basic) -> str:
         return self._fold(expr, "jax.numpy.logical_or")
 
-    def _print_Min(self, expr: sp.Basic) -> str:
-        return self._fold(expr, "jax.numpy.minimum")
-
-    def _print_Max(self, expr: sp.Basic) -> str:
-        return self._fold(expr, "jax.numpy.maximum")
-
 
 def _compile(
     expression: sp.Basic | tuple[sp.Basic, ...],
