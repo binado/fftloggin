@@ -21,3 +21,15 @@ rev = "4.0.1"
 hooks = [
   { id = "nb-clean", args = ["--remove-empty-cells", "--remove-all-notebook-metadata"] },
 ]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ty"
+name = "ty check"
+entry = "uv run ty check"
+language = "system"
+pass_filenames = false
+always_run = true
+require_serial = true
