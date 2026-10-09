@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError
-from typing import cast
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -365,7 +365,9 @@ def test_piecewise_and_parameter_dependent_min_max_strips(symbols):
 )
 def test_generation_metadata_errors(symbols, kind):
     _, s, a = symbols
-    options = {"strip": (0, 2), "parameters": (a,)}
+    # These cases deliberately pass invalid values to exercise runtime checks.
+    options: dict[str, Any] = {"strip": (0, 2), "parameters": (a,)}
+    coordinate: Any = s
     if kind == "strip_symbol":
         options["strip"] = (sp.Symbol("other"), 2)
     elif kind == "condition_symbol":
@@ -379,9 +381,9 @@ def test_generation_metadata_errors(symbols, kind):
     elif kind == "bad_mapping":
         options["functions"] = {"custom": 1}
     elif kind == "coordinate":
-        s = 1
+        coordinate = 1
     with pytest.raises((ValueError, TypeError)):
-        from_mellin(1, s, **options)
+        from_mellin(1, cast(Any, coordinate), **options)
 
 
 def test_undefined_function_never_uses_sympy_implementation(symbols):
