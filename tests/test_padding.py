@@ -228,9 +228,6 @@ def test_fast_size_ignores_duplicate_radices():
 @pytest.mark.parametrize(
     ("kwargs", "error"),
     [
-        ({"n": True}, TypeError),
-        ({"n": 1.5}, TypeError),
-        ({"n": "8"}, TypeError),
         ({"n": 0}, ValueError),
         ({"n": -1}, ValueError),
         ({"n": 8, "radices": [2, 3, 5, 7]}, TypeError),
@@ -281,9 +278,6 @@ def test_fast_padding_preserves_grid_centre(r, dlog):
 @pytest.mark.parametrize(
     ("kwargs", "error"),
     [
-        ({"n": True}, TypeError),
-        ({"n": 8, "min_width": True}, TypeError),
-        ({"n": 8, "min_width": 1.5}, TypeError),
         ({"n": 0}, ValueError),
         ({"n": 8, "min_width": -1}, ValueError),
         ({"n": 8, "radices": (3, 5, 7)}, ValueError),

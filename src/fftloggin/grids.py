@@ -172,12 +172,6 @@ def infer_log_kr(
 _DEFAULT_RADICES: tuple[int, ...] = (2, 3, 5, 7)
 
 
-def _require_int(value: object, name: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError(f"{name} must be an integer")
-    return value
-
-
 def _is_prime(value: int) -> bool:
     if value < 2:
         return False
@@ -275,7 +269,6 @@ def fast_size(
         fast_size(2664, parity="even")
         # 2688
     """
-    n = _require_int(n, "n")
     if n < 1:
         raise ValueError("n must be at least 1")
     radices = _validate_radices(radices)
@@ -420,10 +413,8 @@ class Padding:
             p = plan(kernel, padded.shape[0], dlog=dlog, bias=bias, log_kr=log_kr)
             result = padding.crop(forward(padded, p))
         """
-        n = _require_int(n, "n")
         if n < 1:
             raise ValueError("n must be at least 1")
-        min_width = _require_int(min_width, "min_width")
         if min_width < 0:
             raise ValueError("min_width must be non-negative")
         parity: Literal["even", "odd"] = "even" if n % 2 == 0 else "odd"
