@@ -12,7 +12,7 @@ import jax.numpy as jnp
 
 try:
     import sympy as sp
-    from sympy.integrals.transforms import IntegralTransform, IntegralTransformError
+    from sympy.integrals.transforms import IntegralTransformError
     from sympy.printing.numpy import JaxPrinter
 except ImportError as error:
     raise ImportError(
@@ -82,10 +82,6 @@ def _check(expression, allowed):
     if expression.free_symbols - set(allowed):
         raise ValueError(
             f"undeclared symbols: {expression.free_symbols - set(allowed)}"
-        )
-    if expression.has(IntegralTransform, sp.Integral, sp.Derivative):
-        raise ValueError(
-            "unevaluated transforms, integrals or derivatives are unsupported"
         )
 
 
