@@ -141,11 +141,12 @@ second derivative for redshift-space distortions:
 
 .. code-block:: python
 
-   from fftloggin import Derivative, SphericalBesselJKernel, plan, product_plan
+   from fftloggin import Coordinate, diff, SphericalBesselJKernel, plan, product_plan
 
    j = SphericalBesselJKernel(ell)
    p1 = plan(j, n, dlog=dlog, bias=-0.25)
-   p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
+   t = Coordinate("t")
+   p2 = plan(diff(j(t), t, order=2), n, dlog=dlog, bias=-0.25)
    pp = product_plan(p1, p2, max_offset=M)
 
 :func:`~fftloggin.cosmology.double_spherical_bessel_plan` is the special
@@ -154,7 +155,7 @@ pair:
 
 - Each plan's :math:`1 + q` must lie in its own kernel's strip, and the bias
   seen by :math:`a(k)` is the sum of the two biases plus one.
-  :class:`~fftloggin.kernels.Derivative` shifts a strip up by its order, so
+  ``diff`` shifts a strip up by its order, so
   pairs of derivatives at low :math:`\ell` need carefully chosen biases.
 - The integral :math:`\int dk\, a(k) K_1(k\chi) K_2(k\chi')` is no longer
   symmetric in :math:`\chi \leftrightarrow \chi'`. Including the

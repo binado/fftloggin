@@ -275,9 +275,12 @@ def product_plan(
 
     Band of ``chi * integral(a(k) * j_ell(k*chi) * j_ell''(k*chi'), k)``::
 
+        from fftloggin import Coordinate, SphericalBesselJKernel, diff
+
+        t = Coordinate("t")
         j = SphericalBesselJKernel(ell)
         p1 = plan(j, n, dlog=dlog, bias=-0.25)
-        p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
+        p2 = plan(diff(j(t), t, order=2), n, dlog=dlog, bias=-0.25)
         band = forward(a, product_plan(p1, p2, max_offset=m))
     """
     if max_offset < 0:
@@ -547,8 +550,13 @@ def validate_parameters(
 
     Notes
     -----
+    Expression weights, powers, and argument scales are checked recursively
+    for finiteness; argument scales must also be strictly positive.
     This is an eager host-side helper. Do not call it inside a JAX transform.
     """
+    from .symbolic import _validate_expression
+
+    _validate_expression(kernel)
     for name, value in (("dlog", dlog), ("bias", bias), ("log_kr", log_kr)):
         arr = jnp.asarray(value)
         if arr.ndim != 0 or not bool(jnp.isfinite(arr)):

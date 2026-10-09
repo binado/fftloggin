@@ -32,3 +32,9 @@ Exceptions and warnings
 
 .. automodule:: fftloggin.exceptions
    :members:
+
+Symbolic expressions
+--------------------
+
+.. automodule:: fftloggin.symbolic
+   :members:

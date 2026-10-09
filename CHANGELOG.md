@@ -1,3 +1,13 @@
+## Unreleased
+
+### Breaking
+
+- Replace `Transform`, `TransformedKernel`, `PowerLaw`, `Derivative`, `Scale`,
+  and `Kernel.transform` with symbolic `Coordinate`, `KernelExpression`,
+  and `diff` composition. See the kernel guide for a migration table.
+- Custom kernels implement `mellin(s)` instead of `__call__(s)`; the inherited
+  dispatcher handles symbolic binding and numerical evaluation.
+
 ## 0.5.0 (2026-09-23)
 
 ### Breaking

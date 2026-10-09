@@ -67,17 +67,57 @@ assert bool(jnp.isfinite(gradient))
 def test_runtime_checks_accept_integer_kernels_and_derivative_domains():
     _run_python(
         """
-from fftloggin import BesselJKernel, Derivative, PowerLaw
+from fftloggin import BesselJKernel, Coordinate, diff
+t = Coordinate("t")
 
-kernel = BesselJKernel(0).transform(Derivative(1))
+kernel = diff(BesselJKernel(0)(t), t)
 lower, upper = kernel.domain
 assert float(lower) == 1.0
 assert float(upper) == 2.5
 
-shifted = BesselJKernel(0).transform(PowerLaw(1))
+shifted = t**1 * BesselJKernel(0)(t)
 shift_lower, shift_upper = shifted.domain
 assert float(shift_lower) == -1.0
 assert float(shift_upper) == 0.5
 """,
         runtime_checking="1",
+    )
+
+
+def test_runtime_checks_support_symbolic_jax_composition():
+    _run_python(
+        """
+import jax
+import jax.numpy as jnp
+from fftloggin import BesselJKernel, Coordinate, diff, forward, plan
+t = Coordinate("t")
+def make(mu, weight, power, scale):
+    expr = weight * t**power * BesselJKernel(mu)(scale * t)
+    return expr + diff(expr, t)
+expr = make(0.5, 2.0, 0.2, 1.7)
+s = jnp.array([1.0 + 0.3j, 1.2 + 0.4j])
+assert bool(jnp.allclose(jax.jit(lambda e, z: e(z))(expr, s), expr(s)))
+evaluate = lambda a: jnp.real(make(a, a, a, a)(s)).sum()
+assert bool(jnp.isfinite(jax.jit(jax.grad(evaluate))(0.5)))
+assert jax.jit(jax.vmap(evaluate))(jnp.array([0.5, 0.6])).shape == (2,)
+p = plan(expr, 16, dlog=0.1, bias=0.0)
+assert forward(jnp.ones(16), p).shape == (16,)
+""",
+        runtime_checking="1",
+    )
+
+
+def test_import_preserves_process_jax_configuration():
+    _run_python(
+        """
+import importlib
+import jax
+for enabled in (False, True):
+    with jax.enable_x64(enabled):
+        before = dict(jax.config.values)
+        import fftloggin
+        importlib.reload(fftloggin)
+        assert jax.config.values == before
+""",
+        runtime_checking=None,
     )

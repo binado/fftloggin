@@ -5,19 +5,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from jax.scipy.special import digamma
-from jaxtyping import TypeCheckError
 from numpy.testing import assert_allclose
 from scipy.special import digamma as scipy_digamma
 from scipy.special import loggamma
 
 from fftloggin import (
     BesselJKernel,
-    Derivative,
-    PowerLaw,
-    Scale,
+    Coordinate,
     SphericalBesselJKernel,
-    TransformedKernel,
+    diff,
 )
+
+t = Coordinate("t")
 
 VALUE_RTOL = 1e-11
 VALUE_ATOL = 1e-12
@@ -53,10 +52,10 @@ def _centered_difference(func, x):
     params=[
         BesselJKernel(0.5),
         SphericalBesselJKernel(1.0),
-        BesselJKernel(0.5).transform(PowerLaw(0.2)),
-        BesselJKernel(0.5).transform(Derivative(1)),
-        BesselJKernel(0.5).transform(Scale(1.7)),
-        BesselJKernel(0.5).transform(PowerLaw(0.2), Derivative(1)),
+        t**0.2 * BesselJKernel(0.5)(t),
+        diff(BesselJKernel(0.5)(t), t, order=1),
+        BesselJKernel(0.5)(t)(1.7 * t),
+        diff(t**0.2 * BesselJKernel(0.5)(t), t, order=1),
     ],
     ids=["bessel", "spherical", "power-law", "derivative", "scale", "composed"],
 )
@@ -66,8 +65,13 @@ def kernel(request):
 
 @pytest.mark.parametrize(
     "s",
-    [0.8, 0.8 + 0.3j, np.array([0.6 + 0.2j, 0.8 + 0.3j, 1.1 + 0.1j])],
-    ids=["real-scalar", "complex-scalar", "complex-array"],
+    [
+        0.8,
+        0.8 + 0.3j,
+        [0.6 + 0.2j, 0.8 + 0.3j],
+        np.array([0.6 + 0.2j, 0.8 + 0.3j, 1.1 + 0.1j]),
+    ],
+    ids=["real-scalar", "complex-scalar", "complex-list", "complex-array"],
 )
 @pytest.mark.parametrize(
     "kind,parameter",
@@ -89,7 +93,7 @@ def test_kernel_values_match_scipy(x64, kind, parameter, s):
 def test_derivative_matches_mellin_identity(x64, order):
     mu = 0.5
     s = np.array([order + 0.3 + 0.2j, order + 0.7 + 0.3j])
-    got = BesselJKernel(mu).transform(Derivative(order))(s)
+    got = diff(BesselJKernel(mu)(t), t, order=order)(s)
     expected = _derivative_reference(mu, s, order)
     assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
 
@@ -98,7 +102,7 @@ def test_power_law_matches_shifted_argument():
     base = BesselJKernel(0.5)
     s = np.array([0.6 + 0.2j, 0.8 + 0.3j])
 
-    got = base.transform(PowerLaw(0.2))(s)
+    got = (t**0.2 * base(t))(s)
     assert_allclose(got, base(s + 0.2), rtol=VALUE_RTOL)
 
 
@@ -106,54 +110,29 @@ def test_power_law_matches_shifted_argument():
 def test_scale_matches_mellin_identity(x64, factor):
     mu = 0.5
     s = np.array([0.6 + 0.2j, 0.8 + 0.3j])
-    got = BesselJKernel(mu).transform(Scale(factor))(s)
+    got = BesselJKernel(mu)(t)(factor * t)(s)
     expected = factor**-s * _bessel_reference(mu, s)
     assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
 
 
-@pytest.mark.parametrize("order", [0, -1, 1.5])
-def test_derivative_constructor_rejects_invalid_order(order):
-    with pytest.raises((ValueError, TypeCheckError), match="positive integer|order"):
-        Derivative(order)
+@pytest.mark.parametrize("order", [-1, 1.5, True])
+def test_diff_rejects_invalid_order(order):
+    with pytest.raises(ValueError, match="order"):
+        diff(BesselJKernel(0.5)(t), t, order=order)
 
 
-@pytest.mark.parametrize(
-    "op", [PowerLaw(0.2), Derivative(2), Scale(2.0)], ids=["power", "deriv", "scale"]
-)
-def test_transform_wraps_base_kernel(op):
-    base = BesselJKernel(0.5)
-    transformed = base.transform(op)
-    assert isinstance(transformed, TransformedKernel)
-    assert transformed.base is base
-    assert transformed.op is op
-
-
-@pytest.mark.parametrize(
-    "ops,equivalent",
-    [
-        ((PowerLaw(0.2), PowerLaw(0.3)), (PowerLaw(0.5),)),
-        ((Derivative(1), Derivative(1)), (Derivative(2),)),
-    ],
-    ids=["power-laws", "derivatives"],
-)
-def test_composed_transforms_match_single_transform(x64, ops, equivalent):
-    base = BesselJKernel(0.5)
+@pytest.mark.parametrize("kind", ["power", "derivative"])
+def test_nested_compositions_match_equivalent_expression(x64, kind):
+    base = BesselJKernel(0.5)(t)
+    if kind == "power":
+        composed = t**0.3 * (t**0.2 * base)
+        equivalent = t**0.5 * base
+    else:
+        composed = diff(diff(base, t), t)
+        equivalent = diff(base, t, order=2)
     s = np.array([2.3 + 0.2j, 2.6 + 0.3j])
-    composed = base.transform(*ops)
-    assert_allclose(
-        composed(s), base.transform(*equivalent)(s), rtol=VALUE_RTOL, atol=VALUE_ATOL
-    )
-    assert_allclose(
-        composed.domain, base.transform(*equivalent).domain, rtol=VALUE_RTOL
-    )
-
-
-def test_transform_chain_equals_repeated_transform():
-    base = BesselJKernel(0.5)
-    s = np.array([1.3 + 0.2j, 1.6 + 0.3j])
-    chained = base.transform(PowerLaw(0.2), Derivative(1))
-    repeated = base.transform(PowerLaw(0.2)).transform(Derivative(1))
-    assert_allclose(chained(s), repeated(s), rtol=VALUE_RTOL, atol=VALUE_ATOL)
+    assert_allclose(composed(s), equivalent(s), rtol=VALUE_RTOL, atol=VALUE_ATOL)
+    assert_allclose(composed.domain, equivalent.domain)
 
 
 @pytest.mark.parametrize("order", [1, 2])
@@ -164,13 +143,13 @@ def test_transform_order_follows_pipeline(x64, order):
     shifted = s - order + nu
 
     # d^n/dx^n [x**nu K(x)]
-    power_first = base.transform(PowerLaw(nu), Derivative(order))(s)
+    power_first = diff(t**nu * base(t), t, order=order)(s)
     factor = np.prod([s - n for n in range(1, order + 1)], axis=0)
     expected = (-1) ** order * factor * _bessel_reference(mu, shifted)
     assert_allclose(power_first, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
 
     # x**nu d^n K/dx^n
-    derivative_first = base.transform(Derivative(order), PowerLaw(nu))(s)
+    derivative_first = (t**nu * diff(base(t), t, order=order))(s)
     factor = np.prod([s + nu - n for n in range(1, order + 1)], axis=0)
     expected = (-1) ** order * factor * _bessel_reference(mu, shifted)
     assert_allclose(derivative_first, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
@@ -184,11 +163,11 @@ def test_transform_order_follows_pipeline(x64, order):
         (BesselJKernel(0.5), -0.5, 1.5),
         (BesselJKernel(0), 0.0, 1.5),
         (SphericalBesselJKernel(1.0), -1.0, 2.0),
-        (BesselJKernel(0.5).transform(PowerLaw(0.25)), -0.75, 1.25),
-        (BesselJKernel(0.5).transform(Derivative(2)), 1.5, 3.5),
-        (BesselJKernel(0).transform(Derivative(1)), 1.0, 2.5),
-        (BesselJKernel(0.5).transform(Scale(2.0)), -0.5, 1.5),
-        (BesselJKernel(0.5).transform(PowerLaw(0.25), Derivative(2)), 1.25, 3.25),
+        (t**0.25 * BesselJKernel(0.5)(t), -0.75, 1.25),
+        (diff(BesselJKernel(0.5)(t), t, order=2), 1.5, 3.5),
+        (diff(BesselJKernel(0)(t), t, order=1), 1.0, 2.5),
+        (BesselJKernel(0.5)(t)(2.0 * t), -0.5, 1.5),
+        (diff(t**0.25 * BesselJKernel(0.5)(t), t, order=2), 1.25, 3.25),
     ],
     ids=[
         "bessel",
@@ -228,8 +207,8 @@ def test_vmap_over_scalar_kernel_parameters(kind, parameters):
         if kind == "ell":
             return SphericalBesselJKernel(parameter)(s)
         if kind == "nu":
-            return BesselJKernel(0.5).transform(PowerLaw(parameter))(s)
-        return BesselJKernel(0.5).transform(Scale(parameter))(s)
+            return (t**parameter * BesselJKernel(0.5)(t))(s)
+        return BesselJKernel(0.5)(t)(parameter * t)(s)
 
     got = jax.vmap(evaluate)(jnp.asarray(parameters))
     expected = jnp.stack([evaluate(parameter) for parameter in parameters])
@@ -300,7 +279,7 @@ def test_power_law_parameter_grad_matches_scipy_difference(x64):
     nu = 0.2
     s = 0.8 + 0.3j
     got = jax.grad(
-        lambda parameter: jnp.real(BesselJKernel(0.5).transform(PowerLaw(parameter))(s))
+        lambda parameter: jnp.real((t**parameter * BesselJKernel(0.5)(t))(s))
     )(nu)
     expected = _centered_difference(
         lambda parameter: _bessel_reference(0.5, s + parameter), nu
@@ -311,9 +290,9 @@ def test_power_law_parameter_grad_matches_scipy_difference(x64):
 def test_scale_factor_grad_matches_scipy_difference():
     factor = 1.7
     s = 0.8 + 0.3j
-    got = jax.grad(
-        lambda parameter: jnp.real(BesselJKernel(0.5).transform(Scale(parameter))(s))
-    )(factor)
+    got = jax.grad(lambda parameter: jnp.real(BesselJKernel(0.5)(t)(parameter * t)(s)))(
+        factor
+    )
     expected = _centered_difference(
         lambda parameter: parameter**-s * _bessel_reference(0.5, s), factor
     )
@@ -324,7 +303,7 @@ def test_derivative_base_parameter_grad_matches_scipy_difference():
     mu = 0.5
     s = 2.3 + 0.3j
     got = jax.grad(
-        lambda parameter: jnp.real(BesselJKernel(parameter).transform(Derivative(2))(s))
+        lambda parameter: jnp.real(diff(BesselJKernel(parameter)(t), t, order=2)(s))
     )(mu)
     expected = _centered_difference(
         lambda parameter: _derivative_reference(parameter, s, 2), mu

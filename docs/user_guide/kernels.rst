@@ -113,75 +113,97 @@ The spherical Bessel kernel follows from the identity Hamilton quotes in
 three-dimensional Fourier transforms of isotropic functions, such as the
 power spectrum multipoles in :doc:`tutorial`.
 
-Transforming kernels
+Symbolic composition
 --------------------
 
-A :class:`~fftloggin.kernels.Transform` is a linear operation on a kernel.
-``kernel.transform(op)`` returns a
-:class:`~fftloggin.kernels.TransformedKernel`, itself a kernel, that works
-anywhere a kernel does.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 35 35
-
-   * - Transform
-     - Kernel
-     - Strip in :math:`s`
-   * - ``PowerLaw(nu)``
-     - :math:`t^{\nu} K(t)`
-     - base strip shifted by :math:`-\nu`
-   * - ``Derivative(n)``
-     - :math:`K^{(n)}(t)`
-     - base strip shifted by :math:`+n`
-   * - ``Scale(c)``
-     - :math:`K(c\,t)`, :math:`c > 0`
-     - base strip
-
-They use the standard Mellin rules:
-
-.. math::
-
-   \mathcal{M}\!\left[t^{\nu} K\right](s) = \mathcal{M}[K](s + \nu),
-
-.. math::
-
-   \mathcal{M}\!\left[K^{(n)}\right](s)
-   = (-1)^n (s - 1)(s - 2)\cdots(s - n)\; \mathcal{M}[K](s - n),
-
-.. math::
-
-   \mathcal{M}\!\left[K(c\,\cdot)\right](s) = c^{-s}\, \mathcal{M}[K](s).
-
-``PowerLaw`` absorbs a power of :math:`kr` into the kernel, which is
-useful when an integrand carries a factor such as :math:`(kr)^2`.
-``Derivative`` gives the transform with :math:`K'(kr)` in place of
-:math:`K(kr)`, which appears when differentiating a transform with respect
-to :math:`k` or :math:`r`. ``Scale`` evaluates the kernel at a rescaled
-argument, which is equivalent to shifting the output grid by
-:math:`\ln c` and dividing by :math:`c`.
-
-Several transforms apply in pipeline order: ``kernel.transform(a, b)`` equals
-``kernel.transform(a).transform(b)``. Transforms do not commute in general:
+Bind a numerical kernel to a :class:`~fftloggin.symbolic.Coordinate` to
+compose real-space operations. Expressions are frozen JAX pytree kernels
+and work directly with ``plan``, ``forward``, ``inverse``,
+``lowring_log_kr``, and ``product_plan``:
 
 .. code-block:: python
 
-   from fftloggin import BesselJKernel, Derivative, PowerLaw
+   from fftloggin import BesselJKernel, Coordinate, diff, plan
 
-   j = BesselJKernel(1.0)
-   j.transform(PowerLaw(2), Derivative(1))  # d/dt [t**2 J_1(t)]
-   j.transform(Derivative(1), PowerLaw(2))  # t**2 J_1'(t)
+   t = Coordinate("t")
+   j = BesselJKernel(mu=1.5)
+   expr = t**0.2 * j(1.7 * t)
+   derivative = diff(expr, t, order=2)
+   combined = 2 * expr - derivative
+   p = plan(combined, 256, dlog=0.1, bias=0.0)
 
-The result is a ``TransformedKernel``, not a ``BesselJKernel``: it keeps the
-original kernel in ``.base`` and the transform in ``.op``. Transforms are
-frozen JAX pytrees, and ``PowerLaw.nu`` is a data field, so it can be
-batched with ``jax.vmap`` and differentiated with ``jax.grad``.
+Calling ``expr(s)`` with numerical scalar or array arguments evaluates its
+Mellin transform. Calling ``expr(b * t)`` rescales the complete real-space
+expression. Coordinates with equal names denote the same variable.
+Combining different names raises ``TypeError``; explicitly calling
+``expr(Coordinate("u"))`` rebinds the expression.
 
-A custom transform subclasses :class:`~fftloggin.kernels.Transform`: its
-``__call__(kernel, s)`` returns the transformed Mellin transform using
-``kernel`` evaluated at any arguments it needs, and ``domain(lower, upper)``
-maps the base strip. Register it as a pytree, as in the custom kernel
-example below.
+.. list-table::
+   :header-rows: 1
+
+   * - Expression
+     - Mellin transform
+     - Strip
+   * - ``c * j(t)``
+     - ``c * M(s)``
+     - Base strip
+   * - ``j(t) + k(t)``
+     - ``M_j(s) + M_k(s)``
+     - Intersection
+   * - ``t**nu * j(t)``
+     - ``M(s + nu)``
+     - Base strip shifted by ``-nu``
+   * - ``j(a * t)``
+     - ``exp(-s * log(a)) * M(s)``
+     - Base strip
+   * - ``diff(j(t), t, order=n)``
+     - ``(-1)**n * product(s-r, r=1,...,n) * M(s-n)``
+     - Base strip shifted by ``+n``
+
+Derivative identities assume the boundary terms from repeated integration
+by parts vanish. The reported derivative strip preserves this convention.
+Sum strips are conservative: cancellations do not widen them and empty
+intersections remain empty. Trees stay nested without simplification.
+
+Operation order matters:
+
+.. code-block:: python
+
+   diff(t**2 * j(t), t)  # d/dt [t**2 J(t)]
+   t**2 * diff(j(t), t)  # t**2 J'(t)
+
+``diff`` accepts a static nonnegative integer order; order zero returns
+the expression unchanged. Coefficients, exponents, and scales must be
+real scalars. Argument scales must be strictly positive. Use the eager
+``validate_parameters`` helper to check finite expression parameters and
+positive scales before tracing. Construction and evaluation support
+``jit``, ``vmap``, and ``grad`` without host conversions of parameter values.
+
+Translations, nonlinear arguments, arbitrary kernel products, powers of
+complete kernels, and scalar addition to kernels are unsupported.
+Coordinates and monomial factors alone are not FFTLog kernels.
+
+Migration from transforms
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``Transform`` API and ``Kernel.transform`` have been removed.
+With ``t = Coordinate("t")``, migrate calls as follows:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Previous API
+     - Symbolic API
+   * - ``j.transform(PowerLaw(nu))``
+     - ``t**nu * j(t)``
+   * - ``j.transform(Derivative(n))``
+     - ``diff(j(t), t, order=n)``
+   * - ``j.transform(Scale(a))``
+     - ``j(a * t)``
+   * - ``j.transform(PowerLaw(nu), Derivative(n))``
+     - ``diff(t**nu * j(t), t, order=n)``
+   * - Custom kernel ``__call__(s)``
+     - Custom kernel ``mellin(s)``
 
 Writing a custom kernel
 -----------------------
@@ -197,7 +219,7 @@ only Bessel functions. As an example, the Laplace kernel
 so ``forward`` computes :math:`\tilde{A}(k) = k \int_0^\infty e^{-a k r}
 A(r)\, dr`, a scaled Laplace transform. To implement it, subclass
 :class:`~fftloggin.kernels.Kernel`, return the Mellin transform from
-``__call__``, report the strip from ``domain``, and register the class as a
+``mellin``, report the strip from ``domain``, and register the class as a
 JAX pytree with its numeric parameters as data fields:
 
 .. code-block:: python
@@ -205,7 +227,9 @@ JAX pytree with its numeric parameters as data fields:
    from dataclasses import dataclass
    from functools import partial
 
+   import jax
    import jax.numpy as jnp
+   from jax.typing import ArrayLike
    from jax.scipy.special import loggamma
    from jax.tree_util import register_dataclass
 
@@ -217,13 +241,13 @@ JAX pytree with its numeric parameters as data fields:
    class LaplaceKernel(Kernel):
        """Kernel K(t) = exp(-rate * t), with Mellin transform rate**-s Gamma(s)."""
 
-       rate: float
+       rate: ArrayLike
 
        @property
        def domain(self):
            return jnp.asarray(0.0), jnp.asarray(jnp.inf)
 
-       def __call__(self, s):
+       def mellin(self, s: ArrayLike) -> jax.Array:
            s = jnp.asarray(s)
            return jnp.exp(loggamma(s) - s * jnp.log(self.rate))
 
@@ -258,6 +282,6 @@ API
 
 .. autoclass:: fftloggin.kernels.Kernel
    :no-index:
-   :members: domain, __call__, is_in_domain
+   :members: domain, mellin, __call__, is_in_domain
 
 The built-in kernels are listed in the :doc:`API reference </reference/api>`.

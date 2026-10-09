@@ -9,15 +9,16 @@ from scipy.special import poch
 
 from fftloggin import (
     BesselJKernel,
-    Derivative,
-    PowerLaw,
-    Scale,
+    Coordinate,
+    diff,
     forward,
     get_paired_grids,
     inverse,
     lowring_log_kr,
     plan,
 )
+
+t = Coordinate("t")
 
 
 @pytest.fixture
@@ -160,9 +161,7 @@ def test_forward_inverse_round_trip(x64, n, order, bias, kr):
     rng = np.random.RandomState(3491349965)
     a = rng.standard_normal(n)
     mu = rng.uniform(3, 5)
-    kernel = (
-        BesselJKernel(mu).transform(Derivative(order)) if order else BesselJKernel(mu)
-    )
+    kernel = diff(BesselJKernel(mu)(t), t, order=order) if order else BesselJKernel(mu)
     transformed = forward(a, kernel, dlog=0.1, bias=bias, log_kr=np.log(kr))
     restored = inverse(transformed, kernel, dlog=0.1, bias=bias, log_kr=np.log(kr))
     assert_allclose(restored, a, rtol=1.5e-7, atol=1e-12)
@@ -257,7 +256,7 @@ def test_power_law_kernel_matches_weighted_input(x64):
     base = BesselJKernel(mu)
     _, k = get_paired_grids(r=r)
 
-    shifted = forward(a, base.transform(PowerLaw(nu)), dlog=dlog, bias=bias)
+    shifted = forward(a, t**nu * base(t), dlog=dlog, bias=bias)
     direct = forward(a * r**nu, base, dlog=dlog, bias=bias + nu)
     assert_allclose(shifted * k**-nu, direct, rtol=1e-7, atol=1e-12)
 
@@ -270,9 +269,7 @@ def test_scaled_kernel_matches_shifted_output_grid(x64, factor):
     base, bias, log_kr = BesselJKernel(0.8), -0.4, 0.3
 
     # k * integral(a(r) K(factor*k*r), r) is the unscaled transform at factor*k.
-    scaled = forward(
-        a, base.transform(Scale(factor)), dlog=dlog, bias=bias, log_kr=log_kr
-    )
+    scaled = forward(a, base(t)(factor * t), dlog=dlog, bias=bias, log_kr=log_kr)
     direct = forward(a, base, dlog=dlog, bias=bias, log_kr=log_kr + np.log(factor))
     assert_allclose(scaled, direct / factor, rtol=1e-7, atol=1e-12)
 
@@ -305,7 +302,7 @@ def test_vmap_over_inputs_with_plan(smooth_input):
 
 
 @pytest.mark.parametrize("layout", ["kernels", "inputs", "outer", "paired"])
-def test_vmap_batches_inputs_and_kernels(smooth_input, layout):
+def test_vmap_batches_inputs_and_kernels(x64, smooth_input, layout):
     mus = jnp.array([0.0, 1.0, 2.0])
     batch = jnp.stack([smooth_input * scale for scale in (0.5, 1.0, 2.0)])
     n = batch.shape[1]
