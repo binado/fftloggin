@@ -152,7 +152,7 @@ class KernelFactory:
     _condition: Callable[..., jax.typing.ArrayLike] = field(repr=False)
     parameter_names: tuple[str, ...] = field(repr=False)
 
-    def _bind(self, args, kwargs) -> GeneratedKernel:
+    def _bind(self, *args, **kwargs) -> GeneratedKernel:
         if len(args) > len(self.parameters):
             raise TypeError("too many positional parameters")
         bound = dict(zip((p.name for p in self.parameters), args))
@@ -182,11 +182,11 @@ class KernelFactory:
         )
 
     def __call__(self, *args, **kwargs) -> GeneratedKernel:
-        return self._bind(args, kwargs)
+        return self._bind(*args, **kwargs)
 
     def check_jax(self, s: jax.typing.ArrayLike, /, *args, **kwargs) -> None:
         """Eagerly exercise JIT, batching, and gradients for supplied values."""
-        kernel = self._bind(args, kwargs)
+        kernel = self._bind(*args, **kwargs)
         sample = jnp.asarray(s)
         batch = sample[None] if sample.ndim == 0 else sample
 
