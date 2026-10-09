@@ -52,6 +52,56 @@ def test_laplace_transform_and_metadata(x64, symbols, s):
         kernel.values = ()  # ty: ignore[invalid-assignment]
 
 
+def test_mellin_scaling_property(x64, symbols):
+    x, s, rate = symbols
+    scale = sp.Symbol("scale", positive=True)
+    factory = from_expression(sp.exp(-rate * scale * x), x, s, parameters=(rate, scale))
+
+    rate_value, scale_value = 1.7, 0.6
+    z = np.array([0.8 + 0.3j, 1.2 - 0.4j])
+    expected = np.exp(loggamma(z) - z * np.log(rate_value * scale_value))
+    assert_allclose(factory(rate_value, scale_value)(z), expected, rtol=1e-11)
+
+
+def test_mellin_power_multiplication_shifts_argument(x64, symbols):
+    x, s, rate = symbols
+    power = sp.Symbol("power", positive=True)
+    factory = from_expression(
+        x**power * sp.exp(-rate * x), x, s, parameters=(rate, power)
+    )
+
+    rate_value, power_value = 1.7, 0.6
+    z = np.array([0.8 + 0.3j, 1.2 - 0.4j])
+    shifted = z + power_value
+    expected = np.exp(loggamma(shifted) - shifted * np.log(rate_value))
+    assert_allclose(factory(rate_value, power_value)(z), expected, rtol=1e-11)
+
+
+@pytest.mark.parametrize("order", [1, 2, 3])
+def test_mellin_derivative_shifts_argument(x64, symbols, order):
+    x, s, rate = symbols
+    factory = from_expression(
+        sp.diff(sp.exp(-rate * x), x, order), x, s, parameters=(rate,)
+    )
+
+    rate_value = 1.7
+    z = order + np.array([0.8 + 0.3j, 1.2 - 0.4j])
+    polynomial = (-1) ** order * np.prod([z - k for k in range(1, order + 1)], axis=0)
+    shifted = z - order
+    base = np.exp(loggamma(shifted) - shifted * np.log(rate_value))
+    assert_allclose(factory(rate_value)(z), polynomial * base, rtol=1e-11)
+
+
+def test_mellin_reciprocal_argument_reflection(x64, symbols):
+    x, s, rate = symbols
+    factory = from_expression(sp.exp(-rate / x), x, s, parameters=(rate,))
+
+    rate_value = 1.7
+    z = np.array([-0.8 + 0.3j, -1.2 - 0.4j])
+    expected = np.exp(loggamma(-z) + z * np.log(rate_value))
+    assert_allclose(factory(rate_value)(z), expected, rtol=1e-11)
+
+
 @pytest.mark.parametrize("scale", [0.7, 1, 2])
 @pytest.mark.parametrize("imaginary", [0.3, 100, 2000])
 def test_bessel_gamma_ratio_avoids_underflow(x64, scale, imaginary):
