@@ -1,22 +1,22 @@
-"""Public behavior of symbolic real-space kernels."""
+"""Optional SymPy generation and numerical JAX behavior."""
 
-from dataclasses import dataclass
-from functools import partial
+from collections.abc import Callable
+from dataclasses import FrozenInstanceError
+from typing import cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.tree_util import register_dataclass
-from jax.typing import ArrayLike
+import sympy as sp
+from mellin_helpers import bessel_factory, bessel_kernel
 from numpy.testing import assert_allclose
+from scipy.special import loggamma
 
 from fftloggin import (
     BesselJKernel,
-    Coordinate,
+    DomainCheckWarning,
     Kernel,
-    KernelExpression,
-    diff,
     forward,
     inverse,
     lowring_log_kr,
@@ -24,219 +24,343 @@ from fftloggin import (
     product_plan,
     validate_parameters,
 )
+from fftloggin.symbolic import from_expression, from_mellin
 
 
 @pytest.fixture
-def t():
-    return Coordinate("t")
-
-
-@pytest.fixture
-def j():
-    return BesselJKernel(0.5)
-
-
-@pytest.mark.parametrize("scalar", [int, float, np.float64, np.asarray, jnp.asarray])
-def test_reflected_scalars_and_monomials(x64, t, j, scalar):
-    scalar = scalar(2)
-    s = jnp.array([0.8 + 0.2j, 1.1 + 0.3j])
-    expression = scalar * j(t) + j(t) * scalar - -j(t)
-    assert isinstance(expression, KernelExpression)
-    assert_allclose(expression(s), (2 * scalar + 1) * j(s), rtol=1e-11)
-    monomial = (scalar * t) * t**0.2
-    assert_allclose((monomial * j(t))(s), scalar * j(s + 1.2), rtol=1e-11)
-    assert_allclose((j(t) * monomial)(s), scalar * j(s + 1.2), rtol=1e-11)
-    assert_allclose(j(scalar * t)(s), j(s) * scalar**-s, rtol=1e-11)
-
-
-@pytest.mark.parametrize("s", [0.8 + 0.3j, np.array([0.8 + 0.2j, 1.1 + 0.3j])])
-def test_nested_composition_and_complete_rescaling(x64, t, j, s):
-    expr = 2 * t**0.2 * j(1.7 * t) - diff(j(t), t)
-    expected = 2 * 1.7 ** -(s + 0.2) * j(s + 0.2) + (s - 1) * j(s - 1)
-    assert_allclose(expr(s), expected, rtol=1e-11, atol=1e-12)
-    assert_allclose(expr(0.7 * t)(s), 0.7**-s * expected, rtol=1e-11)
-    assert_allclose(expr.domain, (0.5, 1.3))
-
-
-@pytest.mark.parametrize("order", [0, 1, 2, np.int64(3)])
-def test_derivative_orders(x64, t, j, order):
-    expr = j(t)
-    derivative = diff(expr, Coordinate("t"), order=order)
-    if order == 0:
-        assert derivative is expr
-    s = order + 0.8 + 0.2j
-    expected = (
-        (-1) ** order * np.prod([s - r for r in range(1, order + 1)]) * j(s - order)
+def symbols():
+    return (
+        sp.Symbol("x", positive=True),
+        sp.Symbol("s"),
+        sp.Symbol("rate", positive=True),
     )
-    assert_allclose(derivative(s), expected, rtol=1e-11)
 
 
-@pytest.mark.parametrize("order", [True, False, -1, 1.5, jnp.array(1)])
-def test_invalid_orders(t, j, order):
-    with pytest.raises(ValueError, match="order"):
-        diff(j(t), t, order=order)
+@pytest.mark.parametrize("s", [0.8, 0.8 + 0.3j, [0.8 + 0.3j, 1.1 + 0.5j]])
+def test_laplace_transform_and_metadata(x64, symbols, s):
+    x, z, rate = symbols
+    factory = from_expression(sp.exp(-rate * x), x, z, parameters=(rate,))
+    reported = sp.mellin_transform(sp.exp(-rate * x), x, z)
+    assert (factory.expression, factory.strip, factory.conditions) == reported
+    assert factory.parameters == (rate,)
+    kernel = factory(rate=2)
+    s = np.asarray(s)
+    assert_allclose(kernel(s), np.exp(loggamma(s + 0j) - s * np.log(2)), rtol=1e-11)
+    assert_allclose(kernel.domain, (0, np.inf))
+    assert isinstance(kernel, Kernel)
+    with pytest.raises(FrozenInstanceError):
+        kernel.values = ()  # ty: ignore[invalid-assignment]
 
 
-def test_coordinate_identity_rebinding_and_empty_strip(t, j):
-    u = Coordinate("u")
-    expr = t**0.2 * j(t)
-    rebound = expr(u)
-    assert_allclose((rebound + j(u))(0.8), expr(0.8) + j(0.8))
-    assert_allclose((expr + j(Coordinate("t"))).domain, (-0.5, 1.3))
-    empty = j(t) + diff(j(t), t, order=3)
-    assert_allclose(empty.domain, (2.5, 1.5))
-    assert not bool(empty.is_in_domain(2))
-    assert_allclose((expr - expr).domain, expr.domain)
+@pytest.mark.parametrize("scale", [0.7, 1, 2])
+@pytest.mark.parametrize("imaginary", [0.3, 100, 2000])
+def test_bessel_gamma_ratio_avoids_underflow(x64, scale, imaginary):
+    s = 0.8 + 1j * imaginary
+    expected = scale**-s * np.exp(
+        (s - 1) * np.log(2) + loggamma((0.5 + s) / 2) - loggamma((2.5 - s) / 2)
+    )
+    assert_allclose(bessel_kernel(0.5, scale=scale)(s), expected, rtol=1e-10)
+
+
+@pytest.mark.parametrize("power", [1, 2, -1, -2])
+def test_integer_gamma_powers(x64, symbols, power):
+    _, s, _ = symbols
+    formula = sp.gamma(s / 2) ** power * sp.gamma((2 - s) / 2) ** -power
+    factory = from_mellin(formula, s, strip=(0, 2))
+    z = 0.8 + 2000j
+    expected = np.exp(power * (loggamma(z / 2) - loggamma((2 - z) / 2)))
+    assert_allclose(factory()(z), expected, rtol=1e-10)
 
 
 @pytest.mark.parametrize(
-    "operation,match",
-    [
-        (lambda t, j: j(t) + j(Coordinate("u")), "different coordinates"),
-        (lambda t, j: t * j(Coordinate("u")), "different coordinates"),
-        (lambda t, j: diff(j(t), Coordinate("u")), "different coordinates"),
-        (lambda t, j: j(t + 1), "translations"),
-        (lambda t, j: j(t**2), "linear coordinates"),
-        (lambda t, j: j(t * t), "linear coordinates"),
-        (lambda t, j: j(t) * j(t), "products"),
-        (lambda t, j: j(t) ** 2, "powers"),
-        (lambda t, j: j(t) + 2, "addition"),
-        (lambda t, j: 2 + j(t), "addition"),
-        (lambda t, j: 2 - j(t), "subtraction"),
-        (lambda t, j: j(t) - 2, "subtraction"),
-        (lambda t, j: j(j(t)), "linear coordinates"),
-        (lambda t, j: diff(t, t), "kernel expression"),
-    ],
+    "formula",
+    [lambda s: sp.log(sp.gamma(s)), lambda s: sp.gamma(s) ** sp.Rational(1, 2)],
 )
-def test_unsupported_operations(t, j, operation, match):
-    with pytest.raises(TypeError, match=match):
-        operation(t, j)
-
-
-@pytest.mark.parametrize("value", [True, 1j, [1.0], np.ones(2), jnp.ones(2), "bad"])
-@pytest.mark.parametrize(
-    "operation",
-    [
-        lambda t, j, x: x * j(t),
-        lambda t, j, x: t**x * j(t),
-        lambda t, j, x: j(x * t),
-    ],
-)
-def test_parameters_must_be_real_scalars(t, j, value, operation):
-    with pytest.raises(TypeError, match="real scalar"):
-        operation(t, j, value)
-
-
-@pytest.mark.parametrize(
-    "kind,value",
-    [
-        ("scale", 0.0),
-        ("scale", -1.0),
-        ("scale", np.inf),
-        ("weight", np.nan),
-        ("power", np.inf),
-    ],
-)
-def test_eager_validation_recurses_through_expression(t, j, kind, value):
-    if kind == "scale":
-        expr = j(value * t)
-    elif kind == "weight":
-        expr = value * j(t)
-    else:
-        expr = t**value * j(t)
-    with pytest.raises(ValueError, match="finite|positive"):
-        validate_parameters(diff(j(t) + expr, t), dlog=0.1)
-
-
-def test_jax_construction_evaluation_and_parameter_gradients(x64, t):
-    def evaluate(parameters, s):
-        mu, weight, exponent, scale = parameters
-        expr = weight * t**exponent * BesselJKernel(mu)(scale * t)
-        return (expr + diff(expr, t))(s)
-
-    parameters = jnp.array([0.5, 2.0, 0.2, 1.7])
-    s = 1.1 + 0.3j
-    compiled = jax.jit(evaluate)
-    assert_allclose(compiled(parameters, s), evaluate(parameters, s), rtol=1e-11)
-    actual = jax.jit(jax.grad(lambda p: jnp.real(evaluate(p, s))))(parameters)
-    step = 1e-5
-    expected = [
-        (
-            jnp.real(evaluate(parameters.at[i].add(step), s))
-            - jnp.real(evaluate(parameters.at[i].add(-step), s))
-        )
-        / (2 * step)
-        for i in range(4)
-    ]
-    assert_allclose(actual, expected, rtol=1e-6, atol=1e-8)
-    batch = jnp.stack([parameters, parameters * 1.1])
-    samples = jnp.array([s, s + 0.1j])
-    got = jax.jit(jax.vmap(lambda p: jax.vmap(lambda z: evaluate(p, z))(samples)))(
-        batch
-    )
-    expected = jnp.stack([evaluate(p, samples) for p in batch])
-    assert_allclose(got, expected, rtol=1e-11)
-
-
-@partial(register_dataclass, data_fields=("rate",), meta_fields=())
-@dataclass(frozen=True)
-class CustomKernel(Kernel):
-    rate: ArrayLike
-
-    @property
-    def domain(self):
-        return jnp.asarray(-2.0), jnp.asarray(2.0)
-
-    def mellin(self, s: ArrayLike) -> jax.Array:
-        return jnp.exp(-jnp.asarray(self.rate) * jnp.asarray(s) ** 2)
-
-
-def test_registered_custom_mellin_kernel(t):
-    kernel = CustomKernel(0.2)
-    expression = t**0.1 * kernel(1.7 * t)
-    s = jnp.array([0.8 + 0.1j, 1.0 + 0.2j])
-    expected = 1.7 ** -(s + 0.1) * kernel.mellin(s + 0.1)
-    got = jax.jit(lambda k, z: k(z))(expression, s)
-    assert_allclose(got, expected, rtol=1e-6)
-    assert jnp.isfinite(
-        jax.grad(lambda rate: jnp.real(CustomKernel(rate)(t)(0.8)))(0.2)
+def test_branch_sensitive_expressions(x64, symbols, formula):
+    _, s, _ = symbols
+    z = -0.3 + 1.7j
+    expected = complex(formula(s).subs(s, z).evalf(30))
+    assert_allclose(
+        from_mellin(formula(s), s, strip=(-sp.oo, sp.oo))()(z), expected, rtol=1e-11
     )
 
 
-def test_fftlog_expression_plans_linearity_and_roundtrip(x64, t, j):
-    n, dlog, bias, log_kr = 64, 0.1, 0.0, 0.2
-    a = jnp.exp(-(jnp.linspace(-3, 3, n) ** 2))
-    first, second = t**0.1 * j(t), BesselJKernel(1.0)(1.2 * t)
-    expr = 2 * first + second
-    kwargs = {"dlog": dlog, "bias": bias, "log_kr": log_kr}
-    p = plan(expr, n, **kwargs)
-    expected = 2 * forward(a, first, **kwargs) + forward(a, second, **kwargs)
-    assert_allclose(forward(a, p), expected, rtol=1e-11, atol=1e-12)
-    assert_allclose(forward(a, expr, **kwargs), expected, rtol=1e-11)
-    nonzero = plan(2 * j(t), n, **kwargs)
-    assert_allclose(inverse(forward(a, nonzero), nonzero), a, rtol=1e-11, atol=1e-12)
-    assert jnp.isfinite(lowring_log_kr(expr, dlog=dlog, bias=bias))
-    symbolic_product = product_plan(
-        first,
-        second,
-        n=n,
-        max_offset=2,
-        dlog=dlog,
-        log_kr=log_kr,
-        first_bias=bias,
-        second_bias=bias,
+@pytest.mark.parametrize("order", [0, 1, 2])
+def test_real_space_derivatives_weights_and_powers(x64, symbols, order):
+    x, s, rate = symbols
+    expression = sp.diff(
+        3 * x**2 * sp.exp(-rate * x) + 2 * sp.exp(-2 * rate * x), x, order
     )
-    explicit_product = product_plan(
-        plan(first, n, **kwargs), plan(second, n, **kwargs), max_offset=2
+    factory = from_expression(expression, x, s, parameters=(rate,))
+    z = order + 1.3 + 0.2j
+    factor = (-1) ** order * np.prod([z - i for i in range(1, order + 1)])
+    shifted = z - order
+    expected = factor * (
+        3 * np.exp(loggamma(shifted + 2) - (shifted + 2) * np.log(1.7))
+        + 2 * np.exp(loggamma(shifted) - shifted * np.log(3.4))
+    )
+    assert_allclose(factory(1.7)(z), expected, rtol=1e-10)
+
+
+def test_inferred_bessel_strip_matches_sympy(symbols):
+    x, s, _ = symbols
+    expression = sp.besselj(sp.Rational(1, 2), x)
+    factory = from_expression(expression, x, s)
+    assert (
+        factory.expression,
+        factory.strip,
+        factory.conditions,
+    ) == sp.mellin_transform(expression, x, s)
+
+
+def test_explicit_strip_override_retains_conditions(symbols):
+    x, s, _ = symbols
+    a = sp.Symbol("a")
+    expr = sp.exp(-a * x)
+    reported = sp.mellin_transform(expr, x, s)
+    factory = from_expression(expr, x, s, parameters=(a,), strip=(1, 3))
+    assert factory.strip == (1, 3)
+    assert factory.conditions == reported[2]
+    assert bool(factory(2).is_in_domain(2))
+    assert not bool(factory(-2).is_in_domain(2))
+
+
+def test_auxiliary_boolean_conditions(symbols):
+    _, s, _ = symbols
+    a = sp.Symbol("a", real=True)
+    condition = sp.And(a > 0, sp.Or(sp.re(s) < 2, a < 1))
+    factory = from_mellin(1, s, parameters=(a,), strip=(0, 4), conditions=condition)
+    assert bool(
+        jax.jit(lambda k: k.is_in_domain(jnp.array([1 + 1j, 3 + 1j])))(factory(0.5))
+    )
+    assert not bool(factory(2).is_in_domain(jnp.array([1, 3])))
+    with pytest.warns(DomainCheckWarning):
+        validate_parameters(factory(-1), dlog=0.1)
+
+
+@pytest.mark.parametrize("formula", [0, 3, sp.pi])
+def test_constant_formulas_broadcast_and_transform(symbols, formula):
+    _, s, _ = symbols
+    kernel = from_mellin(formula, s, strip=(-sp.oo, sp.oo))()
+    assert kernel(1).shape == ()
+    assert_allclose(jax.jit(kernel)(jnp.array([1, 2, 3])), float(formula))
+
+
+def test_dynamic_binding_pytrees_grad_and_nested_vmap(x64):
+    factory = bessel_factory()
+    samples = jnp.array([0.8 + 0.2j, 1.0 + 0.3j])
+    evaluate = lambda a, z: factory(mu=a, power=0.2, scale=1.7)(z)
+    kernel = factory(0.5, 0.2, 1.7)
+    assert_allclose(
+        jax.jit(lambda k, s: k(s))(kernel, samples), kernel(samples), rtol=1e-11
+    )
+    actual = jax.jit(jax.vmap(lambda a: jax.vmap(lambda z: evaluate(a, z))(samples)))(
+        jnp.array([0.5, 0.6])
     )
     assert_allclose(
-        forward(a, symbolic_product), forward(a, explicit_product), rtol=1e-11
+        actual, jnp.stack([evaluate(a, samples) for a in [0.5, 0.6]]), rtol=1e-11
     )
+    loss = lambda a: jnp.real(evaluate(a, samples)).sum()
+    step = 1e-5
+    assert_allclose(
+        jax.jit(jax.grad(loss))(0.5),
+        (loss(0.5 + step) - loss(0.5 - step)) / (2 * step),
+        rtol=1e-6,
+    )
+    differentiated = jax.grad(lambda k: jnp.real(k(samples)).sum())(kernel)
+    assert all(bool(jnp.isfinite(v)) for v in jax.tree.leaves(differentiated))
+
+
+def test_all_fftlog_entrypoints(x64):
+    generated, direct = bessel_kernel(0.5), BesselJKernel(0.5)
+    n, dlog = 32, 0.2
+    a = jnp.exp(-(jnp.linspace(-2, 2, n) ** 2))
+    snap = jax.jit(lambda k: lowring_log_kr(k, dlog=dlog))(generated)
+    assert_allclose(snap, lowring_log_kr(direct, dlog=dlog), atol=1e-11)
+    p = jax.jit(lambda k: plan(k, n, dlog=dlog, log_kr=snap))(generated)
+    expected = forward(a, direct, dlog=dlog, log_kr=snap)
+    assert_allclose(jax.jit(forward)(a, p), expected, rtol=1e-10, atol=1e-11)
+    assert_allclose(inverse(forward(a, p), p), a, rtol=1e-10, atol=1e-11)
+    pp = product_plan(
+        generated,
+        generated,
+        n=n,
+        dlog=dlog,
+        first_bias=-0.5,
+        second_bias=-0.5,
+        max_offset=2,
+    )
+    reference = product_plan(
+        direct, direct, n=n, dlog=dlog, first_bias=-0.5, second_bias=-0.5, max_offset=2
+    )
+    assert_allclose(forward(a, pp), forward(a, reference), rtol=1e-10, atol=1e-11)
 
 
 @pytest.mark.parametrize(
-    "dtype,rtol", [(jnp.int32, 1e-6), (jnp.float32, 1e-6), (jnp.bfloat16, 1e-2)]
+    "kind", ["undeclared", "integral", "derivative", "transform", "function", "sum"]
 )
-def test_real_jax_scalar_dtypes(t, j, dtype, rtol):
-    scalar = jnp.asarray(2, dtype=dtype)
-    assert_allclose((scalar * j(t))(0.8), 2 * j(0.8), rtol=rtol)
+def test_generation_rejects_unresolved_or_unsupported(symbols, kind):
+    x, s, _ = symbols
+    f = cast(Callable[..., sp.Expr], sp.Function("f"))
+    expressions = {
+        "undeclared": sp.Symbol("other") + s,
+        "integral": sp.Integral(sp.exp(-x), (x, 0, sp.oo)),
+        "derivative": sp.Derivative(f(s), s),
+        "transform": sp.MellinTransform(f(x), x, s),
+        "function": sp.besselj(0, s),
+        "sum": sp.Sum(s**x, (x, 1, 3)),
+    }
+    with pytest.raises(ValueError):
+        from_mellin(expressions[kind], s, strip=(0, 1))
+    with pytest.raises(ValueError):
+        from_expression(f(x), x, s)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        lambda a: [a],
+        lambda a: (a, a),
+        lambda a: (1,),
+        lambda a: (sp.Symbol("s"),),
+        lambda a: (a, sp.Symbol(a.name, real=True)),
+    ],
+)
+def test_invalid_parameter_declarations(symbols, parameters):
+    _, s, a = symbols
+    with pytest.raises((TypeError, ValueError)):
+        from_mellin(1, s, strip=(0, 1), parameters=parameters(a))
+
+
+@pytest.mark.parametrize(
+    "args,kwargs",
+    [
+        ((1, 2), {}),
+        ((), {}),
+        ((1,), {"rate": 2}),
+        ((), {"other": 1}),
+        (([1, 2],), {}),
+        ((True,), {}),
+        (("2",), {}),
+    ],
+)
+def test_binding_errors(symbols, args, kwargs):
+    _, s, a = symbols
+    factory = from_mellin(a * s, s, parameters=(a,), strip=(0, 1))
+    with pytest.raises(TypeError):
+        factory(*args, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "assumption,value",
+    [
+        ("positive", -1),
+        ("real", 1j),
+        ("integer", 1.5),
+        ("even", 3),
+        ("odd", 2),
+        ("nonzero", 0),
+        ("negative", 1),
+        ("imaginary", 1),
+    ],
+)
+def test_eager_assumption_validation(symbols, assumption, value):
+    _, s, _ = symbols
+    a = sp.Symbol("a", **{assumption: True})
+    kernel = from_mellin(a * s, s, parameters=(a,), strip=(0, 2))(value)
+    with pytest.raises(ValueError, match="assumption"):
+        validate_parameters(kernel, dlog=0.1)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_eager_finiteness_validation(symbols, value):
+    _, s, a = symbols
+    kernel = from_mellin(a * s, s, parameters=(a,), strip=(0, 2))(value)
+    with pytest.raises(ValueError, match="finite"):
+        kernel.validate_parameters()
+
+
+def test_jax_function_mapping(symbols):
+    _, s, a = symbols
+    f = cast(Callable[..., sp.Expr], sp.Function("custom"))
+    factory = from_mellin(
+        f(s) + a, s, parameters=(a,), strip=(0, 2), functions={"custom": jnp.sin}
+    )
+    assert_allclose(jax.jit(lambda a: factory(a)(1.2))(2.0), jnp.sin(1.2) + 2)
+    assert_allclose(jax.grad(lambda a: factory(a)(1.2))(2.0), 1)
+
+
+def test_piecewise_and_parameter_dependent_min_max_strips(symbols):
+    _, s, _ = symbols
+    a = sp.Symbol("a", real=True)
+    expression = sp.Piecewise((sp.Max(sp.re(s), 1), sp.re(s) > a), (a, True))
+    factory = from_mellin(
+        expression, s, parameters=(a,), strip=(sp.Max(a, 0), sp.Min(a + 4, 5))
+    )
+    kernel = factory(0.5)
+    samples = jnp.array([0.2 + 1j, 0.8 + 1j, 2 + 1j])
+    assert_allclose(jax.jit(kernel)(samples), [0.5, 1, 2])
+    assert_allclose(jax.jit(lambda k: k.domain)(kernel), (0.5, 4.5))
+    assert bool(kernel.is_in_domain(1))
+    assert not bool(kernel.is_in_domain(0.5))
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "strip_symbol",
+        "condition_symbol",
+        "bad_strip",
+        "complex_strip",
+        "bad_conditions",
+        "bad_mapping",
+        "unsupported_assumption",
+        "coordinate",
+    ],
+)
+def test_generation_metadata_errors(symbols, kind):
+    _, s, a = symbols
+    options = {"strip": (0, 2), "parameters": (a,)}
+    if kind == "strip_symbol":
+        options["strip"] = (sp.Symbol("other"), 2)
+    elif kind == "condition_symbol":
+        options["conditions"] = sp.Symbol("other") > 0
+    elif kind == "bad_strip":
+        options["strip"] = (0,)
+    elif kind == "complex_strip":
+        options["strip"] = (sp.I, 2)
+    elif kind == "bad_conditions":
+        options["conditions"] = s + 1
+    elif kind == "bad_mapping":
+        options["functions"] = {"custom": 1}
+    elif kind == "unsupported_assumption":
+        options["parameters"] = (sp.Symbol("a", prime=True),)
+    elif kind == "coordinate":
+        s = 1
+    with pytest.raises((ValueError, TypeError)):
+        from_mellin(1, s, **options)
+
+
+def test_undefined_function_never_uses_sympy_implementation(symbols):
+    from sympy.utilities.lambdify import implemented_function
+
+    _, s, _ = symbols
+    f = implemented_function("not_jax", lambda z: float(z))
+    with pytest.raises(ValueError, match="unsupported"):
+        from_mellin(f(s), s, strip=(0, 2))
+    kernel = from_mellin(f(s), s, strip=(0, 2), functions={"not_jax": jnp.sin})()
+    assert_allclose(jax.jit(kernel)(1.0), jnp.sin(1.0))
+
+
+def test_complex_constants_and_parameter_values(x64, symbols):
+    _, s, _ = symbols
+    a = sp.Symbol("a")
+    factory = from_mellin(
+        sp.exp(sp.I * s) * sp.gamma(s + a), s, parameters=(a,), strip=(0, 2)
+    )
+    z, value = 0.8 + 0.3j, 0.2 + 0.5j
+    kernel = factory(value)
+    kernel.validate_parameters()
+    assert_allclose(
+        jax.jit(kernel)(z), np.exp(1j * z + loggamma(z + value)), rtol=1e-11
+    )

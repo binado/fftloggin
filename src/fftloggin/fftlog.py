@@ -275,12 +275,17 @@ def product_plan(
 
     Band of ``chi * integral(a(k) * j_ell(k*chi) * j_ell''(k*chi'), k)``::
 
-        from fftloggin import Coordinate, SphericalBesselJKernel, diff
+        import sympy as sp
+        from fftloggin import SphericalBesselJKernel, plan, product_plan
+        from fftloggin.symbolic import from_mellin
 
-        t = Coordinate("t")
         j = SphericalBesselJKernel(ell)
         p1 = plan(j, n, dlog=dlog, bias=-0.25)
-        p2 = plan(diff(j(t), t, order=2), n, dlog=dlog, bias=-0.25)
+        s = sp.Symbol("s")
+        z = s - 2
+        mellin_formula = sp.sqrt(sp.pi) * 2**(z-2) * sp.gamma((ell+z)/2) / sp.gamma((ell+3-z)/2)
+        derivative = from_mellin((s-1)*(s-2)*mellin_formula, s, strip=(2-ell, 4))()
+        p2 = plan(derivative, n, dlog=dlog, bias=1.5)
         band = forward(a, product_plan(p1, p2, max_offset=m))
     """
     if max_offset < 0:
@@ -550,13 +555,10 @@ def validate_parameters(
 
     Notes
     -----
-    Expression weights, powers, and argument scales are checked recursively
-    for finiteness; argument scales must also be strictly positive.
+    Calls the kernel's eager parameter validation hook before grid checks.
     This is an eager host-side helper. Do not call it inside a JAX transform.
     """
-    from .symbolic import _validate_expression
-
-    _validate_expression(kernel)
+    kernel.validate_parameters()
     for name, value in (("dlog", dlog), ("bias", bias), ("log_kr", log_kr)):
         arr = jnp.asarray(value)
         if arr.ndim != 0 or not bool(jnp.isfinite(arr)):

@@ -4,22 +4,19 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from mellin_helpers import bessel_kernel
 from numpy.testing import assert_allclose
 from scipy.integrate import quad
 from scipy.special import spherical_jn
 
 from fftloggin import (
-    Coordinate,
     SphericalBesselJKernel,
-    diff,
     forward,
     get_paired_grids,
     inverse,
     plan,
     product_plan,
 )
-
-t = Coordinate("t")
 
 N = 512
 DLOG = 0.02
@@ -28,7 +25,7 @@ HALF_WIDTH = 100
 
 def bessel(ell, order=0):
     kernel = SphericalBesselJKernel(float(ell))
-    return kernel if order == 0 else diff(kernel(t), t, order=order)
+    return kernel if order == 0 else bessel_kernel(ell, order=order, spherical=True)
 
 
 def split_plans(first, second, n, bias, log_kr=0.0, dlog=DLOG):
@@ -157,9 +154,7 @@ def test_mixed_kernel_matches_quadrature(x64, gaussian, offset, row):
     ell, bias = 3, 0.0
     first = bessel(ell)
     pp = product_plan(
-        *split_plans(
-            first, diff(first(Coordinate("t")), Coordinate("t"), order=2), N, bias
-        ),
+        *split_plans(first, bessel_kernel(first.ell, order=2, spherical=True), N, bias),
         max_offset=HALF_WIDTH,
     )
     result = forward(a(0.0), pp)

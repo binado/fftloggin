@@ -33,8 +33,8 @@ Exceptions and warnings
 .. automodule:: fftloggin.exceptions
    :members:
 
-Symbolic expressions
---------------------
+Optional SymPy kernel generation
+--------------------------------
 
 .. automodule:: fftloggin.symbolic
    :members:

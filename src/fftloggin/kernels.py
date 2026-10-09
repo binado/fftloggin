@@ -1,5 +1,6 @@
 """Scalar Mellin kernels for JAX FFTLog transforms."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 
@@ -58,7 +59,7 @@ class Kernel:
     """Base interface for scalar Mellin kernels.
 
     Implement ``mellin`` and ``domain`` in custom subclasses; the inherited
-    call dispatcher handles symbolic binding and numerical evaluation.
+    call operator evaluates the numerical Mellin transform.
     Custom kernels passed to ``jax.jit`` must also be registered as pytrees.
     """
 
@@ -67,15 +68,12 @@ class Kernel:
         """Open interval of real Mellin arguments where the kernel converges."""
         return jnp.asarray(-jnp.inf), jnp.asarray(jnp.inf)
 
-    def __call__(self, s):
-        """Bind a symbolic argument or evaluate the numerical Mellin kernel."""
-        from .symbolic import Coordinate, _bind, _Monomial
-
-        if isinstance(s, (Coordinate, _Monomial)):
-            return _bind(self, s)
-        if isinstance(s, Kernel):
-            raise TypeError("kernel arguments must be linear coordinates")
+    def __call__(self, s: jax.typing.ArrayLike) -> jax.Array:
+        """Evaluate the numerical Mellin kernel."""
         return self.mellin(s)
+
+    def validate_parameters(self) -> None:
+        """Validate concrete parameter values eagerly, outside JAX tracing."""
 
     def mellin(self, s: jax.typing.ArrayLike) -> jax.Array:
         """Evaluate the Mellin kernel at ``s``."""
@@ -124,3 +122,45 @@ class SphericalBesselJKernel(Kernel):
         return jnp.sqrt(jnp.pi / 2) * _bessel_j_mellin(
             self.ell + 0.5, jnp.asarray(s) - 0.5
         )
+
+
+@partial(
+    register_dataclass,
+    data_fields=("values",),
+    meta_fields=("evaluate", "bounds", "condition", "assumptions"),
+)
+@dataclass(frozen=True, eq=False)
+class GeneratedKernel(Kernel):
+    """Numerical kernel produced by an optional symbolic factory.
+
+    Only scalar parameter values are pytree leaves. Shared compiled callables
+    are static metadata; no symbolic expression is retained on the kernel.
+    """
+
+    values: tuple[jax.typing.ArrayLike, ...]
+    evaluate: Callable[..., jax.typing.ArrayLike]
+    bounds: Callable[..., tuple[jax.typing.ArrayLike, jax.typing.ArrayLike]]
+    condition: Callable[..., jax.typing.ArrayLike]
+    assumptions: tuple
+
+    @property
+    def domain(self) -> tuple[jax.Array, jax.Array]:
+        lower, upper = self.bounds(*self.values)
+        return jnp.asarray(lower), jnp.asarray(upper)
+
+    def mellin(self, s: jax.typing.ArrayLike) -> jax.Array:
+        s = jnp.asarray(s)
+        return jnp.broadcast_to(jnp.asarray(self.evaluate(s, *self.values)), s.shape)
+
+    def is_in_domain(self, s: jax.typing.ArrayLike) -> jax.Array:
+        s = jnp.asarray(s)
+        return super().is_in_domain(s) & jnp.all(self.condition(s, *self.values))
+
+    def validate_parameters(self) -> None:
+        for value, (name, checks) in zip(self.values, self.assumptions, strict=True):
+            value = jnp.asarray(value)
+            if value.ndim != 0 or not bool(jnp.isfinite(value)):
+                raise ValueError(f"{name} must be a finite scalar")
+            for label, check in checks:
+                if not bool(check(value)):
+                    raise ValueError(f"{name} violates assumption {label}")

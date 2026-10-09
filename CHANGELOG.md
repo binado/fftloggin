@@ -2,11 +2,21 @@
 
 ### Breaking
 
-- Replace `Transform`, `TransformedKernel`, `PowerLaw`, `Derivative`, `Scale`,
-  and `Kernel.transform` with symbolic `Coordinate`, `KernelExpression`,
-  and `diff` composition. See the kernel guide for a migration table.
-- Custom kernels implement `mellin(s)` instead of `__call__(s)`; the inherited
-  dispatcher handles symbolic binding and numerical evaluation.
+- Replace the custom `Coordinate`, `KernelExpression`, and `diff` engine with
+  optional `fftloggin.symbolic.from_expression` and `from_mellin` factories.
+  Install `fftloggin[symbolic]` and use ordinary SymPy expressions. Symbolic
+  generation is eager; scalar numerical parameter binding is traceable.
+- Remove symbolic binding from `Kernel.__call__`; custom kernels implement
+  `mellin(s)` and may override the eager `validate_parameters()` hook.
+- The older `Transform`, `TransformedKernel`, `PowerLaw`, `Derivative`, `Scale`,
+  and `Kernel.transform` APIs remain removed.
+
+### Feat
+
+- Generate frozen JAX kernel pytrees with compiled convergence bounds,
+  auxiliary conditions and eager parameter assumption validation.
+- Evaluate integer gamma products and ratios in combined log space, with
+  differentiable complex log-gamma and optional CSE and JAX function mappings.
 
 ## 0.5.0 (2026-09-23)
 

@@ -27,7 +27,7 @@ if _os.environ.get("FFTLOGGIN_RUNTIME_TYPECHECK") == "1":
     )
 
 with _typecheck_import_context:
-    from . import cosmology, kernels, symbolic
+    from . import cosmology, kernels
     from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
     from .fftlog import (
         Plan,
@@ -52,20 +52,16 @@ with _typecheck_import_context:
         Kernel,
         SphericalBesselJKernel,
     )
-    from .symbolic import Coordinate, KernelExpression, diff
 
 __all__ = (
     "ArgumentOutOfDomainError",
     "BesselJKernel",
-    "Coordinate",
     "DomainCheckWarning",
     "Kernel",
-    "KernelExpression",
     "Padding",
     "Plan",
     "SphericalBesselJKernel",
     "cosmology",
-    "diff",
     "fast_size",
     "forward",
     "get_array_center",
@@ -77,7 +73,6 @@ __all__ = (
     "lowring_log_kr",
     "plan",
     "product_plan",
-    "symbolic",
     "taper",
     "validate_parameters",
 )

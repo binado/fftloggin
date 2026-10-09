@@ -12,6 +12,7 @@ Full user guides and the API reference are available on
 ```bash
 uv add fftloggin
 # or: pip install fftloggin
+# optional SymPy kernel generation: uv add "fftloggin[symbolic]"
 ```
 
 For the numerical accuracy expected by the Fortran reference cases, enable
@@ -76,6 +77,31 @@ The built-in kernels are JAX pytrees. `forward` and `inverse` require scalar
 `dlog`, `bias`, and `log_kr`; map over any of them with `jax.vmap`. Call
 `validate_parameters(kernel, dlog=..., bias=..., log_kr=...)` outside JAX
 transformations for eager value and Mellin-domain checks.
+
+## Generate a kernel with SymPy
+
+Install `fftloggin[symbolic]`, then create a reusable factory outside tracing:
+
+```python
+import sympy as sp
+from fftloggin.symbolic import from_expression
+
+x = sp.Symbol("x", positive=True)
+s = sp.Symbol("s")
+rate = sp.Symbol("rate", positive=True)
+factory = from_expression(sp.exp(-rate * x), x, s, parameters=(rate,))
+kernel = factory(rate=2.0)
+evaluate = jax.jit(lambda rate, s: factory(rate=rate)(s))
+```
+
+Factories expose their Mellin `expression`, `parameters`, `strip`, and
+`conditions`. Use `from_mellin` with an explicit strip for known formulas.
+Differentiate real-space expressions with `sp.diff` before generation.
+Generated kernels support the existing transform API and JAX transformations.
+Call `validate_parameters` eagerly to enforce parameter assumptions.
+Built-in kernels and numerical subclasses do not require or import SymPy.
+The former `Coordinate`, `KernelExpression`, and custom `diff` API is removed;
+see the kernel guide for migration details.
 
 ## Development and reference comparison
 

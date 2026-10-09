@@ -113,97 +113,85 @@ The spherical Bessel kernel follows from the identity Hamilton quotes in
 three-dimensional Fourier transforms of isotropic functions, such as the
 power spectrum multipoles in :doc:`tutorial`.
 
-Symbolic composition
---------------------
+Optional SymPy generation
+-------------------------
 
-Bind a numerical kernel to a :class:`~fftloggin.symbolic.Coordinate` to
-compose real-space operations. Expressions are frozen JAX pytree kernels
-and work directly with ``plan``, ``forward``, ``inverse``,
-``lowring_log_kr``, and ``product_plan``:
-
-.. code-block:: python
-
-   from fftloggin import BesselJKernel, Coordinate, diff, plan
-
-   t = Coordinate("t")
-   j = BesselJKernel(mu=1.5)
-   expr = t**0.2 * j(1.7 * t)
-   derivative = diff(expr, t, order=2)
-   combined = 2 * expr - derivative
-   p = plan(combined, 256, dlog=0.1, bias=0.0)
-
-Calling ``expr(s)`` with numerical scalar or array arguments evaluates its
-Mellin transform. Calling ``expr(b * t)`` rescales the complete real-space
-expression. Coordinates with equal names denote the same variable.
-Combining different names raises ``TypeError``; explicitly calling
-``expr(Coordinate("u"))`` rebinds the expression.
-
-.. list-table::
-   :header-rows: 1
-
-   * - Expression
-     - Mellin transform
-     - Strip
-   * - ``c * j(t)``
-     - ``c * M(s)``
-     - Base strip
-   * - ``j(t) + k(t)``
-     - ``M_j(s) + M_k(s)``
-     - Intersection
-   * - ``t**nu * j(t)``
-     - ``M(s + nu)``
-     - Base strip shifted by ``-nu``
-   * - ``j(a * t)``
-     - ``exp(-s * log(a)) * M(s)``
-     - Base strip
-   * - ``diff(j(t), t, order=n)``
-     - ``(-1)**n * product(s-r, r=1,...,n) * M(s-n)``
-     - Base strip shifted by ``+n``
-
-Derivative identities assume the boundary terms from repeated integration
-by parts vanish. The reported derivative strip preserves this convention.
-Sum strips are conservative: cancellations do not widen them and empty
-intersections remain empty. Trees stay nested without simplification.
-
-Operation order matters:
+Install ``fftloggin[symbolic]`` to generate reusable numerical kernels from
+ordinary SymPy expressions. Built-in kernels and custom ``Kernel`` subclasses
+work without SymPy. Generation performs symbolic work and lambdification once,
+outside JAX tracing:
 
 .. code-block:: python
 
-   diff(t**2 * j(t), t)  # d/dt [t**2 J(t)]
-   t**2 * diff(j(t), t)  # t**2 J'(t)
+   import jax
+   import sympy as sp
+   from fftloggin.symbolic import from_expression
 
-``diff`` accepts a static nonnegative integer order; order zero returns
-the expression unchanged. Coefficients, exponents, and scales must be
-real scalars. Argument scales must be strictly positive. Use the eager
-``validate_parameters`` helper to check finite expression parameters and
-positive scales before tracing. Construction and evaluation support
-``jit``, ``vmap``, and ``grad`` without host conversions of parameter values.
+   x = sp.Symbol("x", positive=True)
+   s = sp.Symbol("s")
+   rate = sp.Symbol("rate", positive=True)
+   factory = from_expression(sp.exp(-rate * x), x, s, parameters=(rate,))
+   kernel = factory(rate=2.0)
+   evaluate = jax.jit(lambda rate, s: factory(rate=rate)(s))
 
-Translations, nonlinear arguments, arbitrary kernel products, powers of
-complete kernels, and scalar addition to kernels are unsupported.
-Coordinates and monomial factors alone are not FFTLog kernels.
+Every parameter must be declared in an ordered tuple of distinct symbols and
+bound positionally or by symbol name. There are no implicit defaults. Binding
+accepts numeric scalars, including traced values. Generated kernels are frozen
+JAX pytrees; their scalar parameter values can be differentiated and batched.
+Call ``kernel.validate_parameters()`` or the standalone ``validate_parameters``
+outside tracing to enforce finiteness and parameter assumptions such as
+positivity. Auxiliary convergence conditions are checked by ``is_in_domain``.
 
-Migration from transforms
-~~~~~~~~~~~~~~~~~~~~~~~~~
+The factory exposes ``expression`` (the Mellin formula), ``parameters``,
+``strip`` and ``conditions``. ``from_expression`` retains the strip and
+conditions reported by SymPy's ``mellin_transform``. Passing ``strip=`` overrides
+only the bounds. SymPy's inferred domain can be narrower than a conditionally
+convergent domain used by a built-in kernel.
 
-The ``Transform`` API and ``Kernel.transform`` have been removed.
-With ``t = Coordinate("t")``, migrate calls as follows:
+For an existing Mellin formula, use ``from_mellin`` with an explicit strip:
 
-.. list-table::
-   :header-rows: 1
+.. code-block:: python
 
-   * - Previous API
-     - Symbolic API
-   * - ``j.transform(PowerLaw(nu))``
-     - ``t**nu * j(t)``
-   * - ``j.transform(Derivative(n))``
-     - ``diff(j(t), t, order=n)``
-   * - ``j.transform(Scale(a))``
-     - ``j(a * t)``
-   * - ``j.transform(PowerLaw(nu), Derivative(n))``
-     - ``diff(t**nu * j(t), t, order=n)``
-   * - Custom kernel ``__call__(s)``
-     - Custom kernel ``mellin(s)``
+   from fftloggin.symbolic import from_mellin
+
+   mu = sp.Symbol("mu", real=True)
+   scale = sp.Symbol("scale", positive=True)
+   formula = scale**(-s) * 2**(s-1) * sp.gamma((mu+s)/2) / sp.gamma((mu+2-s)/2)
+   bessel = from_mellin(formula, s, parameters=(mu, scale), strip=(-mu, sp.Rational(3, 2)))
+   kernel = bessel(mu=0.5, scale=1.7)
+
+Gamma products and ratios with integer powers are evaluated in combined log
+space using differentiable complex log-gamma. Branch-sensitive logarithms and
+fractional powers are preserved. Common subexpression elimination is enabled
+by default; pass ``cse=False`` to disable it. ``functions={"name": jax_callable}``
+adds numerical implementations for symbolic function names. These callables
+must support the JAX transformations used by the caller. Unsupported numerical
+functions, undeclared symbols and unresolved transforms fail during generation.
+There is no numerical fallback to SymPy or NumPy.
+
+Differentiate before factory creation:
+
+.. code-block:: python
+
+   derivative = from_expression(sp.diff(x**2 * sp.exp(-rate*x), x, 2),
+                                x, s, parameters=(rate,))
+   kernel = derivative(rate=2.0)
+
+Migration from expression composition
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Coordinate``, ``KernelExpression``, the custom ``diff`` and symbolic binding
+through ``Kernel.__call__`` have been removed. Calling a numerical kernel now
+always evaluates its Mellin transform. Imports of generation helpers come
+from ``fftloggin.symbolic`` only.
+
+Replace coordinate objects with ``sp.Symbol("x", positive=True)`` and express
+the real-space kernel with SymPy, for example ``sp.besselj(mu, x)``. Replace
+``diff(expr, x, order=n)`` with ``sp.diff(expr, x, n)``. Generate a factory with
+``from_expression`` outside tracing, then bind numerical parameter values
+inside or outside JAX transformations. Use ``from_mellin`` when an explicit
+formula or convergence strip is required. The older ``Transform`` and
+``Kernel.transform`` APIs also remain removed.
 
 Writing a custom kernel
 -----------------------
@@ -282,6 +270,6 @@ API
 
 .. autoclass:: fftloggin.kernels.Kernel
    :no-index:
-   :members: domain, mellin, __call__, is_in_domain
+   :members: domain, mellin, __call__, is_in_domain, validate_parameters
 
 The built-in kernels are listed in the :doc:`API reference </reference/api>`.
