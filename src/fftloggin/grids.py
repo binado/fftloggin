@@ -1,5 +1,6 @@
 """Paired logarithmic FFTLog grids and the treatment of their edges."""
 
+import heapq
 from dataclasses import dataclass
 from functools import partial
 from typing import Literal
@@ -11,6 +12,7 @@ from jaxtyping import Array, ArrayLike, Float, Real
 
 __all__ = (
     "Padding",
+    "fast_size",
     "get_array_center",
     "get_paired_grids",
     "infer_dlog",
@@ -167,6 +169,122 @@ def infer_log_kr(
     return jnp.log(ymin) + jnp.log(x[-1])
 
 
+_DEFAULT_RADICES: tuple[int, ...] = (2, 3, 5, 7)
+
+
+def _is_prime(value: int) -> bool:
+    if value < 2:
+        return False
+    if value % 2 == 0:
+        return value == 2
+    odd = 3
+    while odd * odd <= value:
+        if value % odd == 0:
+            return False
+        odd += 2
+    return True
+
+
+def _validate_radices(radices: tuple[int, ...]) -> tuple[int, ...]:
+    if not isinstance(radices, tuple):
+        raise TypeError("radices must be a tuple of prime integers")
+    unique: list[int] = []
+    seen: set[int] = set()
+    for radix in radices:
+        if not isinstance(radix, int) or isinstance(radix, bool):
+            raise TypeError("radices must be a tuple of prime integers")
+        if not _is_prime(radix):
+            raise ValueError("radices must be prime integers >= 2")
+        if radix not in seen:
+            seen.add(radix)
+            unique.append(radix)
+    if not unique:
+        raise ValueError("radices must not be empty")
+    return tuple(unique)
+
+
+def _smallest_smooth(n: int, radices: tuple[int, ...]) -> int:
+    heap = [1]
+    seen = {1}
+    while True:
+        value = heapq.heappop(heap)
+        if value >= n:
+            return value
+        for radix in radices:
+            nxt = value * radix
+            if nxt not in seen:
+                seen.add(nxt)
+                heapq.heappush(heap, nxt)
+
+
+def fast_size(
+    n: int,
+    *,
+    radices: tuple[int, ...] = _DEFAULT_RADICES,
+    parity: Literal["even", "odd"] | None = None,
+) -> int:
+    """Smallest length at least ``n`` whose prime factors lie in ``radices``.
+
+    This host-side convenience function is not intended for ``jax.jit``.
+
+    Parameters
+    ----------
+    n : int
+        Minimum length. Must be at least 1.
+    radices : tuple of int, optional
+        Allowed prime factors. Duplicates are ignored. Defaults to
+        ``(2, 3, 5, 7)``, the radices of a fast real FFT in XLA: ducc on
+        CPU and cuFFT on GPU.
+    parity : {None, "even", "odd"}, optional
+        If given, the result has this parity. ``"even"`` requires ``2`` in
+        ``radices``; ``"odd"`` drops ``2`` and needs at least one odd
+        radix. Defaults to either parity.
+
+    Returns
+    -------
+    int
+        The smallest integer ``m >= n`` that factors over ``radices`` and
+        has the requested parity.
+
+    Raises
+    ------
+    TypeError
+        If ``n`` is not an integer, or if ``radices`` is not a tuple of
+        integers.
+    ValueError
+        If ``n`` is less than 1, ``parity`` is unknown, ``radices`` is
+        empty or contains a non-prime, or the radices cannot produce the
+        requested parity.
+
+    Notes
+    -----
+    Symmetric padding of an ``n``-point grid can only reach lengths of the
+    same parity as ``n``. Pass that parity so the result can be split
+    equally between the two ends.
+
+    Examples
+    --------
+    A 15 % pad of 2048 samples lands on 2664, which has a factor 37::
+
+        fast_size(2664, parity="even")
+        # 2688
+    """
+    if n < 1:
+        raise ValueError("n must be at least 1")
+    radices = _validate_radices(radices)
+    if parity not in (None, "even", "odd"):
+        raise ValueError(f"parity must be 'even', 'odd' or None, got {parity!r}")
+    if parity == "even":
+        if 2 not in radices:
+            raise ValueError("even parity requires 2 in radices")
+        return 2 * _smallest_smooth((n + 1) // 2, radices)
+    if parity == "odd":
+        radices = tuple(radix for radix in radices if radix != 2)
+        if not radices:
+            raise ValueError("odd parity requires an odd radix")
+    return _smallest_smooth(n, radices)
+
+
 @partial(register_dataclass, data_fields=(), meta_fields=("width",))
 @dataclass(frozen=True)
 class Padding:
@@ -217,6 +335,13 @@ class Padding:
         p = plan(kernel, padded.shape[0], dlog=dlog, bias=bias, log_kr=log_kr)
         result = padding.crop(forward(padded, p))  # on get_paired_grids(r=chi)
 
+    Grow a smaller pad until the FFT length is fast, then pad as usual::
+
+        padding = Padding.fast(n, min_width=n // 7)
+        padded = padding(window)
+        p = plan(kernel, padded.shape[0], dlog=dlog, bias=bias, log_kr=log_kr)
+        result = padding.crop(forward(padded, p))
+
     Evaluate a window that does not vanish at the grid ends on the extended
     grid instead of padding it with zeros::
 
@@ -232,6 +357,69 @@ class Padding:
             raise TypeError("width must be an integer")
         if self.width < 0:
             raise ValueError("width must be non-negative")
+
+    @classmethod
+    def fast(
+        cls,
+        n: int,
+        min_width: int = 0,
+        *,
+        radices: tuple[int, ...] = _DEFAULT_RADICES,
+    ) -> "Padding":
+        """Smallest symmetric pad whose length factors over ``radices``.
+
+        This host-side convenience method is not intended for ``jax.jit``. The
+        returned ``Padding`` is still a valid argument of a compiled transform.
+
+        Parameters
+        ----------
+        n : int
+            Number of samples on the unpadded grid. Must be at least 1.
+        min_width : int, optional
+            Minimum number of points added at each end. Defaults to 0, which
+            only grows ``n`` when it is not already a fast length.
+        radices : tuple of int, optional
+            Allowed prime factors of the padded length. Defaults to
+            ``(2, 3, 5, 7)``, the radices of a fast real FFT in XLA.
+
+        Returns
+        -------
+        Padding
+            Symmetric padding with ``width >= min_width``. The padded length
+            ``n + 2 * width`` has the same parity as ``n``.
+
+        Raises
+        ------
+        TypeError
+            If ``n`` or ``min_width`` is not an integer, or if ``radices`` is
+            not a tuple of integers.
+        ValueError
+            If ``n`` is less than 1, ``min_width`` is negative, ``radices``
+            is empty or contains a non-prime, or the radices cannot produce a
+            length of the same parity as ``n``.
+
+        Notes
+        -----
+        Growing the pad keeps the geometric centre, ``dlog``, ``bias`` and
+        ``log_kr``. Shrinking it or padding the two ends by different amounts
+        would move the centre.
+
+        Examples
+        --------
+        Grow a 15 % pad until the FFT length is fast, then pad as usual::
+
+            padding = Padding.fast(n, min_width=math.ceil(0.15 * n))
+            padded = padding(window)
+            p = plan(kernel, padded.shape[0], dlog=dlog, bias=bias, log_kr=log_kr)
+            result = padding.crop(forward(padded, p))
+        """
+        if n < 1:
+            raise ValueError("n must be at least 1")
+        if min_width < 0:
+            raise ValueError("min_width must be non-negative")
+        parity: Literal["even", "odd"] = "even" if n % 2 == 0 else "odd"
+        length = fast_size(n + 2 * min_width, radices=radices, parity=parity)
+        return cls((length - n) // 2)
 
     def __call__(
         self, a: Float[ArrayLike, "..."], *, axis: int = 0
