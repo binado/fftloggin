@@ -4,8 +4,9 @@ Install ``fftloggin[symbolic]`` to use this module. Create factories outside
 JAX transformations; binding their scalar parameters is traceable.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
@@ -24,6 +25,10 @@ from .kernels import GeneratedKernel, _loggamma
 
 __all__ = ("KernelFactory", "from_expression", "from_mellin")
 
+_SympyInput: TypeAlias = sp.Expr | int | float | complex
+_StripInput: TypeAlias = tuple[_SympyInput, _SympyInput] | list[_SympyInput] | sp.Tuple
+_FunctionMap: TypeAlias = Mapping[str, Callable[..., jax.typing.ArrayLike]]
+
 
 def _gamma(z: jax.typing.ArrayLike) -> jax.Array:
     return jnp.exp(_loggamma(jnp.asarray(z) + 0j))
@@ -33,14 +38,14 @@ def _complex_loggamma(z: jax.typing.ArrayLike) -> jax.Array:
     return _loggamma(jnp.asarray(z) + 0j)
 
 
-_FUNCTIONS = {
+_FUNCTIONS: dict[str, Callable[..., jax.typing.ArrayLike]] = {
     "gamma": _gamma,
     "loggamma": _complex_loggamma,
     "conjugate": jnp.conj,
 }
 
 
-def _log_products(expression):
+def _log_products(expression: sp.Basic) -> sp.Basic:
     """Combine integer gamma powers in each product without moving branches.
 
     Other factors stay outside exp: in particular, log(gamma(z)), fractional
@@ -49,7 +54,7 @@ def _log_products(expression):
     if not expression.args:
         return expression
     if isinstance(expression, (sp.Mul, sp.Pow)) or expression.func == sp.gamma:
-        factors = sp.Mul.make_args(expression)
+        factors = sp.Mul.make_args(cast(sp.Expr, expression))
         logs, rest = [], []
         for factor in factors:
             base, exponent = factor.as_base_exp()
@@ -58,11 +63,15 @@ def _log_products(expression):
             else:
                 rest.append(factor)
         if logs:
-            return sp.Mul(*(_log_products(a) for a in rest)) * sp.exp(sp.Add(*logs))
+            return sp.Mul(*(cast(sp.Expr, _log_products(a)) for a in rest)) * sp.exp(
+                sp.Add(*logs)
+            )
     return expression.func(*(_log_products(a) for a in expression.args))
 
 
-def _declarations(s, parameters, x=None):
+def _declarations(
+    s: sp.Symbol, parameters: tuple[sp.Symbol, ...], x: sp.Symbol | None = None
+) -> None:
     if not isinstance(s, sp.Symbol) or (x is not None and not isinstance(x, sp.Symbol)):
         raise TypeError("transform coordinates must be SymPy symbols")
     if not isinstance(parameters, tuple) or any(
@@ -78,7 +87,7 @@ def _declarations(s, parameters, x=None):
         )
 
 
-def _check(expression, allowed):
+def _check(expression: sp.Basic, allowed: tuple[sp.Symbol, ...]) -> None:
     if expression.free_symbols - set(allowed):
         raise ValueError(
             f"undeclared symbols: {expression.free_symbols - set(allowed)}"
@@ -88,7 +97,7 @@ def _check(expression, allowed):
 class _Printer(JaxPrinter):
     """Broadcast scalar and array operands instead of stacking them."""
 
-    def _fold(self, expression, function):
+    def _fold(self, expression: sp.Basic, function: str) -> str:
         function = self._module_format(function)
         parts = [self._print(arg) for arg in expression.args]
         result = parts[0]
@@ -96,20 +105,25 @@ class _Printer(JaxPrinter):
             result = f"{function}({result}, {part})"
         return result
 
-    def _print_And(self, expr):
+    def _print_And(self, expr: sp.Basic) -> str:
         return self._fold(expr, "jax.numpy.logical_and")
 
-    def _print_Or(self, expr):
+    def _print_Or(self, expr: sp.Basic) -> str:
         return self._fold(expr, "jax.numpy.logical_or")
 
-    def _print_Min(self, expr):
+    def _print_Min(self, expr: sp.Basic) -> str:
         return self._fold(expr, "jax.numpy.minimum")
 
-    def _print_Max(self, expr):
+    def _print_Max(self, expr: sp.Basic) -> str:
         return self._fold(expr, "jax.numpy.maximum")
 
 
-def _compile(expression, arguments, functions, cse):
+def _compile(
+    expression: sp.Basic | tuple[sp.Basic, ...],
+    arguments: tuple[sp.Symbol, ...],
+    functions: _FunctionMap,
+    cse: bool,
+) -> Callable[..., Any]:
     expressions = expression if isinstance(expression, tuple) else (expression,)
     for expr in expressions:
         _check(expr, arguments)
@@ -141,10 +155,10 @@ class KernelFactory:
     eagerly to check finiteness. Callers are responsible for symbolic assumptions.
     """
 
-    expression: object
-    parameters: tuple
-    strip: tuple
-    conditions: object
+    expression: sp.Basic
+    parameters: tuple[sp.Symbol, ...]
+    strip: tuple[sp.Basic, sp.Basic]
+    conditions: sp.logic.boolalg.Boolean
     _evaluate: Callable[..., jax.typing.ArrayLike] = field(repr=False)
     _bounds: Callable[..., tuple[jax.typing.ArrayLike, jax.typing.ArrayLike]] = field(
         repr=False
@@ -152,7 +166,11 @@ class KernelFactory:
     _condition: Callable[..., jax.typing.ArrayLike] = field(repr=False)
     parameter_names: tuple[str, ...] = field(repr=False)
 
-    def _bind(self, *args, **kwargs) -> GeneratedKernel:
+    def _bind(
+        self,
+        *args: jax.typing.ArrayLike,
+        **kwargs: jax.typing.ArrayLike,
+    ) -> GeneratedKernel:
         if len(args) > len(self.parameters):
             raise TypeError("too many positional parameters")
         bound = dict(zip((p.name for p in self.parameters), args))
@@ -181,16 +199,26 @@ class KernelFactory:
             self.parameter_names,
         )
 
-    def __call__(self, *args, **kwargs) -> GeneratedKernel:
+    def __call__(
+        self,
+        *args: jax.typing.ArrayLike,
+        **kwargs: jax.typing.ArrayLike,
+    ) -> GeneratedKernel:
         return self._bind(*args, **kwargs)
 
-    def check_jax(self, s: jax.typing.ArrayLike, /, *args, **kwargs) -> None:
+    def check_jax(
+        self,
+        s: jax.typing.ArrayLike,
+        /,
+        *args: jax.typing.ArrayLike,
+        **kwargs: jax.typing.ArrayLike,
+    ) -> None:
         """Eagerly exercise JIT, batching, and gradients for supplied values."""
         kernel = self._bind(*args, **kwargs)
         sample = jnp.asarray(s)
         batch = sample[None] if sample.ndim == 0 else sample
 
-        def stage(name, operation):
+        def stage(name: str, operation: Callable[[], Any]) -> None:
             try:
                 result = operation()
                 jax.tree.map(
@@ -212,7 +240,9 @@ class KernelFactory:
             ),
         )
 
-        def loss(values, z):
+        def loss(
+            values: tuple[jax.typing.ArrayLike, ...], z: jax.typing.ArrayLike
+        ) -> jax.Array:
             candidate = GeneratedKernel(
                 values,
                 kernel.evaluate,
@@ -231,7 +261,14 @@ class KernelFactory:
 
 
 def from_mellin(
-    expression, s, *, parameters=(), strip, conditions=True, cse=True, functions=None
+    expression: _SympyInput,
+    s: sp.Symbol,
+    *,
+    parameters: tuple[sp.Symbol, ...] = (),
+    strip: _StripInput,
+    conditions: bool | sp.logic.boolalg.Boolean = True,
+    cse: bool = True,
+    functions: _FunctionMap | None = None,
 ) -> KernelFactory:
     """Compile a Mellin formula and its required open convergence ``strip``.
 
@@ -240,18 +277,22 @@ def from_mellin(
     at creation. Gamma products/ratios with integer powers use log space.
     """
     _declarations(s, parameters)
-    expression = sp.sympify(expression)
-    conditions = sp.sympify(conditions)
-    if not isinstance(conditions, sp.logic.boolalg.Boolean):
+    symbolic_conditions = sp.sympify(conditions)
+    if not isinstance(symbolic_conditions, sp.logic.boolalg.Boolean):
         raise TypeError("conditions must be a symbolic Boolean expression")
     if not isinstance(strip, (tuple, list, sp.Tuple)) or len(strip) != 2:
         raise ValueError("strip must contain two endpoints")
-    strip = tuple(sp.sympify(endpoint) for endpoint in strip)
+    strip = cast(
+        tuple[sp.Expr, sp.Expr],
+        tuple(sp.sympify(endpoint) for endpoint in strip),
+    )
     if any(
         endpoint.is_real is False and endpoint not in (-sp.oo, sp.oo)
         for endpoint in strip
     ):
         raise ValueError("strip endpoints must be real")
+    symbolic_expression = sp.sympify(expression)
+    _check(symbolic_expression, (s, *parameters))
     mappings = dict(_FUNCTIONS)
     if functions is not None:
         if any(
@@ -260,15 +301,16 @@ def from_mellin(
         ):
             raise TypeError("functions must map names to JAX callables")
         mappings.update(functions)
-    _check(expression, (s, *parameters))
-    evaluate = _compile(_log_products(expression), (s, *parameters), mappings, cse)
+    evaluate = _compile(
+        _log_products(symbolic_expression), (s, *parameters), mappings, cse
+    )
     bounds = _compile(strip, parameters, mappings, cse)
-    condition = _compile(conditions, (s, *parameters), mappings, cse)
+    condition = _compile(symbolic_conditions, (s, *parameters), mappings, cse)
     return KernelFactory(
-        expression,
+        symbolic_expression,
         parameters,
         strip,
-        conditions,
+        symbolic_conditions,
         evaluate,
         bounds,
         condition,
@@ -277,7 +319,14 @@ def from_mellin(
 
 
 def from_expression(
-    expression, x, s, *, parameters=(), strip=None, cse=True, functions=None
+    expression: _SympyInput,
+    x: sp.Symbol,
+    s: sp.Symbol,
+    *,
+    parameters: tuple[sp.Symbol, ...] = (),
+    strip: _StripInput | None = None,
+    cse: bool = True,
+    functions: _FunctionMap | None = None,
 ) -> KernelFactory:
     """Compute a SymPy Mellin transform, retaining its strip and conditions.
 
@@ -286,10 +335,10 @@ def from_expression(
     Differentiate real-space expressions with ``sympy.diff`` before generation.
     """
     _declarations(s, parameters, x)
-    expression = sp.sympify(expression)
-    _check(expression, (x, *parameters))
+    symbolic_expression = sp.sympify(expression)
+    _check(symbolic_expression, (x, *parameters))
     try:
-        result = sp.mellin_transform(expression, x, s)
+        result = sp.mellin_transform(symbolic_expression, x, s)
     except IntegralTransformError as error:
         raise ValueError(
             "SymPy could not resolve the Mellin transform; use from_mellin"
