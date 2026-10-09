@@ -245,7 +245,7 @@ def test_bessel_grad_with_respect_to_argument_matches_scipy(x64):
     a = (mu + s) / 2
     b = (mu + 2 - s) / 2
     expected = _bessel_reference(mu, s) * (
-        np.log(2) + (scipy_digamma(a) + scipy_digamma(b)) / 2
+        np.log(2) + (scipy_digamma(np.asarray(a)) + scipy_digamma(np.asarray(b))) / 2
     )
     got = jax.grad(lambda x: jnp.real(BesselJKernel(mu)(x)))(s)
     assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
@@ -257,7 +257,9 @@ def test_bessel_complex_parameter_grad_matches_scipy(x64):
     a = (mu + s) / 2
     b = (mu + 2 - s) / 2
     expected = np.real(
-        _bessel_reference(mu, s) * (scipy_digamma(a) - scipy_digamma(b)) / 2
+        _bessel_reference(mu, s)
+        * (scipy_digamma(np.asarray(a)) - scipy_digamma(np.asarray(b)))
+        / 2
     )
     got = jax.grad(lambda parameter: jnp.real(BesselJKernel(parameter)(s)))(mu)
     assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)

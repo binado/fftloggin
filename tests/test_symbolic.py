@@ -188,7 +188,7 @@ class CustomKernel(Kernel):
         return jnp.asarray(-2.0), jnp.asarray(2.0)
 
     def mellin(self, s: ArrayLike) -> jax.Array:
-        return jnp.exp(-self.rate * jnp.asarray(s) ** 2)
+        return jnp.exp(-jnp.asarray(self.rate) * jnp.asarray(s) ** 2)
 
 
 def test_registered_custom_mellin_kernel(t):

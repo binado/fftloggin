@@ -37,7 +37,11 @@ def _same_coordinate(first, second):
 
 
 class _Factor:
+    name: str
     __array_priority__ = 1000
+
+    def _monomial(self) -> "_Monomial":
+        raise NotImplementedError
 
     def __mul__(self, other):
         first = self._monomial()
@@ -107,6 +111,7 @@ class _Monomial(_Factor):
 class KernelExpression(Kernel):
     """Frozen pytree kernel representing a bound real-space expression."""
 
+    name: str
     __array_priority__ = 1000
 
     def __mul__(self, other):
@@ -202,7 +207,7 @@ class _Weight(KernelExpression):
         return self.base.domain
 
     def mellin(self, s: ArrayLike) -> jax.Array:
-        return self.weight * self.base.mellin(s)
+        return jnp.asarray(self.weight) * self.base.mellin(s)
 
 
 @partial(register_dataclass, data_fields=("first", "second"), meta_fields=("name",))

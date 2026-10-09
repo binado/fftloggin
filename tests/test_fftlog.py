@@ -149,7 +149,9 @@ def test_power_law_matches_analytic_transform(x64, n):
     _, k = get_paired_grids(r=r, log_kr=log_kr)
 
     result = forward(r**gamma, kernel, dlog=dlog, bias=gamma, log_kr=log_kr)
-    expected = (2 / np.asarray(k)) ** gamma * poch((mu + 1 - gamma) / 2, gamma)
+    expected = (2 / np.asarray(k)) ** gamma * poch(
+        np.asarray((mu + 1 - gamma) / 2), np.asarray(gamma)
+    )
     assert_allclose(result, expected, rtol=1e-7, atol=1e-10)
 
 
