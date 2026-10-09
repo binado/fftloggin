@@ -173,6 +173,13 @@ transforms, integrals and derivatives fail during generation. Call
 ``factory.check_jax(sample, ...)`` to eagerly exercise JIT, batching, and
 gradients for specific values. This check does not verify numerical accuracy or
 convergence and does not guarantee compatibility for other values or shapes.
+Use ``factory.source()`` to return the generated Python source for the Mellin
+evaluator; it does not include the strip-bound or domain-condition functions.
+For example, print the returned source with:
+
+.. code-block:: python
+
+   print(factory.source())
 
 Differentiate before factory creation:
 

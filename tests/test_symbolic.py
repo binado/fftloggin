@@ -196,6 +196,16 @@ def test_constant_formulas_broadcast_and_transform(symbols, formula):
     assert_allclose(jax.jit(kernel)(jnp.array([1, 2, 3])), float(formula))
 
 
+def test_factory_source_returns_generated_evaluator():
+    s = sp.Symbol("s")
+    factory = from_mellin(sp.exp(s), s, strip=(0, 2))
+
+    source = factory.source()
+
+    assert "def _lambdifygenerated" in source
+    assert "jax.numpy.exp" in source
+
+
 def test_dynamic_binding_pytrees_grad_and_nested_vmap(x64):
     factory = bessel_factory()
     samples = jnp.array([0.8 + 0.2j, 1.0 + 0.3j])

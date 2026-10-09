@@ -6,6 +6,7 @@ JAX transformations; binding their scalar parameters is traceable.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from inspect import getsource
 from typing import Any, TypeAlias, cast
 
 import jax
@@ -199,6 +200,10 @@ class KernelFactory:
         **kwargs: jax.typing.ArrayLike,
     ) -> GeneratedKernel:
         return self._bind(*args, **kwargs)
+
+    def source(self) -> str:
+        """Return the generated Python source for the Mellin evaluator."""
+        return getsource(self._evaluate)
 
     def check_jax(
         self,
