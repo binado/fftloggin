@@ -152,7 +152,7 @@ f.validate_parameters(kernel, dlog=0.1)
 p = f.plan(kernel, 16, dlog=0.1)
 assert jax.jit(f.forward)(jnp.ones(16), p).shape == (16,)
 class Custom(f.Kernel):
-    def mellin(self, s):
+    def __call__(self, s):
         return jnp.ones_like(jnp.asarray(s))
 f.validate_parameters(Custom(), dlog=0.1)
 assert f.forward(jnp.ones(16), Custom(), dlog=0.1).shape == (16,)

@@ -555,10 +555,12 @@ def validate_parameters(
 
     Notes
     -----
-    Calls the kernel's eager parameter validation hook before grid checks.
-    This is an eager host-side helper. Do not call it inside a JAX transform.
+    Calls an optional eager kernel parameter validation hook before grid
+    checks. This is a host-side helper; do not call it inside a JAX transform.
     """
-    kernel.validate_parameters()
+    validate_kernel_parameters = getattr(kernel, "validate_parameters", None)
+    if validate_kernel_parameters is not None:
+        validate_kernel_parameters()
     for name, value in (("dlog", dlog), ("bias", bias), ("log_kr", log_kr)):
         arr = jnp.asarray(value)
         if arr.ndim != 0 or not bool(jnp.isfinite(arr)):

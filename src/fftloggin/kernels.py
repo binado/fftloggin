@@ -58,8 +58,8 @@ def _bessel_j_mellin(
 class Kernel:
     """Base interface for scalar Mellin kernels.
 
-    Implement ``mellin`` and ``domain`` in custom subclasses; the inherited
-    call operator evaluates the numerical Mellin transform.
+    Implement ``__call__`` and ``domain`` in custom subclasses to evaluate
+    the numerical Mellin transform.
     Custom kernels passed to ``jax.jit`` must also be registered as pytrees.
     """
 
@@ -69,13 +69,6 @@ class Kernel:
         return jnp.asarray(-jnp.inf), jnp.asarray(jnp.inf)
 
     def __call__(self, s: jax.typing.ArrayLike) -> jax.Array:
-        """Evaluate the numerical Mellin kernel."""
-        return self.mellin(s)
-
-    def validate_parameters(self) -> None:
-        """Validate concrete parameter values eagerly, outside JAX tracing."""
-
-    def mellin(self, s: jax.typing.ArrayLike) -> jax.Array:
         """Evaluate the Mellin kernel at ``s``."""
         raise NotImplementedError
 
@@ -99,7 +92,7 @@ class BesselJKernel(Kernel):
     def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         return -jnp.asarray(self.mu), jnp.asarray(1.5)
 
-    def mellin(self, s: jax.typing.ArrayLike) -> jax.Array:
+    def __call__(self, s: jax.typing.ArrayLike) -> jax.Array:
         return _bessel_j_mellin(self.mu, s)
 
 
@@ -117,7 +110,7 @@ class SphericalBesselJKernel(Kernel):
     def domain(self) -> tuple[Real[Array, "..."], Real[Array, "..."]]:
         return -jnp.asarray(self.ell), jnp.asarray(2.0)
 
-    def mellin(self, s: jax.typing.ArrayLike) -> jax.Array:
+    def __call__(self, s: jax.typing.ArrayLike) -> jax.Array:
         # j_ell(x) = sqrt(pi/(2x)) J_(ell+1/2)(x).
         return jnp.sqrt(jnp.pi / 2) * _bessel_j_mellin(
             self.ell + 0.5, jnp.asarray(s) - 0.5
@@ -148,7 +141,7 @@ class GeneratedKernel(Kernel):
         lower, upper = self.bounds(*self.values)
         return jnp.asarray(lower), jnp.asarray(upper)
 
-    def mellin(self, s: jax.typing.ArrayLike) -> jax.Array:
+    def __call__(self, s: jax.typing.ArrayLike) -> jax.Array:
         s = jnp.asarray(s)
         return jnp.broadcast_to(jnp.asarray(self.evaluate(s, *self.values)), s.shape)
 
