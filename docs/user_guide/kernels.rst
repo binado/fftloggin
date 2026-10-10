@@ -150,6 +150,24 @@ conditions reported by SymPy's ``mellin_transform``. Passing ``strip=`` override
 only the bounds. SymPy's inferred domain can be narrower than a conditionally
 convergent domain used by a built-in kernel.
 
+The optional ``fftloggin.symbolic`` module also exports ``t`` (a positive
+symbol), ``s`` (an unconstrained symbol), and the SymPy helpers ``besselj`` and
+``diff``. Its ``spherical_besselj(order, argument)`` helper builds the
+spherical function from ordinary Bessel J, which lets SymPy derive its Mellin
+transform:
+
+.. code-block:: python
+
+   from fftloggin.symbolic import from_expression, s, spherical_besselj, t
+
+   ell = sp.Symbol("ell", integer=True, nonnegative=True)
+   spherical = from_expression(spherical_besselj(ell, t), t, s,
+                               parameters=(ell,))
+
+For this expression, SymPy derives
+``sqrt(pi) * 2**(s - 2) * gamma((ell + s)/2) / gamma((ell + 3 - s)/2)``
+with strip ``(-ell, 2)``.
+
 For an existing Mellin formula, use ``from_mellin`` with an explicit strip:
 
 .. code-block:: python

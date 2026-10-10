@@ -17,6 +17,7 @@ from fftloggin import (
     BesselJKernel,
     DomainCheckWarning,
     Kernel,
+    SphericalBesselJKernel,
     forward,
     inverse,
     lowring_log_kr,
@@ -24,7 +25,15 @@ from fftloggin import (
     product_plan,
     validate_parameters,
 )
-from fftloggin.symbolic import from_expression, from_mellin
+from fftloggin.symbolic import (
+    besselj,
+    diff,
+    from_expression,
+    from_mellin,
+    s,
+    spherical_besselj,
+    t,
+)
 
 
 @pytest.fixture
@@ -50,6 +59,31 @@ def test_laplace_transform_and_metadata(x64, symbols, s):
     assert isinstance(kernel, Kernel)
     with pytest.raises(FrozenInstanceError):
         kernel.values = ()  # ty: ignore[invalid-assignment]
+
+
+def test_symbolic_convenience_exports():
+    assert t.is_positive is True
+    assert s.is_positive is None
+    assert besselj is sp.besselj
+    assert diff is sp.diff
+
+
+def test_spherical_besselj_expression_derives_mellin_kernel(x64):
+    ell = sp.Symbol("ell", integer=True, nonnegative=True)
+    factory = from_expression(spherical_besselj(ell, t), t, s, parameters=(ell,))
+    expected = (
+        sp.sqrt(sp.pi)
+        * 2 ** (s - 2)
+        * sp.gamma((ell + s) / 2)
+        / sp.gamma((ell + 3 - s) / 2)
+    )
+
+    assert sp.simplify(factory.expression - expected) == 0
+    assert factory.strip == (-ell, 2)
+    assert factory.conditions is sp.true
+    assert_allclose(
+        factory(0)(1.2 + 0.3j), SphericalBesselJKernel(0)(1.2 + 0.3j), rtol=1e-11
+    )
 
 
 def test_mellin_scaling_property(x64, symbols):

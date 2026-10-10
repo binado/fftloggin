@@ -24,11 +24,38 @@ except ImportError as error:
 
 from .kernels import GeneratedKernel, _loggamma
 
-__all__ = ("KernelFactory", "from_expression", "from_mellin")
+__all__ = (
+    "KernelFactory",
+    "besselj",
+    "diff",
+    "from_expression",
+    "from_mellin",
+    "s",
+    "spherical_besselj",
+    "t",
+)
 
 _SympyInput: TypeAlias = sp.Expr | int | float | complex
 _StripInput: TypeAlias = tuple[_SympyInput, _SympyInput] | list[_SympyInput] | sp.Tuple
 _FunctionMap: TypeAlias = Mapping[str, Callable[..., jax.typing.ArrayLike]]
+
+t = sp.Symbol("t", positive=True)
+s = sp.Symbol("s")
+besselj = sp.besselj
+diff = sp.diff
+
+
+def spherical_besselj(order: _SympyInput, argument: _SympyInput) -> sp.Expr:
+    """Construct spherical Bessel ``j_order(argument)`` from ``besselj``.
+
+    This equivalent expression lets SymPy's Mellin transform recognize the
+    spherical Bessel function as an ordinary Bessel-J transform.
+    """
+    order_expr = sp.sympify(order)
+    argument_expr = sp.sympify(argument)
+    return sp.sqrt(sp.pi / (2 * argument_expr)) * sp.besselj(
+        order_expr + sp.Rational(1, 2), argument_expr
+    )
 
 
 def _gamma(z: jax.typing.ArrayLike) -> jax.Array:
