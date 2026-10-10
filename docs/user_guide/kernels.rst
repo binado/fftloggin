@@ -113,75 +113,115 @@ The spherical Bessel kernel follows from the identity Hamilton quotes in
 three-dimensional Fourier transforms of isotropic functions, such as the
 power spectrum multipoles in :doc:`tutorial`.
 
-Transforming kernels
---------------------
+Optional SymPy generation
+-------------------------
 
-A :class:`~fftloggin.kernels.Transform` is a linear operation on a kernel.
-``kernel.transform(op)`` returns a
-:class:`~fftloggin.kernels.TransformedKernel`, itself a kernel, that works
-anywhere a kernel does.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 35 35
-
-   * - Transform
-     - Kernel
-     - Strip in :math:`s`
-   * - ``PowerLaw(nu)``
-     - :math:`t^{\nu} K(t)`
-     - base strip shifted by :math:`-\nu`
-   * - ``Derivative(n)``
-     - :math:`K^{(n)}(t)`
-     - base strip shifted by :math:`+n`
-   * - ``Scale(c)``
-     - :math:`K(c\,t)`, :math:`c > 0`
-     - base strip
-
-They use the standard Mellin rules:
-
-.. math::
-
-   \mathcal{M}\!\left[t^{\nu} K\right](s) = \mathcal{M}[K](s + \nu),
-
-.. math::
-
-   \mathcal{M}\!\left[K^{(n)}\right](s)
-   = (-1)^n (s - 1)(s - 2)\cdots(s - n)\; \mathcal{M}[K](s - n),
-
-.. math::
-
-   \mathcal{M}\!\left[K(c\,\cdot)\right](s) = c^{-s}\, \mathcal{M}[K](s).
-
-``PowerLaw`` absorbs a power of :math:`kr` into the kernel, which is
-useful when an integrand carries a factor such as :math:`(kr)^2`.
-``Derivative`` gives the transform with :math:`K'(kr)` in place of
-:math:`K(kr)`, which appears when differentiating a transform with respect
-to :math:`k` or :math:`r`. ``Scale`` evaluates the kernel at a rescaled
-argument, which is equivalent to shifting the output grid by
-:math:`\ln c` and dividing by :math:`c`.
-
-Several transforms apply in pipeline order: ``kernel.transform(a, b)`` equals
-``kernel.transform(a).transform(b)``. Transforms do not commute in general:
+Install ``fftloggin[symbolic]`` to generate reusable numerical kernels from
+ordinary SymPy expressions. Built-in kernels and custom ``Kernel`` subclasses
+work without SymPy. Generation performs symbolic work and lambdification once,
+outside JAX tracing:
 
 .. code-block:: python
 
-   from fftloggin import BesselJKernel, Derivative, PowerLaw
+   import jax
+   import sympy as sp
+   from fftloggin.symbolic import from_expression
 
-   j = BesselJKernel(1.0)
-   j.transform(PowerLaw(2), Derivative(1))  # d/dt [t**2 J_1(t)]
-   j.transform(Derivative(1), PowerLaw(2))  # t**2 J_1'(t)
+   x = sp.Symbol("x", positive=True)
+   s = sp.Symbol("s")
+   rate = sp.Symbol("rate", positive=True)
+   factory = from_expression(sp.exp(-rate * x), x, s, parameters=(rate,))
+   kernel = factory(rate=2.0)
+   evaluate = jax.jit(lambda rate, s: factory(rate=rate)(s))
 
-The result is a ``TransformedKernel``, not a ``BesselJKernel``: it keeps the
-original kernel in ``.base`` and the transform in ``.op``. Transforms are
-frozen JAX pytrees, and ``PowerLaw.nu`` is a data field, so it can be
-batched with ``jax.vmap`` and differentiated with ``jax.grad``.
+Every parameter must be declared in an ordered tuple of distinct symbols and
+bound positionally or by symbol name. There are no implicit defaults. Binding
+accepts numeric scalars, including traced values. Generated kernels are frozen
+JAX pytrees; their scalar parameter values can be differentiated and batched.
+Call ``kernel.validate_parameters()`` or the standalone ``validate_parameters``
+outside tracing to check that parameters are finite. Symbolic assumptions such
+as positivity are metadata for SymPy and are not enforced at runtime; callers
+must supply values that satisfy them. Auxiliary convergence conditions are
+checked by ``is_in_domain``.
 
-A custom transform subclasses :class:`~fftloggin.kernels.Transform`: its
-``__call__(kernel, s)`` returns the transformed Mellin transform using
-``kernel`` evaluated at any arguments it needs, and ``domain(lower, upper)``
-maps the base strip. Register it as a pytree, as in the custom kernel
-example below.
+The factory exposes ``expression`` (the Mellin formula), ``parameters``,
+``strip`` and ``conditions``. ``from_expression`` retains the strip and
+conditions reported by SymPy's ``mellin_transform``. Passing ``strip=`` overrides
+only the bounds. SymPy's inferred domain can be narrower than a conditionally
+convergent domain used by a built-in kernel.
+
+The optional ``fftloggin.symbolic`` module also exports ``t`` (a positive
+symbol), ``s`` (an unconstrained symbol), and the SymPy helpers ``besselj`` and
+``diff``. Its ``spherical_besselj(order, argument)`` helper builds the
+spherical function from ordinary Bessel J, which lets SymPy derive its Mellin
+transform:
+
+.. code-block:: python
+
+   from fftloggin.symbolic import from_expression, s, spherical_besselj, t
+
+   ell = sp.Symbol("ell", integer=True, nonnegative=True)
+   spherical = from_expression(spherical_besselj(ell, t), t, s,
+                               parameters=(ell,))
+
+For this expression, SymPy derives
+``sqrt(pi) * 2**(s - 2) * gamma((ell + s)/2) / gamma((ell + 3 - s)/2)``
+with strip ``(-ell, 2)``.
+
+For an existing Mellin formula, use ``from_mellin`` with an explicit strip:
+
+.. code-block:: python
+
+   from fftloggin.symbolic import from_mellin
+
+   mu = sp.Symbol("mu", real=True)
+   scale = sp.Symbol("scale", positive=True)
+   formula = scale**(-s) * 2**(s-1) * sp.gamma((mu+s)/2) / sp.gamma((mu+2-s)/2)
+   bessel = from_mellin(formula, s, parameters=(mu, scale), strip=(-mu, sp.Rational(3, 2)))
+   kernel = bessel(mu=0.5, scale=1.7)
+
+Gamma products and ratios with integer powers are evaluated in combined log
+space using differentiable complex log-gamma. Branch-sensitive logarithms and
+fractional powers are preserved. Common subexpression elimination is enabled
+by default; pass ``cse=False`` to disable it. ``functions={"name": jax_callable}``
+adds numerical implementations for symbolic function names. SymPy's JAX backend
+handles standard operations; custom callables must support the JAX
+transformations used by the caller. Undeclared symbols and unresolved
+transforms, integrals and derivatives fail during generation. Call
+``factory.check_jax(sample, ...)`` to eagerly exercise JIT, batching, and
+gradients for specific values. This check does not verify numerical accuracy or
+convergence and does not guarantee compatibility for other values or shapes.
+Use ``factory.source()`` to return the generated Python source for the Mellin
+evaluator; it does not include the strip-bound or domain-condition functions.
+For example, print the returned source with:
+
+.. code-block:: python
+
+   print(factory.source())
+
+Differentiate before factory creation:
+
+.. code-block:: python
+
+   derivative = from_expression(sp.diff(x**2 * sp.exp(-rate*x), x, 2),
+                                x, s, parameters=(rate,))
+   kernel = derivative(rate=2.0)
+
+Migration from expression composition
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``Coordinate``, ``KernelExpression``, the custom ``diff`` and symbolic binding
+through ``Kernel.__call__`` have been removed. Calling a numerical kernel now
+always evaluates its Mellin transform. Imports of generation helpers come
+from ``fftloggin.symbolic`` only.
+
+Replace coordinate objects with ``sp.Symbol("x", positive=True)`` and express
+the real-space kernel with SymPy, for example ``sp.besselj(mu, x)``. Replace
+``diff(expr, x, order=n)`` with ``sp.diff(expr, x, n)``. Generate a factory with
+``from_expression`` outside tracing, then bind numerical parameter values
+inside or outside JAX transformations. Use ``from_mellin`` when an explicit
+formula or convergence strip is required. The older ``Transform`` and
+``Kernel.transform`` APIs also remain removed.
 
 Writing a custom kernel
 -----------------------
@@ -205,7 +245,9 @@ JAX pytree with its numeric parameters as data fields:
    from dataclasses import dataclass
    from functools import partial
 
+   import jax
    import jax.numpy as jnp
+   from jax.typing import ArrayLike
    from jax.scipy.special import loggamma
    from jax.tree_util import register_dataclass
 
@@ -217,13 +259,13 @@ JAX pytree with its numeric parameters as data fields:
    class LaplaceKernel(Kernel):
        """Kernel K(t) = exp(-rate * t), with Mellin transform rate**-s Gamma(s)."""
 
-       rate: float
+       rate: ArrayLike
 
        @property
        def domain(self):
            return jnp.asarray(0.0), jnp.asarray(jnp.inf)
 
-       def __call__(self, s):
+        def __call__(self, s: ArrayLike) -> jax.Array:
            s = jnp.asarray(s)
            return jnp.exp(loggamma(s) - s * jnp.log(self.rate))
 

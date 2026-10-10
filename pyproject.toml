@@ -35,6 +35,9 @@ dependencies = [
     "jaxtyping",
 ]
 
+[project.optional-dependencies]
+symbolic = ["sympy>=1.14"]
+
 [project.urls]
 Homepage = "https://github.com/binado/fftloggin"
 Repository = "https://github.com/binado/fftloggin.git"
@@ -54,6 +57,7 @@ dev = [
     { include-group = "test" },
 ]
 test = [
+    "sympy>=1.14",
     "numpy>=2.4.6",
     "scipy>=1.17.1",
     "pytest>=9.1.1",
@@ -67,6 +71,7 @@ tutorial = [
     "scipy>=1.17.1",
 ]
 docs = [
+    "sympy>=1.14",
     "camb>=1.6.4",
     "matplotlib>=3.11.2",
     "numpy>=2.4.6",

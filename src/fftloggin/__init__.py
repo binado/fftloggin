@@ -21,6 +21,7 @@ if _os.environ.get("FFTLOGGIN_RUNTIME_TYPECHECK") == "1":
             "fftloggin.fftlog",
             "fftloggin.grids",
             "fftloggin.kernels",
+            "fftloggin.symbolic",
         ],
         "beartype.beartype",
     )
@@ -48,28 +49,18 @@ with _typecheck_import_context:
     )
     from .kernels import (
         BesselJKernel,
-        Derivative,
         Kernel,
-        PowerLaw,
-        Scale,
         SphericalBesselJKernel,
-        Transform,
-        TransformedKernel,
     )
 
 __all__ = (
     "ArgumentOutOfDomainError",
     "BesselJKernel",
-    "Derivative",
     "DomainCheckWarning",
     "Kernel",
     "Padding",
     "Plan",
-    "PowerLaw",
-    "Scale",
     "SphericalBesselJKernel",
-    "Transform",
-    "TransformedKernel",
     "cosmology",
     "fast_size",
     "forward",

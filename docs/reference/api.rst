@@ -32,3 +32,9 @@ Exceptions and warnings
 
 .. automodule:: fftloggin.exceptions
    :members:
+
+Optional SymPy kernel generation
+--------------------------------
+
+.. automodule:: fftloggin.symbolic
+   :members:
