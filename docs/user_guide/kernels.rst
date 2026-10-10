@@ -237,7 +237,7 @@ only Bessel functions. As an example, the Laplace kernel
 so ``forward`` computes :math:`\tilde{A}(k) = k \int_0^\infty e^{-a k r}
 A(r)\, dr`, a scaled Laplace transform. To implement it, subclass
 :class:`~fftloggin.kernels.Kernel`, return the Mellin transform from
-``mellin``, report the strip from ``domain``, and register the class as a
+``__call__``, report the strip from ``domain``, and register the class as a
 JAX pytree with its numeric parameters as data fields:
 
 .. code-block:: python
@@ -265,7 +265,7 @@ JAX pytree with its numeric parameters as data fields:
        def domain(self):
            return jnp.asarray(0.0), jnp.asarray(jnp.inf)
 
-       def mellin(self, s: ArrayLike) -> jax.Array:
+        def __call__(self, s: ArrayLike) -> jax.Array:
            s = jnp.asarray(s)
            return jnp.exp(loggamma(s) - s * jnp.log(self.rate))
 
@@ -300,6 +300,6 @@ API
 
 .. autoclass:: fftloggin.kernels.Kernel
    :no-index:
-   :members: domain, mellin, __call__, is_in_domain, validate_parameters
+   :members: domain, __call__, is_in_domain
 
 The built-in kernels are listed in the :doc:`API reference </reference/api>`.

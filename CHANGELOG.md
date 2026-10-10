@@ -7,7 +7,7 @@
   Install `fftloggin[symbolic]` and use ordinary SymPy expressions. Symbolic
   generation is eager; scalar numerical parameter binding is traceable.
 - Remove symbolic binding from `Kernel.__call__`; custom kernels implement
-  `mellin(s)` and may override the eager `validate_parameters()` hook.
+  `__call__(s)` to evaluate the numerical Mellin transform.
 - The older `Transform`, `TransformedKernel`, `PowerLaw`, `Derivative`, `Scale`,
   and `Kernel.transform` APIs remain removed.
 
