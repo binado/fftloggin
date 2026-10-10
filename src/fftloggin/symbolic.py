@@ -59,11 +59,11 @@ def spherical_besselj(order: _SympyInput, argument: _SympyInput) -> sp.Expr:
 
 
 def _gamma(z: jax.typing.ArrayLike) -> jax.Array:
-    return jnp.exp(_loggamma(jnp.asarray(z) + 0j))
+    return jnp.exp(_loggamma(jnp.asarray(z)))
 
 
 def _complex_loggamma(z: jax.typing.ArrayLike) -> jax.Array:
-    return _loggamma(jnp.asarray(z) + 0j)
+    return _loggamma(jnp.asarray(z))
 
 
 _FUNCTIONS: dict[str, Callable[..., jax.typing.ArrayLike]] = {

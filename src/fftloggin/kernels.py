@@ -36,12 +36,13 @@ def _complex_digamma(z: Inexact[Array, "..."]) -> Inexact[Array, "..."]:
 
 @jax.custom_jvp
 def _loggamma(z: Inexact[Array, "..."]) -> Inexact[Array, "..."]:
-    return _jax_loggamma(z)
+    return _jax_loggamma(jnp.asarray(z) + 0j)
 
 
 @_loggamma.defjvp
 def _loggamma_jvp(primals, tangents):
     (z,), (tangent,) = primals, tangents
+    z = jnp.asarray(z) + 0j
     return _loggamma(z), _complex_digamma(z) * tangent
 
 
