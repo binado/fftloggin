@@ -83,6 +83,7 @@ def test_kernel_values_match_scipy(x64, kind, parameter, s):
         expected = _spherical_reference(parameter, s)
 
     assert got.shape == np.asarray(s).shape
+    assert jnp.iscomplexobj(got)
     assert_allclose(got, expected, rtol=VALUE_RTOL, atol=VALUE_ATOL)
 
 
@@ -288,24 +289,32 @@ def test_derivative_base_parameter_grad_matches_scipy_difference(x64):
 
 
 @pytest.mark.parametrize("mu, s", [(0.0, 0.2), (1.0, 0.75), (10.0, 1.25)])
-def test_bessel_kernel_mu_gradient_matches_jax_digamma(mu, s):
+def test_bessel_kernel_mu_jvp_matches_jax_digamma(mu, s):
     mu = jnp.asarray(mu)
     s = jnp.asarray(s)
     first = digamma((mu + s) / 2)
     second = digamma((mu + 2 - s) / 2)
-    actual = jax.jit(jax.grad(lambda value: BesselJKernel(value)(s)))(mu)
+    _, actual = jax.jit(
+        lambda value: jax.jvp(
+            lambda parameter: BesselJKernel(parameter)(s),
+            (value,),
+            (jnp.ones_like(value),),
+        )
+    )(mu)
     expected = BesselJKernel(mu)(s) * (first - second) / 2
 
     assert jnp.allclose(actual, expected, rtol=1e-5, atol=1e-6)
 
 
 @pytest.mark.parametrize("mu, s", [(0.0, 0.2), (1.0, 0.75), (10.0, 1.25)])
-def test_bessel_kernel_s_gradient_matches_jax_digamma(mu, s):
+def test_bessel_kernel_s_jvp_matches_jax_digamma(mu, s):
     mu = jnp.asarray(mu)
     s = jnp.asarray(s)
     first = digamma((mu + s) / 2)
     second = digamma((mu + 2 - s) / 2)
-    actual = jax.jit(jax.grad(lambda value: BesselJKernel(mu)(value)))(s)
+    _, actual = jax.jit(
+        lambda value: jax.jvp(BesselJKernel(mu), (value,), (jnp.ones_like(value),))
+    )(s)
     expected = BesselJKernel(mu)(s) * (jnp.log(2) + (first + second) / 2)
 
     assert jnp.allclose(actual, expected, rtol=1e-5, atol=1e-6)
