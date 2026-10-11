@@ -7,6 +7,9 @@ vertical line in the complex plane. In ``fftloggin`` that function is a
 *kernel* object. This page explains the convention it uses, which kernels are
 built in, and how to write your own.
 
+For an introduction to Mellin transformation and its connection to the FFT
+coefficient multiplication, see :doc:`mellin`.
+
 From Hamilton's U to a kernel
 -----------------------------
 
