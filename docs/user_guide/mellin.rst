@@ -207,8 +207,11 @@ Choose :math:`c=1+q`, where :math:`q` is ``bias``. Then
    \qquad s=1+q+i\eta.
 
 This factor has the *negative* exponent of a forward FFT. The input FFT
-therefore represents :math:`\mathcal M[f;1-s]`, including spacing and origin
-factors, while the kernel supplies :math:`\mathcal M[h;s]`.
+supplies its discrete Fourier coefficients, while the kernel supplies
+:math:`\mathcal M[h;s]`. Together with the grid phases, bias weights, and
+normalized inverse FFT, the full pipeline realizes the discretized Mellin
+identity; the raw input FFT alone does not include the spacing and origin
+factors needed to approximate :math:`\mathcal M[f;1-s]`.
 ``fftloggin`` returns
 
 .. math::
@@ -232,7 +235,9 @@ coordinates to obtain :math:`I` itself.
    * - Weight the input
      - :math:`f(t)t^{-q}` selects :math:`\operatorname{Re}s=1+q`.
    * - Forward FFT
-     - Represents :math:`\mathcal M[f;1-s_m]` at :math:`s_m=1+q+i\eta_m`.
+     - Supplies discrete Fourier coefficients corresponding to
+       :math:`\mathcal M[f;1-s_m]` at :math:`s_m=1+q+i\eta_m`, with spacing
+       and origin factors accounted for by the full pipeline.
    * - Multiply coefficients
      - Supplies :math:`\mathcal M[h;s_m]` and the paired-grid origin phase.
    * - Inverse FFT and reversal
