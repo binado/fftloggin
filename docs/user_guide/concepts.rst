@@ -9,6 +9,9 @@ in parentheses refer to Hamilton (2000)**, so every formula here can be checked
 against the paper. A table at the end maps the paper's symbols to the
 arguments of ``fftloggin`` functions.
 
+For the Mellin-transform identity behind the algorithm, including FFT signs
+and normalization, start with :doc:`mellin`.
+
 The transform pair
 ------------------
 
@@ -56,8 +59,11 @@ Why logarithmic grids
 The kernel :math:`J_\mu(kr)` depends only on the product
 :math:`kr = e^{\ln k + \ln r}`. As Siegman (1977) noted, in the variables
 :math:`\ln r` and :math:`\ln k` the Hankel transform is therefore a
-*convolution*. Convolutions become products under a Fourier transform, so a
-Hankel transform can be computed as
+*convolution with a reflected input*, after including the integration
+measure in the input weight. The reflection changes the sum of logarithmic
+coordinates into the difference used in a convolution; :doc:`mellin` shows
+the substitution explicitly. Convolutions become products under a Fourier
+transform, so a Hankel transform can be computed as
 
 .. centered:: FFT → multiply by a function → FFT back.
 
@@ -146,7 +152,8 @@ Put together, the biased algorithm of Hamilton §B.4 is what
 1. **bias** the input: :math:`a_n = A_n\, r_n^{-q}` (157);
 2. **FFT** :math:`a_n` to obtain :math:`c_m` (169);
 3. **multiply** by :math:`u_m`, from (174) with the replacement (175);
-4. **FFT back** to obtain :math:`\tilde{a}_n` (177);
+4. **inverse FFT and reverse** the samples to obtain :math:`\tilde{a}_n`
+   (177), using ``fftloggin``'s centered grids;
 5. **unbias** the output: :math:`\tilde{A}_n = \tilde{a}_n\, k_n^{-q}` (157).
 
 :func:`~fftloggin.fftlog.inverse` runs the same steps but *divides* by
@@ -155,7 +162,8 @@ Put together, the biased algorithm of Hamilton §B.4 is what
 .. plot::
    :caption: The five steps of the biased FFTLog algorithm (Hamilton §B.4).
              Equation numbers refer to Hamilton (2000).
-   :alt: Flow diagram: A_n, bias, FFT, multiply by u_m, inverse FFT, unbias, tilde A_n.
+   :alt: Flow diagram: A_n, bias, FFT, multiply by u_m, IFFT + reverse,
+         unbias, tilde A_n.
 
    import matplotlib.pyplot as plt
    from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
@@ -165,7 +173,7 @@ Put together, the biased algorithm of Hamilton §B.4 is what
        (r"$\times\, r_n^{-q}$", "bias (157)"),
        ("FFT", r"$c_m$ (169)"),
        (r"$\times\, u_m$", "(174), (175)"),
-       (r"FFT$^{-1}$", r"$\tilde a_n$ (177)"),
+       ("IFFT\n+ reverse", r"$\tilde a_n$ (177)"),
        (r"$\times\, k_n^{-q}$", "unbias (157)"),
        (r"$\tilde A_n$", "output"),
    ]
@@ -178,7 +186,8 @@ Put together, the biased algorithm of Hamilton §B.4 is what
            (x, 0), width, 0.8, boxstyle="round,pad=0.05",
            facecolor="white", edgecolor=edge, linewidth=1.5,
        ))
-       ax.text(x + width / 2, 0.4, label, ha="center", va="center", fontsize=13)
+       ax.text(x + width / 2, 0.4, label, ha="center", va="center",
+               fontsize=10 if i == 4 else 13)
        ax.text(x + width / 2, -0.35, note, ha="center", va="center", fontsize=9,
                color="0.3")
        if i:

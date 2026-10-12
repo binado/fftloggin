@@ -1,10 +1,13 @@
 User guide
 ==========
 
-The first page explains the FFTLog algorithm, following Hamilton (2000); the
-next three show how ``fftloggin`` exposes each part of it. The tutorial puts
-everything together on a real cosmology problem.
+Start with the Mellin-transform interpretation of FFTLog, then follow
+Hamilton's presentation of the algorithm. The remaining guides explain how
+``fftloggin`` exposes each part of it, and the tutorials put everything
+together on real cosmology problems.
 
+- :doc:`mellin`: the Mellin transform, its computation with FFTs, and the
+  kernel-integral identity behind FFTLog.
 - :doc:`concepts`: the transform pair, the algorithm, the bias, and low
   ringing.
 - :doc:`grids`: how input and output grids are paired, and how to choose
@@ -24,6 +27,7 @@ everything together on a real cosmology problem.
    :maxdepth: 1
    :hidden:
 
+   mellin
    concepts
    grids
    kernels
