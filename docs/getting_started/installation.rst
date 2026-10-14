@@ -42,3 +42,16 @@ with Sphinx from the ``docs`` dependency group:
 
    $ uv sync --group docs
    $ just docs build
+
+Optional symbolic kernels
+-------------------------
+
+For SymPy kernel generation, install the optional extra:
+
+.. code-block:: bash
+
+   uv add "fftloggin[symbolic]"
+   # or: pip install "fftloggin[symbolic]"
+
+This adds ``sympy>=1.14``. Core transforms, built-in kernels and numerical
+``Kernel`` subclasses work without it. See :doc:`../user_guide/kernels`.

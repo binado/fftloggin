@@ -123,6 +123,28 @@ in Hamilton's :math:`U_\mu` (172). ``fftloggin`` gives the log-Gamma function
 a custom derivative (the digamma function), because JAX's own ``loggamma``
 cannot be reverse-differentiated at complex arguments.
 
+.. note::
+
+   The built-in Bessel kernels return complex values even for real Mellin
+   arguments. Gamma functions in generated symbolic kernels also use complex
+   arithmetic. By default, ``jax.grad`` requires a real scalar output;
+   complex inputs and intermediate values are supported. For a real loss,
+   choose the desired real quantity explicitly, for example
+   ``jax.grad(lambda mu: jnp.real(BesselJKernel(mu)(0.8)))(0.5)``.
+
+   To retain both components of a kernel derivative with respect to a real
+   parameter, use ``jax.jvp`` with a unit tangent:
+
+   .. code-block:: python
+
+      evaluate = lambda mu: BesselJKernel(mu)(0.8 + 0.3j)
+      value, derivative = jax.jvp(evaluate, (0.5,), (1.0,))
+
+   For a holomorphic function with complex inputs and a complex scalar
+   output, ``jax.grad(..., holomorphic=True)`` is another option. Both the
+   differentiated inputs and the output must have complex dtype, and the
+   function must be holomorphic where evaluated.
+
 Choosing log_kr outside the gradient
 ------------------------------------
 

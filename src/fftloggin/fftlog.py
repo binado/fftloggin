@@ -275,9 +275,17 @@ def product_plan(
 
     Band of ``chi * integral(a(k) * j_ell(k*chi) * j_ell''(k*chi'), k)``::
 
+        import sympy as sp
+        from fftloggin import SphericalBesselJKernel, plan, product_plan
+        from fftloggin.symbolic import from_mellin
+
         j = SphericalBesselJKernel(ell)
         p1 = plan(j, n, dlog=dlog, bias=-0.25)
-        p2 = plan(j.transform(Derivative(2)), n, dlog=dlog, bias=-0.25)
+        s = sp.Symbol("s")
+        z = s - 2
+        mellin_formula = sp.sqrt(sp.pi) * 2**(z-2) * sp.gamma((ell+z)/2) / sp.gamma((ell+3-z)/2)
+        derivative = from_mellin((s-1)*(s-2)*mellin_formula, s, strip=(2-ell, 4))()
+        p2 = plan(derivative, n, dlog=dlog, bias=1.5)
         band = forward(a, product_plan(p1, p2, max_offset=m))
     """
     if max_offset < 0:
@@ -547,8 +555,12 @@ def validate_parameters(
 
     Notes
     -----
-    This is an eager host-side helper. Do not call it inside a JAX transform.
+    Calls an optional eager kernel parameter validation hook before grid
+    checks. This is a host-side helper; do not call it inside a JAX transform.
     """
+    validate_kernel_parameters = getattr(kernel, "validate_parameters", None)
+    if validate_kernel_parameters is not None:
+        validate_kernel_parameters()
     for name, value in (("dlog", dlog), ("bias", bias), ("log_kr", log_kr)):
         arr = jnp.asarray(value)
         if arr.ndim != 0 or not bool(jnp.isfinite(arr)):
