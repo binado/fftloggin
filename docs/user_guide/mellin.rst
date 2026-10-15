@@ -157,6 +157,107 @@ Consequently an unnormalized forward FFT followed by a normalized inverse
 FFT already supplies this factor. No additional :math:`1/(2\pi i)` needs
 to appear in FFTLog's coefficient multiplication.
 
+Discrete Mellin API
+-------------------
+
+The :mod:`fftloggin.mellin` module exposes discrete Mellin analysis and
+reconstruction independently of a kernel:
+
+.. code-block:: python
+
+   import jax.numpy as jnp
+   from fftloggin import mellin
+
+   n, dlog, c = 128, 0.1, 0.3
+   t = jnp.exp(-6.0 + dlog * jnp.arange(n))
+   samples = jnp.exp(-t)
+   coefficients = mellin.mellin(samples, dlog=dlog, c=c)
+   recovered = mellin.imellin(coefficients, dlog=dlog, c=c)
+   eta = mellin.mellinfreq(n, dlog)
+   s = c + 1j * eta
+
+These functions return **discrete coefficients**, without quadrature or
+absolute-origin factors. The weight uses coordinates relative to the first
+sample, :math:`u_j=\ln(t_j/t_0)=j\Delta x`. With default normalization,
+
+.. math::
+
+   C_m=\sum_{j=0}^{N-1}f(t_j)e^{cu_j}e^{+2\pi i jm/N},
+   \qquad
+   f(t_j)=e^{-cu_j}\frac1N\sum_m C_m e^{-2\pi i jm/N}.
+
+Thus :math:`C_m/N` are the coefficients of the power-law modes
+:math:`(t/t_0)^{-c-i\eta_m}`. Forward Mellin analysis has a positive
+exponent, unlike a forward FFT. At ``c=0``, ``mellin`` is therefore
+``n * ifft`` and ``imellin`` is ``fft / n``, under default normalization.
+
+The contour parameter ``c`` is real. To approximate the conventional Mellin
+integral at :math:`s_m=c+i\eta_m`, restore the spacing and origin:
+
+.. math::
+
+   \mathcal M[f;s_m]\approx\Delta x\,t_0^{s_m}C_m.
+
+.. code-block:: python
+
+   continuous_values = dlog * jnp.exp(s * jnp.log(t[0])) * coefficients
+
+This conversion applies to the default normalization. It approximates the
+continuous integral only when the finite grid adequately samples the
+weighted input and captures its tails. Discrete reconstruction does not
+establish continuous-integral accuracy or convergence.
+
+Array and normalization conventions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All four transforms accept ``(a, n=None, axis=-1, norm=None, *, dlog=1.0,
+c=0.0)``. They transform the last axis by default and preserve all other
+batch dimensions. Forward ``n`` crops or zero-pads the samples before
+weighting; inverse ``n`` crops or pads the spectrum using the corresponding
+FFT convention. Changing ``n`` changes the logarithmic period and frequency
+spacing while retaining the first sample's relative coordinate.
+
+``norm=None`` and ``"backward"`` leave forward analysis unscaled and apply
+:math:`1/N` in reconstruction. ``"forward"`` instead scales analysis by
+:math:`1/N` and leaves reconstruction unscaled. ``"ortho"`` scales both by
+:math:`1/\sqrt N`. Analysis and reconstruction must use the same ``c``,
+``dlog`` and normalization.
+
+``mellinfreq`` returns signed **angular** logarithmic frequencies in FFT
+order, so its values contain a factor of :math:`2\pi` compared with FFT
+frequencies measured in cycles. For even lengths the full spectrum labels
+Nyquist with a negative frequency; ``rmellinfreq`` labels it positive.
+
+Real samples
+~~~~~~~~~~~~
+
+For real samples and real ``c``, the weighted array is real and
+:math:`C(-\eta)=\overline{C(\eta)}`. ``rmellin`` stores only the
+:math:`N//2+1` nonnegative-frequency coefficients; ``irmellin`` reconstructs
+real samples from that half spectrum:
+
+.. code-block:: python
+
+   half = mellin.rmellin(samples, dlog=dlog, c=c)
+   eta_half = mellin.rmellinfreq(n, dlog)
+   recovered_real = mellin.irmellin(half, n=n, dlog=dlog, c=c)
+
+``rmellin`` rejects complex samples. DC, and Nyquist for even lengths, are
+real. As with ``irfft``, ``irmellin`` ignores imaginary parts at these
+self-conjugate modes. If ``n`` is omitted, ``irmellin`` assumes the even
+length ``2 * (len(half) - 1)``; pass the original ``n`` to recover an odd
+length, including length one.
+
+JAX transformations
+~~~~~~~~~~~~~~~~~~~
+
+The transforms support ``jax.jit``, ``jax.vmap`` and differentiation through
+samples, ``c`` and ``dlog``. The latter two are real scalars; ``dlog`` is
+assumed positive. No value-dependent convergence checks run inside the
+transforms. ``n``, ``axis`` and ``norm`` are structural and must be static
+when compiling. The sample count is inferred from the input shape when
+``n`` is omitted. JAX's precision configuration is left unchanged.
+
 Hankel transforms and FFTLog
 -----------------------------
 
@@ -270,6 +371,16 @@ the real samples :math:`f(t_j)`, and ``kernel(s)`` evaluates
        coefficients = coefficients.at[-1].set(jnp.real(coefficients[-1]))
    reconstructed = jnp.fft.irfft(a_tilde * coefficients, n=n)[::-1]
    result = reconstructed * weight * jnp.exp(-q * log_kr)
+
+The implementation uses ``rmellin`` and ``irmellin`` for this spectral
+pair, retaining the centered weights shown above. With ``R`` the
+positive-exponent ``rmellin(a * weight)`` at ``c=0``, the reconstruction is
+``irmellin(R * conj(coefficients), n=n)[::-1]``. Conjugating the kernel
+multiplier accounts for the reflected Mellin argument. Keeping the bias
+weights centered avoids large absolute-origin factors that would cancel.
+Plans retain their kernel values, grid phase, and Nyquist adjustment.
+FFTLog's inverse divides by the kernel operator; inverse Mellin
+transformation instead reconstructs samples from coefficients.
 
 Using :math:`(t_j/t_0)^{-q}` in the input weight removes a constant
 :math:`t_0^{-q}`. The output factor :math:`e^{-q\kappa}` accounts for it

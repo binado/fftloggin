@@ -81,3 +81,29 @@ assert float(shift_upper) == 0.5
 """,
         runtime_checking="1",
     )
+
+
+def test_mellin_runtime_checks_and_jax_transforms():
+    _run_python(
+        """
+import jax
+import jax.numpy as jnp
+from jaxtyping import TypeCheckError
+from fftloggin import mellin
+
+samples = jnp.linspace(0.2, 1.0, 8)
+for transform in (mellin.mellin, mellin.imellin, mellin.rmellin, mellin.irmellin):
+    try:
+        transform(samples, c=jnp.array([0.1, 0.2]))
+    except TypeCheckError as error:
+        assert "c" in str(error)
+    else:
+        raise AssertionError("vector c was not rejected by runtime checking")
+    evaluate = lambda c: transform(samples, n=8, c=c, dlog=0.1)
+    result = jax.jit(jax.vmap(evaluate))(jnp.array([0.1, 0.2]))
+    assert result.shape[0] == 2
+    gradient = jax.grad(lambda c: jnp.sum(jnp.abs(evaluate(c))**2))(0.2)
+    assert bool(jnp.isfinite(gradient))
+""",
+        runtime_checking="1",
+    )

@@ -10,6 +10,7 @@ from jaxtyping import Array, ArrayLike, Complex, Float
 
 from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
 from .kernels import Kernel
+from .mellin import irmellin, rmellin, rmellinfreq
 
 __all__ = (
     "Plan",
@@ -40,8 +41,7 @@ def _coefficients(
     bias: Float[ArrayLike, ""],
     log_kr: Float[ArrayLike, ""],
 ) -> Complex[Array, "m"]:
-    m = jnp.arange(n // 2 + 1)
-    angle = 2j * jnp.pi * m / (n * dlog)
+    angle = 1j * rmellinfreq(n, dlog)
     coeffs = kernel(1 + bias + angle) * jnp.exp(-angle * log_kr)
     if n % 2 == 0:
         coeffs = coeffs.at[-1].set(jnp.real(coeffs[-1]))
@@ -68,8 +68,9 @@ def _apply_coefficients(
     n = a.shape[0]
     trailing = (1,) * (coeffs.ndim - 1)
     before = _power_law(n, dlog, bias, -1)
-    spectrum = jnp.fft.rfft(a * before).reshape((-1, *trailing))
-    result = jnp.fft.irfft(spectrum * coeffs, n=n, axis=0)[::-1]
+    # Mellin analysis has the opposite sign to the kernel coefficient convention.
+    spectrum = rmellin(a * before).reshape((-1, *trailing))
+    result = irmellin(spectrum * jnp.conj(coeffs), n=n, axis=0)[::-1]
     before = before.reshape((n, *trailing))
     return result * before * jnp.exp(-jnp.asarray(bias) * log_kr)
 
@@ -83,8 +84,8 @@ def _invert_coefficients(
 ) -> Float[Array, "n"]:
     n = A.shape[0]
     power = _power_law(n, dlog, bias, 1)
-    spectrum = jnp.fft.rfft(A * power * jnp.exp(bias * log_kr))
-    result = jnp.fft.irfft(spectrum / jnp.conj(coeffs), n=n)[::-1]
+    spectrum = rmellin(A * power * jnp.exp(bias * log_kr))
+    result = irmellin(spectrum / coeffs, n=n)[::-1]
     return result * power
 
 

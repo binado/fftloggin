@@ -21,12 +21,13 @@ if _os.environ.get("FFTLOGGIN_RUNTIME_TYPECHECK") == "1":
             "fftloggin.fftlog",
             "fftloggin.grids",
             "fftloggin.kernels",
+            "fftloggin.mellin",
         ],
         "beartype.beartype",
     )
 
 with _typecheck_import_context:
-    from . import cosmology, kernels
+    from . import cosmology, kernels, mellin
     from .exceptions import ArgumentOutOfDomainError, DomainCheckWarning
     from .fftlog import (
         Plan,
@@ -80,6 +81,7 @@ __all__ = (
     "inverse",
     "kernels",
     "lowring_log_kr",
+    "mellin",
     "plan",
     "product_plan",
     "taper",
