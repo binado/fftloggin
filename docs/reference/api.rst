@@ -3,8 +3,14 @@ Public API
 
 The following reference is generated from the package's public modules.
 
-Transform functions
--------------------
+Discrete Mellin transforms
+--------------------------
+
+.. automodule:: fftloggin.mellin
+   :members:
+
+FFTLog transform functions
+--------------------------
 
 .. automodule:: fftloggin.fftlog
    :members:
